@@ -110,6 +110,10 @@ tests/                  # Python 与桥接契约测试
 
 ```powershell
 uv sync
+cd frontend
+npm install
+npm run build
+cd ..
 uv run python main.py
 ```
 
@@ -121,6 +125,11 @@ uv run ruff check .
 
 # 运行测试
 uv run pytest
+
+# 检查并构建本地前端资源
+cd frontend
+npm run check
+npm run build
 ```
 
 修改桥接 API 后，请同时验证：正常调用、非法参数、Python 异常回传，以及长任务状态推送。新增界面时，优先复用 Ant Design 和 Ant Design X 组件，并确保图表容器有明确尺寸。

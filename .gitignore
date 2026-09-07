@@ -3,6 +3,19 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Python environments and uv
+.venv/
+.python-version
+
+# Node / Vite frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.tsbuildinfo.*
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
 # C extensions
 *.so
 

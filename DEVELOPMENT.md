@@ -4,6 +4,10 @@ This project uses `uv` to manage its environment and dependencies.
 
 ```powershell
 uv sync
+Set-Location frontend
+npm install
+npm run build
+Set-Location ..
 uv run python main.py
 ```
 
