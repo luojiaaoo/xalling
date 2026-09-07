@@ -6,15 +6,23 @@
 
 * { box-sizing: border-box; }
 
-body { margin: 0; min-width: 1040px; min-height: 100vh; }
+body { margin: 0; min-width: 1050px; min-height: 100vh; }
 
 button, textarea { font: inherit; }
 
-.app-shell { display: flex; min-height: 100vh; background: #f7f7fb; }
+.desktop-app { height: 100vh; overflow: hidden; }
+.title-bar { position: absolute; z-index: 5; top: 0; right: 0; left: 0; display: flex; height: 42px; align-items: center; justify-content: space-between; pointer-events: none; }
+.title-bar-drag { align-self: stretch; flex: 1; pointer-events: auto; }
+.window-controls { display: flex; align-self: stretch; pointer-events: auto; }
+.window-controls .ant-btn { width: 46px; height: 42px; color: #6f7080; border-radius: 0; }
+.window-controls .ant-btn:hover { color: #4e3eea; background: #efedff; }
+.window-controls .close-window-button:hover { color: #fff; background: #e05252; }
+
+.app-shell { display: flex; height: 100%; background: #f7f7fb; }
 
 .sidebar {
   display: flex; flex: 0 0 272px; flex-direction: column; justify-content: space-between;
-  min-height: 100vh; padding: 18px 12px 16px; background: rgba(255, 255, 255, .88);
+  min-height: 0; padding: 18px 12px 16px; background: rgba(255, 255, 255, .88);
   border-right: 1px solid #e8e8f0;
 }
 
@@ -46,7 +54,7 @@ button, textarea { font: inherit; }
 .profile-avatar { color: #fff !important; background: linear-gradient(140deg, #ffb779, #e87868) !important; }
 .profile-row .ant-btn { margin-left: auto; color: #878894; }
 
-.workspace { position: relative; display: grid; flex: 1; min-height: 100vh; overflow: hidden; place-items: center; background: radial-gradient(circle at 50% 24%, #ffffff 0, #faf9ff 31%, #f5f4fa 76%); }
+.workspace { position: relative; display: grid; flex: 1; min-height: 0; overflow: hidden; place-items: center; background: radial-gradient(circle at 50% 24%, #ffffff 0, #faf9ff 31%, #f5f4fa 76%); }
 .watermark { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); color: transparent; font-size: clamp(260px, 33vw, 500px); line-height: .86; font-weight: 800; letter-spacing: -.14em; -webkit-text-stroke: 1px rgba(104, 91, 244, .075); user-select: none; }
 .workspace-content { position: relative; z-index: 1; width: min(680px, calc(100vw - 360px)); margin-top: -48px; text-align: center; }
 .eyebrow { margin-bottom: 15px; color: #8a83c9; font-size: 11px; font-weight: 700; letter-spacing: .15em; }

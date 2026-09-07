@@ -19,9 +19,11 @@ const theme = {
 export default function App() {
   return (
     <ConfigProvider theme={theme}>
-      <div className="app-shell">
-        <Sidebar />
-        <Workspace />
+      <div className="desktop-app">
+        <div className="app-shell">
+          <Sidebar />
+          <Workspace />
+        </div>
       </div>
     </ConfigProvider>
   );

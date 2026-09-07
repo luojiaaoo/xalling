@@ -11,6 +11,9 @@ export type TaskResult = {
 
 type PyWebviewApi = {
   submit_task: (submission: TaskSubmission) => Promise<TaskResult>;
+  minimize_window: () => Promise<void>;
+  toggle_maximize_window: () => Promise<{ maximized: boolean }>;
+  close_window: () => Promise<void>;
 };
 
 declare global {
@@ -37,4 +40,17 @@ export async function submitTask(submission: TaskSubmission): Promise<TaskResult
   }
 
   return api.submit_task(submission);
+}
+
+export async function minimizeWindow(): Promise<void> {
+  await window.pywebview?.api.minimize_window();
+}
+
+export async function toggleMaximizeWindow(): Promise<boolean> {
+  const result = await window.pywebview?.api.toggle_maximize_window();
+  return result?.maximized ?? false;
+}
+
+export async function closeWindow(): Promise<void> {
+  await window.pywebview?.api.close_window();
 }

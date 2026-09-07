@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { QuickActions } from "./QuickActions";
 import { TaskComposer } from "./TaskComposer";
+import { TitleBar } from "./TitleBar";
 
 const starterBubbles = [
   { key: "assistant-ready", role: "assistant" as const, content: "我已准备好协助你规划、执行和复盘任务。" },
@@ -13,6 +14,7 @@ export function Workspace() {
 
   return (
     <main className="workspace">
+      <TitleBar />
       <div className="watermark" aria-hidden="true">X</div>
       <div className="workspace-content">
         <div className="eyebrow">XALLING · AI WORKSPACE</div>

@@ -134,6 +134,74 @@ npm run build
 
 修改桥接 API 后，请同时验证：正常调用、非法参数、Python 异常回传，以及长任务状态推送。新增界面时，优先复用 Ant Design 和 Ant Design X 组件，并确保图表容器有明确尺寸。
 
+## 打包与发布（Windows / Linux）
+
+发布采用 [PyInstaller](https://pyinstaller.org/en/stable/usage.html) 打包 Python 与 pywebview，并把 `frontend/dist` 作为应用资源一并带入。入口文件通过 `Path(__file__)` 定位资源，和 PyInstaller 的运行时资源定位方式兼容。
+
+默认使用 `--onedir`：它更便于排查 pywebview、WebView 运行时和静态资源问题。验证稳定后可以将 `--onedir` 改为 `--onefile`；单文件模式会在启动时解压资源，因此启动更慢，且运行时对内置文件的修改不会保留。
+
+> 必须在目标系统或对应 CI Runner 上分别构建 Windows 和 Linux 安装包。PyInstaller 不是跨平台编译器，不能在 Windows 上直接产出可运行的 Linux 包，反之亦然。
+
+### 通用准备
+
+在每个构建平台执行一次：
+
+```powershell
+# 项目根目录
+uv add --dev pyinstaller
+
+Set-Location frontend
+npm ci
+npm run build
+Set-Location ..
+```
+
+`dist/`、`build/`、`*.spec` 是可再生打包产物，不应提交到仓库；相应规则已在 `.gitignore` 中维护。
+
+### Windows
+
+前置条件：Windows 10/11，以及 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)；pywebview 在 Windows 使用 Edge Chromium 时依赖该运行时。
+
+```powershell
+uv run pyinstaller --noconfirm --clean --windowed --onedir `
+  --name Xalling `
+  --add-data "frontend/dist:frontend/dist" `
+  main.py
+
+.\dist\Xalling\Xalling.exe
+```
+
+将 `dist\Xalling\` 目录整体交付给用户。当前 pywebview 版本可由 PyInstaller 的内置 hook 收集所需组件；若后续引入动态加载的 Python 模块，再按实际缺失信息补充 `--hidden-import`。
+
+### Linux（GTK / Debian、Ubuntu 示例）
+
+Linux 必须选择 GTK 或 Qt 渲染器。首个 Linux 发布版本建议使用 GTK，并在干净的 Debian/Ubuntu 构建机上安装系统依赖：
+
+```bash
+sudo apt update
+sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+
+# 在 Linux 构建分支中使用 GTK 额外依赖，然后更新 uv.lock
+uv add "pywebview[gtk]>=6.2.1"
+uv add --dev pyinstaller
+
+cd frontend
+npm ci
+npm run build
+cd ..
+
+uv run pyinstaller --noconfirm --clean --windowed --onedir \
+  --name Xalling \
+  --add-data "frontend/dist:frontend/dist" \
+  main.py
+
+./dist/Xalling/Xalling
+```
+
+发布前请在目标发行版的干净用户环境中启动一次，验证窗口创建、静态资源加载、`window.pywebview.api` 桥接与中文字体显示。若采用 Qt，应改用 `pywebview[qt]` 并在该平台重新构建，不要把 Windows 构建产物复制到 Linux。
+
+pywebview 官方的 [冻结说明](https://pywebview.flowrl.com/guide/freezing) 推荐 Windows / Linux 使用 PyInstaller；其 [Linux 安装指南](https://pywebview.flowrl.com/guide/installation) 列出了 GTK 与 Qt 的运行时要求。
+
 ## 后续实施顺序
 
 1. 建立 `frontend/` 的 React + TypeScript 工程，引入 Ant Design、Ant Design X 与 Ant Design Charts。
