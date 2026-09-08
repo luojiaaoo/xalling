@@ -89,6 +89,7 @@ def test_model_router_deletes_site_and_replaces_current_model(
 def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "setting.toml"
     path.write_text(
+        '[[model]]\nname = "空站点"\napi_key = "unused"\n'
         '[[model]]\nname = "内部部署"\napi_key = "secret"\n'
         'api_url = "https://api.example.com"\n'
         '[[model.models]]\nname = "model-a"\nimage_vision = true\n'

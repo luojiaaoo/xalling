@@ -40,7 +40,7 @@ class ModelRouter:
     """Expose the model configuration to the pywebview bridge."""
 
     def get_model_groups(self) -> list[ModelGroup]:
-        """Return model groups without exposing credentials or endpoint URLs."""
+        """Return non-empty model groups without exposing private settings."""
         return [
             {
                 "name": site.name,
@@ -50,6 +50,7 @@ class ModelRouter:
                 ],
             }
             for site in Settings().model
+            if site.models
         ]
 
     def get_model_sites(self) -> list[ModelSiteView]:

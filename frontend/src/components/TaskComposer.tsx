@@ -97,16 +97,18 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
     };
   }, [messageApi]);
 
-  const modelOptions: ModelOption[] = modelGroups.map((group) => ({
-    value: group.name,
-    label: group.name,
-    children: group.models.map((model) => ({
-      value: model.name,
-      label: model.name,
-      imageVision: model.image_vision,
-    })),
-  }));
-  const hasModels = modelGroups.some((group) => group.models.length > 0);
+  const modelOptions: ModelOption[] = modelGroups
+    .filter((group) => group.models.length > 0)
+    .map((group) => ({
+      value: group.name,
+      label: group.name,
+      children: group.models.map((model) => ({
+        value: model.name,
+        label: model.name,
+        imageVision: model.image_vision,
+      })),
+    }));
+  const hasModels = modelOptions.length > 0;
 
   const handleModelChange: CascaderProps<ModelOption>["onChange"] = (value) => {
     const selection = value as string[];
