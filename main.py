@@ -25,7 +25,7 @@ def main() -> None:
         js_api=bridge,
         width=1280,
         height=820,
-        min_size=(1050, 680),
+        min_size=(400, 600),
         resizable=True,
         frameless=True,
         easy_drag=False,

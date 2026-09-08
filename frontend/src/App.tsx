@@ -12,6 +12,8 @@ import { Workspace } from "./components/Workspace";
 import { getCurrentTheme, setCurrentTheme } from "./bridge/client";
 import { themes, type ThemeName } from "./theme";
 
+const SIDEBAR_AUTO_COLLAPSE_WIDTH = 500;
+
 function isThemeName(value: string): value is ThemeName {
   return value === "default" || value === "dark" || value === "cartoon";
 }
@@ -38,6 +40,18 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = themeName;
   }, [themeName]);
+
+  useEffect(() => {
+    function collapseSidebarOnNarrowWindow() {
+      if (window.innerWidth <= SIDEBAR_AUTO_COLLAPSE_WIDTH) {
+        setSidebarVisible(false);
+      }
+    }
+
+    collapseSidebarOnNarrowWindow();
+    window.addEventListener("resize", collapseSidebarOnNarrowWindow);
+    return () => window.removeEventListener("resize", collapseSidebarOnNarrowWindow);
+  }, []);
 
   function handleThemeChange(next: ThemeName) {
     setThemeName(next);

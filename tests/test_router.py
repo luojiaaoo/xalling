@@ -147,8 +147,8 @@ def test_window_router_resizes_from_each_edge(edge: str, fix_point: FixPoint) ->
 @pytest.mark.parametrize(
     ("width", "height", "edge", "error"),
     [
-        (1049, 760, "e", ValueError),
-        (1200, 679, "s", ValueError),
+        (399, 760, "e", ValueError),
+        (1200, 599, "s", ValueError),
         (1200, 760, "invalid", ValueError),
         (1200.5, 760, "e", TypeError),
     ],

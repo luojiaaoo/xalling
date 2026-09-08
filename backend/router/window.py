@@ -4,8 +4,8 @@ from typing import Any
 
 from webview.window import FixPoint
 
-MIN_WINDOW_WIDTH = 1050
-MIN_WINDOW_HEIGHT = 680
+MIN_WINDOW_WIDTH = 400
+MIN_WINDOW_HEIGHT = 600
 MAX_WINDOW_SIZE = 32768
 
 RESIZE_FIX_POINTS = {

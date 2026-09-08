@@ -2,8 +2,8 @@ import { useRef, type PointerEvent } from "react";
 
 import { resizeWindow } from "../bridge/client";
 
-const MIN_WIDTH = 1050;
-const MIN_HEIGHT = 680;
+const MIN_WIDTH = 400;
+const MIN_HEIGHT = 600;
 const EDGES = ["n", "s", "w", "e", "nw", "ne", "sw", "se"] as const;
 
 type ResizeEdge = (typeof EDGES)[number];

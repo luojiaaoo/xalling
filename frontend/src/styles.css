@@ -158,7 +158,7 @@ html[data-theme="cartoon"] .theme-option small { color: #7a6e5d; }
 html[data-theme="cartoon"] .theme-option-check { color: #225555; }
 html[data-theme="cartoon"] .theme-option-swatch { border: 2px solid #225555; }
 
-body { margin: 0; min-width: 1050px; min-height: 100vh; }
+body { margin: 0; min-width: 400px; min-height: 600px; }
 
 button, textarea { font: inherit; }
 
@@ -268,8 +268,21 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .composer-footer .send-button { width: 31px; height: 31px; color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
 
 @media (max-width: 900px) {
-  body { min-width: 0; }
   .sidebar { flex-basis: 220px; }
   .workspace-content { width: min(620px, calc(100vw - 260px)); }
   .brand-name, .new-task-button kbd { display: none; }
+}
+
+@media (max-width: 600px) {
+  .settings-page { padding: 54px 16px 24px; }
+  .model-settings-title { align-items: flex-start; }
+  .model-settings-layout { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+  .provider-list { min-height: 260px; border-right: 0; border-bottom: 1px solid #e9e8f1; }
+  .provider-editor { padding: 24px 16px 20px; }
+  .settings-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-field-wide { grid-column: auto; }
+  .workspace-content { width: calc(100vw - 48px); }
+  .composer { width: 100%; }
+  .composer-footer { flex-wrap: wrap; gap: 8px; }
+  .model-select { min-width: 150px; max-width: 190px; }
 }
