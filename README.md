@@ -67,7 +67,7 @@ vision = true
 
 `backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelConfig` 列表。界面通过 pywebview 桥接只读取分组名、模型名和能力属性，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
 
-真实 `config.toml` 已加入忽略规则；可从 `config.example.toml` 复制创建。
+真实配置位于 `~/.xalling/setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
 
 ## 通信契约
 

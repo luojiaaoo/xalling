@@ -1,0 +1,6 @@
+[[model]]
+name = "火山方舟"
+api_key = ""
+api_url = "https://ark.cn-beijing.volces.com/api/plan"
+models = ["glm-5.3-flash", "glm-5.3"]
+vision = true
