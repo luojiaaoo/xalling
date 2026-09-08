@@ -226,10 +226,10 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
               </button>
             </Tooltip>
             <Sender.Header
+              closable={false}
               forceRender
               open={attachmentsOpen}
               onOpenChange={setAttachmentsOpen}
-              title={`附件（${attachmentItems.length}/${MAX_ATTACHMENTS}）`}
             >
               <Attachments
                 ref={attachmentsRef}
@@ -241,11 +241,9 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
                 multiple
                 onChange={({ fileList }) => {
                   setAttachmentItems(fileList);
-                  if (fileList.length) {
-                    setAttachmentsOpen(true);
-                  }
+                  setAttachmentsOpen(fileList.length > 0);
                 }}
-                overflow="wrap"
+                overflow="scrollX"
                 placeholder={{
                   title: "拖放图片或文件到这里",
                   description: "支持图片预览和常用文件，单个附件不超过 20 MB",
@@ -264,7 +262,6 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
                     icon={<PlusOutlined />}
                     aria-label="添加图片或文件"
                     onClick={() => {
-                      setAttachmentsOpen(true);
                       attachmentsRef.current?.select({ multiple: true });
                     }}
                   />
