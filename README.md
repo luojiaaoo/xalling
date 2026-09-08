@@ -22,11 +22,11 @@ flowchart LR
   UI[React + TypeScript<br/>Ant Design / Ant Design X / Charts]
   Bridge[pywebview JS–Python bridge]
   App[Python application<br/>domain services & bridge API]
-  Agent[Microsoft Agent Framework<br/>Python agents & workflows]
+  Agent[Claude Agent SDK<br/>Python agents, sessions & tools]
 
   UI <--> |window.pywebview.api<br/>controlled evaluate_js callbacks| Bridge
   Bridge <--> App
-  App <--> Agent
+  App -. planned .-> Agent
 ```
 
 所有业务数据都经 pywebview 的 JS–Python 桥传递；Python 服务不监听 localhost 端口，前端也不通过 `fetch`、Axios、WebSocket 或 SSE 调用本地后端。
@@ -40,9 +40,9 @@ flowchart LR
 | 基础 UI | [Ant Design](https://ant.design/components/overview-cn/) | 桌面布局、表单、数据展示、导航和反馈组件 |
 | AI UI | [Ant Design X](https://x.ant.design/components/introduce-cn/) | 会话、消息气泡、输入、快捷提示、思考/任务状态等 AI 交互组件 |
 | 图表 | [Ant Design Charts](https://charts.ant.design/examples/statistics/line/#basic) | 任务趋势、统计和分析视图；连续数据优先使用折线图 |
-| 智能体 | [Microsoft Agent Framework](https://learn.microsoft.com/zh-cn/agent-framework/get-started/your-first-agent?pivots=programming-language-python) | Python 智能体、工具调用、会话记忆与工作流编排 |
+| 智能体 | [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/python) | Python 智能体、会话、工具与任务循环 |
 
-Microsoft Agent Framework 在本项目中使用 **Python SDK**；文档中切换到 Go 的示例不适用于本项目的后端实现。
+智能体层规划使用 **Claude Agent SDK for Python**，当前尚未接入执行逻辑。
 
 ## 通信契约
 
@@ -51,10 +51,10 @@ Microsoft Agent Framework 在本项目中使用 **Python SDK**；文档中切换
 Python 通过 `js_api` 暴露 API，前端统一从一个桥接模块调用：
 
 ```ts
-const result = await window.pywebview.api.create_task({ prompt });
+await window.pywebview.api.minimize_window();
 ```
 
-桥接调用必须是异步的，并在 UI 中体现加载、成功和错误状态。参数和返回值只使用可 JSON 序列化的数据，避免把底层 Python 对象泄漏到界面。
+当前桥接仅负责最小化、最大化/还原和关闭原生窗口，不承载任务提交或智能体逻辑。后续扩展桥接时，调用必须是异步的，参数和返回值只使用可 JSON 序列化的数据。
 
 ### Python 推送界面
 
@@ -99,8 +99,9 @@ tests/                  # Python 与桥接契约测试
 ### Python 与智能体
 
 - Python 负责领域服务、桥接 API、智能体运行与敏感能力控制；不得阻塞 pywebview UI 线程。
-- 长任务应在受管控的异步或后台执行单元中运行，并通过桥接持续回传状态、增量和最终结果。
-- 智能体采用 Microsoft Agent Framework Python SDK。代理、工具、会话/记忆与工作流均封装在 Python 层。
+- 当前阶段不在 pywebview 桥接层实现任务提交或智能体执行。
+- 后续智能体采用 Claude Agent SDK Python；代理、会话、工具与任务循环封装在独立 Python 服务层，再由桥接调用稳定的应用接口。
+- 文件、命令、MCP 或网络工具需经过单独的权限设计与用户确认后才能启用。
 - 工具调用遵循最小权限原则；文件、命令或外部服务操作必须由用户清晰触发，并提供进度、确认和结果反馈。
 - 模型端点、密钥和其他敏感配置仅放在环境变量或本地安全配置中，不得进入前端 bundle、源码或日志。
 
@@ -207,5 +208,5 @@ pywebview 官方的 [冻结说明](https://pywebview.flowrl.com/guide/freezing) 
 1. 建立 `frontend/` 的 React + TypeScript 工程，引入 Ant Design、Ant Design X 与 Ant Design Charts。
 2. 将当前内联 HTML 替换为本地构建产物，并实现统一的桥接 API 客户端。
 3. 在 `backend/` 中建立领域服务和桥接 API；为契约增加测试。
-4. 接入 Microsoft Agent Framework Python SDK，实现可观察、可取消的智能体任务。
+4. 接入 Claude Agent SDK，实现可观察、可取消的智能体任务。
 5. 落地任务、项目、会话与趋势图等核心工作台界面。

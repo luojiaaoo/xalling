@@ -8,8 +8,6 @@ import {
 import { Button, Dropdown, Input, message, Space } from "antd";
 import { useState } from "react";
 
-import { submitTask } from "../bridge/client";
-
 type TaskComposerProps = {
   prompt: string;
   onPromptChange: (prompt: string) => void;
@@ -28,11 +26,7 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
 
     setSubmitting(true);
     try {
-      const result = await submitTask({ prompt: content });
-      messageApi.success(result.message);
-      onPromptChange("");
-    } catch {
-      messageApi.error("任务提交失败，请稍后重试");
+      messageApi.info("当前仅完成界面交互，智能体能力将在后续步骤接入。");
     } finally {
       setSubmitting(false);
     }

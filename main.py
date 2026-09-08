@@ -20,25 +20,6 @@ class ApplicationBridge:
             raise RuntimeError("窗口尚未初始化")
         return self._window
 
-    def submit_task(self, submission: dict[str, Any]) -> dict[str, str]:
-        """Validate a task request received through pywebview's JS bridge."""
-        prompt = submission.get("prompt") if isinstance(submission, dict) else None
-        if not isinstance(prompt, str):
-            raise TypeError("任务内容必须是文本")
-
-        prompt = prompt.strip()
-        if not prompt:
-            raise ValueError("任务内容不能为空")
-        if len(prompt) > 4_000:
-            raise ValueError("任务内容不能超过 4000 个字符")
-
-        # The agent workflow will be scheduled here in a later iteration.
-        return {
-            "id": "local-task",
-            "status": "queued",
-            "message": "任务已加入本地工作队列",
-        }
-
     def minimize_window(self) -> None:
         self._get_window().minimize()
 
