@@ -47,24 +47,25 @@ flowchart LR
 
 ## 模型配置
 
-本地配置使用以下结构；`models` 可以包含多个模型名：
+本地配置使用 TOML 数组；每个 `[[model]]` 是一级模型来源，`models` 是其下可选的二级模型，`vision` 表示是否支持视觉输入：
 
 ```toml
-[model]
+[[model]]
+name = "内部部署 · 阿里云"
 api_key = ""
-api_url = "https://api.anthropic.com"
-models = ["claude-sonnet-4-6", "claude-opus-4-6"]
+api_url = "https://api.example.com"
+models = ["Kimi-K2.6", "Qwen3.6-35B-A3B"]
+vision = true
+
+[[model]]
+name = "RightCode-gemini"
+api_key = ""
+api_url = "https://api.example.com"
+models = ["gemini-3.1-pro-preview"]
+vision = true
 ```
 
-`backend/config/setting.py` 中的 `ModelConfig` 会根据 `SettingsConfigDict` 自动加载 `[model]`；`backend/config/edit.py` 只负责写回指定属组并保留其他属组。`update()` 只覆盖传入字段，校验通过后同时更新当前对象和 TOML 文件：
-
-```python
-from backend.config.setting import ModelConfig
-
-config = ModelConfig()
-config.update(models=["claude-sonnet-4-6"])
-config.update(api_url="https://api.anthropic.com")
-```
+`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelConfig` 列表。界面通过 pywebview 桥接只读取分组名、模型名和能力属性，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
 
 真实 `config.toml` 已加入忽略规则；可从 `config.example.toml` 复制创建。
 
@@ -88,7 +89,7 @@ await window.pywebview.api.minimize_window();
 
 - 不使用 Flask、FastAPI、Django、aiohttp、uvicorn 等方式为 UI 提供业务 HTTP API。
 - 不使用 REST、`fetch`、Axios、XHR、WebSocket、SSE 或 localhost 端口在本地前后端间传输业务数据。
-- 不将密钥、模型配置或 Python 内部对象传入前端。
+- 不将密钥、模型端点或 Python 内部对象传入前端。
 
 ### 桥接实现要求
 

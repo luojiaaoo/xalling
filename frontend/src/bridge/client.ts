@@ -2,6 +2,13 @@ type PyWebviewApi = {
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
+  get_model_groups: () => Promise<ModelGroup[]>;
+};
+
+export type ModelGroup = {
+  name: string;
+  models: string[];
+  vision: boolean;
 };
 
 declare global {
@@ -21,4 +28,18 @@ export async function toggleMaximizeWindow(): Promise<boolean> {
 
 export async function closeWindow(): Promise<void> {
   await window.pywebview?.api.close_window();
+}
+
+export async function getModelGroups(): Promise<ModelGroup[]> {
+  if (!window.pywebview?.api) {
+    if (window.location.protocol !== "file:") {
+      return [];
+    }
+
+    await new Promise<void>((resolve) => {
+      window.addEventListener("pywebviewready", () => resolve(), { once: true });
+    });
+  }
+
+  return (await window.pywebview?.api.get_model_groups()) ?? [];
 }

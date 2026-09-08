@@ -1,8 +1,6 @@
 """Pydantic settings loaded from the application TOML file."""
 
-import tomllib
 from pathlib import Path
-from typing import Any, Literal, Self
 
 import aiofiles
 import aiofiles.os
@@ -20,12 +18,13 @@ CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
 
 
 class ModelConfig(BaseModel):
-    """Values stored in the `[model]` TOML group."""
+    """One model provider and the models available through it."""
 
+    name: str
     api_key: str = Field(default="", repr=False)
     api_url: str = ""
     models: list[str] = Field(default_factory=list)
-    effort: Literal["low", "medium", "high", "xhigh"] = "medium"
+    vision: bool = False
 
 
 class Settings(BaseSettings):
@@ -36,7 +35,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    model: ModelConfig = Field(default_factory=ModelConfig)
+    model: list[ModelConfig] = Field(default_factory=list)
 
     @classmethod
     def settings_customise_sources(

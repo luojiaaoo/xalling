@@ -1,4 +1,4 @@
-import { ConfigProvider } from "antd";
+import { XProvider } from "@ant-design/x";
 
 import { Sidebar } from "./components/Sidebar";
 import { Workspace } from "./components/Workspace";
@@ -18,13 +18,13 @@ const theme = {
 
 export default function App() {
   return (
-    <ConfigProvider theme={theme}>
+    <XProvider theme={theme}>
       <div className="desktop-app">
         <div className="app-shell">
           <Sidebar />
           <Workspace />
         </div>
       </div>
-    </ConfigProvider>
+    </XProvider>
   );
 }

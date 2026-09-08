@@ -1,40 +1,12 @@
 from pathlib import Path
-from typing import Any
 
 import webview
 
+from backend.router import ModelRouter, WindowRouter
 
-class ApplicationBridge:
-    """Small, JSON-only API exposed to the local Web UI."""
 
-    def __init__(self) -> None:
-        self._window: Any | None = None
-        self._is_maximized = False
-
-    def bind_window(self, window: Any) -> None:
-        """Attach the native pywebview window after it has been created."""
-        self._window = window
-
-    def _get_window(self) -> Any:
-        if self._window is None:
-            raise RuntimeError("窗口尚未初始化")
-        return self._window
-
-    def minimize_window(self) -> None:
-        self._get_window().minimize()
-
-    def toggle_maximize_window(self) -> dict[str, bool]:
-        window = self._get_window()
-        if self._is_maximized:
-            window.restore()
-        else:
-            window.maximize()
-
-        self._is_maximized = not self._is_maximized
-        return {"maximized": self._is_maximized}
-
-    def close_window(self) -> None:
-        self._get_window().destroy()
+class ApplicationBridge(WindowRouter, ModelRouter):
+    """Compose the JSON-only routers exposed to the local Web UI."""
 
 
 def main() -> None:
