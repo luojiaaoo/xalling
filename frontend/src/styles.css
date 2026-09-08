@@ -95,6 +95,8 @@ html[data-theme="dark"] .project-row, html[data-theme="dark"] .task-row { color:
 html[data-theme="dark"] .project-row:hover, html[data-theme="dark"] .task-row:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.06); }
 html[data-theme="dark"] .window-controls .ant-btn { color: rgba(255, 255, 255, 0.6); }
 html[data-theme="dark"] .window-controls .ant-btn:hover { background: rgba(255, 255, 255, 0.1); }
+html[data-theme="dark"] .sidebar-collapsed-actions .ant-btn { color: rgba(255, 255, 255, 0.65); }
+html[data-theme="dark"] .sidebar-collapsed-actions .ant-btn:hover { color: #a99cff !important; background: rgba(255, 255, 255, 0.08) !important; }
 html[data-theme="dark"] .settings-title h1 { color: rgba(255, 255, 255, 0.92); }
 html[data-theme="dark"] .settings-title p, html[data-theme="dark"] .settings-kicker { color: rgba(255, 255, 255, 0.45); }
 html[data-theme="dark"] .model-settings-layout { border-color: #1e1e24; background: #111114; box-shadow: none; }
@@ -130,6 +132,8 @@ html[data-theme="cartoon"] .project-row, html[data-theme="cartoon"] .task-row { 
 html[data-theme="cartoon"] .project-row:hover, html[data-theme="cartoon"] .task-row:hover { color: #51463B; background: #E8D29A; }
 html[data-theme="cartoon"] .window-controls .ant-btn { color: #51463B; }
 html[data-theme="cartoon"] .window-controls .ant-btn:hover { background: #E8D29A; }
+html[data-theme="cartoon"] .sidebar-collapsed-actions .ant-btn { color: #51463B; }
+html[data-theme="cartoon"] .sidebar-collapsed-actions .ant-btn:hover { color: #225555 !important; background: #E8D29A !important; }
 html[data-theme="cartoon"] .settings-title h1 { color: #51463B; }
 html[data-theme="cartoon"] .settings-title p { color: #7a6e5d; }
 html[data-theme="cartoon"] .settings-kicker { color: #225555; }
@@ -156,7 +160,7 @@ body { margin: 0; min-width: 1050px; min-height: 100vh; }
 
 button, textarea { font: inherit; }
 
-.desktop-app { height: 100vh; overflow: hidden; }
+.desktop-app { position: relative; height: 100vh; overflow: hidden; }
 .title-bar { position: absolute; z-index: 5; top: 0; right: 0; left: 0; display: flex; height: 42px; align-items: center; justify-content: space-between; pointer-events: none; }
 .title-bar-drag { align-self: stretch; flex: 1; pointer-events: auto; }
 .window-controls { display: flex; align-self: stretch; pointer-events: auto; }
@@ -166,8 +170,15 @@ button, textarea { font: inherit; }
 
 .app-shell { display: flex; height: 100%; background: #f7f7fb; }
 
+.sidebar-collapsed-actions {
+  position: absolute; z-index: 6; top: 6px; left: 8px; display: flex; gap: 2px;
+}
+.sidebar-collapsed-actions .ant-btn { width: 34px; height: 30px; color: #777887; border-radius: 8px; }
+.sidebar-collapsed-actions .ant-btn:hover { color: #5d4cf0 !important; background: #efedff !important; }
+.sidebar-collapsed .workspace-content { width: min(680px, calc(100vw - 88px)); }
+
 .sidebar {
-  display: flex; flex: 0 0 272px; flex-direction: column; justify-content: space-between;
+  position: relative; z-index: 6; display: flex; flex: 0 0 272px; flex-direction: column; justify-content: space-between;
   min-height: 0; padding: 18px 12px 16px; background: rgba(255, 255, 255, .88);
   border-right: 1px solid #e8e8f0;
 }

@@ -3,7 +3,7 @@ import {
   ArrowLeftOutlined,
   ClockCircleOutlined,
   FolderOpenOutlined,
-  MoreOutlined,
+  MenuFoldOutlined,
   PlusCircleOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -42,6 +42,8 @@ const sectionGroups: Record<string, string> = {
 const tasks = ["整理产品需求", "设计本周工作计划", "分析用户反馈", "准备项目周报"];
 
 type SidebarProps = {
+  onCollapse: () => void;
+  onNewTask: () => void;
   onSettingsClick: () => void;
   mode?: "workspace" | "settings";
   activeSettingsSection?: string;
@@ -50,6 +52,8 @@ type SidebarProps = {
 };
 
 export function Sidebar({
+  onCollapse,
+  onNewTask,
   onSettingsClick,
   mode = "workspace",
   activeSettingsSection = "model",
@@ -78,7 +82,14 @@ export function Sidebar({
         <div className="brand-row">
           <BrandMark />
           <span className="brand-name">Xalling</span>
-          <Tooltip title="收起侧栏"><Button type="text" icon={<MoreOutlined />} /></Tooltip>
+          <Tooltip title="收起侧栏">
+            <Button
+              type="text"
+              icon={<MenuFoldOutlined />}
+              aria-label="收起侧栏"
+              onClick={onCollapse}
+            />
+          </Tooltip>
         </div>
         {inSettings ? (
           <>
@@ -102,7 +113,7 @@ export function Sidebar({
           </>
         ) : (
           <>
-            <Button className="new-task-button" icon={<PlusCircleOutlined />} block>
+            <Button className="new-task-button" icon={<PlusCircleOutlined />} block onClick={onNewTask}>
               新建任务
               <kbd>Ctrl N</kbd>
             </Button>
