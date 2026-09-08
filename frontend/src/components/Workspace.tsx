@@ -53,7 +53,7 @@ function getGreeting(hour: number): string {
 export function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [quote] = useState(pickQuote);
-  const greeting = getGreeting(new Date().getHours());
+  const [greeting] = useState(() => getGreeting(new Date().getHours()));
 
   return (
     <main className="workspace">

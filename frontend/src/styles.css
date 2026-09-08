@@ -116,6 +116,8 @@ html[data-theme="dark"] .theme-option { border-color: #26262e; background: #1111
 html[data-theme="dark"] .theme-option strong { color: rgba(255, 255, 255, 0.88); }
 html[data-theme="dark"] .theme-option small { color: rgba(255, 255, 255, 0.42); }
 html[data-theme="dark"] .workspace { background: radial-gradient(circle at 50% 24%, #101014 0, #0c0c0f 31%, #08080a 76%); }
+html[data-theme="dark"] .composer-project { color: rgba(255, 255, 255, 0.62); }
+html[data-theme="dark"] .composer-project:hover { color: #a99cff; background: rgba(109, 93, 252, 0.14); }
 html[data-theme="dark"] .settings-error { color: #e57373; }
 html[data-theme="dark"] .settings-success { color: #66bb8a; }
 
@@ -157,6 +159,8 @@ html[data-theme="cartoon"] .theme-option strong { color: #51463B; }
 html[data-theme="cartoon"] .theme-option small { color: #7a6e5d; }
 html[data-theme="cartoon"] .theme-option-check { color: #225555; }
 html[data-theme="cartoon"] .theme-option-swatch { border: 2px solid #225555; }
+html[data-theme="cartoon"] .composer-project { color: #51463B; }
+html[data-theme="cartoon"] .composer-project:hover { color: #225555; background: #E8D29A; }
 
 body { margin: 0; min-width: 400px; min-height: 600px; }
 
@@ -244,14 +248,18 @@ button, textarea { font: inherit; }
 h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight: 700; letter-spacing: -.04em; }
 .subtitle { margin: 14px 0 28px; color: #8f90a0; font-size: 14px; font-style: italic; }
 
-.composer { padding: 14px; text-align: left; border: 1px solid #e5e3ee; border-radius: 18px; background: rgba(255, 255, 255, .9); box-shadow: 0 18px 45px rgba(62, 53, 131, .1), 0 2px 6px rgba(57, 53, 93, .04); }
-.composer-project { display: flex; align-items: center; gap: 6px; padding: 0 4px 10px; color: #707180; font-size: 13px; font-weight: 500; }
+.composer { width: 100%; text-align: left; }
+.task-sender { border-radius: 18px; box-shadow: 0 18px 45px rgba(62, 53, 131, .1), 0 2px 6px rgba(57, 53, 93, .04); }
+.composer-project { display: flex; max-width: calc(100% - 28px); align-items: center; gap: 6px; margin: 7px 10px 1px; padding: 4px 5px; overflow: hidden; color: #707180; font-size: 13px; font-weight: 500; text-align: left; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
+.composer-project:hover { color: #5d4cf0; background: #f1efff; }
+.composer-project span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-project svg:last-child { font-size: 10px; }
-.composer .ant-input { padding: 9px 7px; color: #343541; font-size: 15px; line-height: 1.6; border: 0; resize: none; box-shadow: none; }
-.composer .ant-input::placeholder { color: #acacb8; }
-.composer-footer { display: flex; align-items: center; justify-content: space-between; padding: 5px 2px 0; }
+.task-attachments { padding: 4px 0; }
+.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .composer-footer .ant-btn { color: #6d6e7e; font-size: 12px; }
 .composer-footer .ant-btn:hover { color: #5d4cf0 !important; background: #f1efff !important; }
+.sender-send-button { color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
+.sender-send-button:disabled { color: rgba(255, 255, 255, .72) !important; background: #bbb5f5 !important; }
 .model-select { min-width: 220px; max-width: 280px; }
 .model-select .ant-select-selector { padding-inline: 7px !important; color: #6d6e7e; font-size: 12px; }
 .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #5d4cf0; background: #f1efff; }
@@ -265,7 +273,6 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .effort-picker .ant-slider { margin: 16px 5px 8px; }
 .effort-picker .ant-slider-dot { width: 4px; height: 4px; margin-top: 1px; border: 0; background: #cac9d3; }
 .effort-picker .ant-slider-dot-active { background: #fff; }
-.composer-footer .send-button { width: 31px; height: 31px; color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
 
 @media (max-width: 900px) {
   .sidebar { flex-basis: 220px; }

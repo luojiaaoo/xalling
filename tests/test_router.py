@@ -2,6 +2,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from webview import FileDialog
 from webview.window import FixPoint
 
 from backend.config.current import CurrentConfig
@@ -160,6 +161,33 @@ def test_window_router_rejects_invalid_resize(
 
     with pytest.raises(error):
         router.resize_window(width, height, edge)  # type: ignore[arg-type]
+
+
+def test_window_router_selects_project_folder(tmp_path: Path) -> None:
+    class WindowStub:
+        def create_file_dialog(self, dialog_type: FileDialog) -> tuple[str]:
+            assert dialog_type == FileDialog.FOLDER
+            return (str(tmp_path),)
+
+    router = WindowRouter()
+    router.bind_window(WindowStub())
+
+    assert router.select_project_folder() == {
+        "name": tmp_path.name,
+        "path": str(tmp_path.resolve()),
+    }
+
+
+def test_window_router_keeps_project_when_folder_picker_is_cancelled() -> None:
+    class WindowStub:
+        @staticmethod
+        def create_file_dialog(_dialog_type: FileDialog) -> None:
+            return None
+
+    router = WindowRouter()
+    router.bind_window(WindowStub())
+
+    assert router.select_project_folder() is None
 
 
 def test_theme_router_persists_selection(

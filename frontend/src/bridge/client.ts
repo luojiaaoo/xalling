@@ -3,6 +3,7 @@ type PyWebviewApi = {
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
   resize_window: (width: number, height: number, edge: string) => Promise<void>;
+  select_project_folder: () => Promise<ProjectFolder | null>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
   save_model_site: (
@@ -41,6 +42,11 @@ export type ModelSelection = {
   model: string;
 };
 
+export type ProjectFolder = {
+  name: string;
+  path: string;
+};
+
 declare global {
   interface Window {
     pywebview?: { api: PyWebviewApi };
@@ -62,6 +68,11 @@ export async function closeWindow(): Promise<void> {
 
 export async function resizeWindow(width: number, height: number, edge: string): Promise<void> {
   await window.pywebview?.api.resize_window(width, height, edge);
+}
+
+export async function selectProjectFolder(): Promise<ProjectFolder | null> {
+  const api = await getBridgeApi();
+  return (await api?.select_project_folder()) ?? null;
 }
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {

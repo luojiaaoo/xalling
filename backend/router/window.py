@@ -1,7 +1,9 @@
 """Native window methods exposed to the local Web UI."""
 
+from pathlib import Path
 from typing import Any
 
+from webview import FileDialog
 from webview.window import FixPoint
 
 MIN_WINDOW_WIDTH = 400
@@ -54,6 +56,17 @@ class WindowRouter:
     def close_window(self) -> None:
         """Close the native application window."""
         self._get_window().destroy()
+
+    def select_project_folder(self) -> dict[str, str] | None:
+        """Open the system folder picker and return the selected project folder."""
+        selected_paths = self._get_window().create_file_dialog(FileDialog.FOLDER)
+        if not selected_paths:
+            return None
+
+        folder = Path(selected_paths[0]).resolve()
+        if not folder.is_dir():
+            raise ValueError("选择的项目文件夹不存在")
+        return {"name": folder.name or str(folder), "path": str(folder)}
 
     def resize_window(self, width: int, height: int, edge: str) -> None:
         """Resize the frameless window while keeping the opposite edges fixed."""
