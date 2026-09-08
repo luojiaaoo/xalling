@@ -19,7 +19,10 @@ SWP_NOZORDER = 0x0004
 SWP_FRAMECHANGED = 0x0020
 
 if sys.platform == "win32":
-    _user32 = ctypes.windll.user32
+    # A private DLL instance, not the shared ``ctypes.windll`` cache: setting
+    # argtypes on the shared one would leak into pywebview's own user32 calls
+    # (it passes ``None`` for unused int arguments, which c_int rejects).
+    _user32 = ctypes.WinDLL("user32")
     _user32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
     _user32.GetWindowLongW.restype = ctypes.c_long
     _user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
