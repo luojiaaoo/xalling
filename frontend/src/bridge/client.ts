@@ -3,6 +3,8 @@ type PyWebviewApi = {
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
   get_model_groups: () => Promise<ModelGroup[]>;
+  get_current_model: () => Promise<ModelSelection | null>;
+  set_current_model: (site: string, model: string) => Promise<void>;
 };
 
 export type ModelGroup = {
@@ -13,6 +15,11 @@ export type ModelGroup = {
 export type ModelConfig = {
   name: string;
   image_vision: boolean;
+};
+
+export type ModelSelection = {
+  site: string;
+  model: string;
 };
 
 declare global {
@@ -46,4 +53,12 @@ export async function getModelGroups(): Promise<ModelGroup[]> {
   }
 
   return (await window.pywebview?.api.get_model_groups()) ?? [];
+}
+
+export async function getCurrentModel(): Promise<ModelSelection | null> {
+  return (await window.pywebview?.api.get_current_model()) ?? null;
+}
+
+export async function setCurrentModel(site: string, model: string): Promise<void> {
+  await window.pywebview?.api.set_current_model(site, model);
 }

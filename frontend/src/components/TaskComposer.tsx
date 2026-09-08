@@ -12,7 +12,12 @@ import type { CascaderProps } from "antd";
 import { Button, Cascader, Input, message, Popover, Slider, Space } from "antd";
 import { useEffect, useState } from "react";
 
-import { getModelGroups, type ModelGroup } from "../bridge/client";
+import {
+  getCurrentModel,
+  getModelGroups,
+  setCurrentModel,
+  type ModelGroup,
+} from "../bridge/client";
 
 type TaskComposerProps = {
   prompt: string;
@@ -47,9 +52,9 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
         }
 
         setModelGroups(configuredGroups);
-        const firstGroupIndex = configuredGroups.findIndex((group) => group.models.length > 0);
-        if (firstGroupIndex >= 0) {
-          setSelectedModel([String(firstGroupIndex), configuredGroups[firstGroupIndex].models[0].name]);
+        const currentModel = await getCurrentModel();
+        if (active && currentModel) {
+          setSelectedModel([currentModel.site, currentModel.model]);
         }
       } catch {
         if (active) {
@@ -68,8 +73,8 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
     };
   }, [messageApi]);
 
-  const modelOptions: ModelOption[] = modelGroups.map((group, groupIndex) => ({
-    value: String(groupIndex),
+  const modelOptions: ModelOption[] = modelGroups.map((group) => ({
+    value: group.name,
     label: group.name,
     children: group.models.map((model) => ({
       value: model.name,
@@ -79,7 +84,14 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
   }));
   const hasModels = modelGroups.some((group) => group.models.length > 0);
   const handleModelChange: CascaderProps<ModelOption>["onChange"] = (value) => {
-    setSelectedModel(value as string[]);
+    const selection = value as string[];
+    setSelectedModel(selection);
+    const [site, model] = selection;
+    if (site && model) {
+      void setCurrentModel(site, model).catch(() => {
+        messageApi.error("当前模型保存失败");
+      });
+    }
   };
 
   const handleSubmit = async () => {

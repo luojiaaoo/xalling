@@ -71,9 +71,19 @@ name = "gemini-3.1-pro-preview"
 image_vision = true
 ```
 
-`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。界面通过 pywebview 桥接只读取分组名、模型名和能力属性，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
+`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。界面通过 pywebview 桥接获取分组名、模型名和能力属性，并保存当前选择，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
 
 真实配置位于 `~/.xalling/setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
+
+当前选择单独保存在 `~/.xalling/current.toml`：
+
+```toml
+[model]
+site = "火山方舟"
+name = "glm-5.3-flash"
+```
+
+`current.toml` 按功能分组，后续当前状态可以增加新的顶级分组。应用启动时会优先恢复 `[model]` 中的选择；文件不存在或所选模型已从 `setting.toml` 移除时，会自动选中并保存第一个可用模型。
 
 ## 通信契约
 
