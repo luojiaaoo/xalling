@@ -16,7 +16,6 @@ import { useEffect, useState } from "react";
 import { BrandMark } from "./BrandMark";
 
 const navigation: MenuProps["items"] = [
-  { key: "new", icon: <PlusCircleOutlined />, label: "新建任务" },
   { key: "search", icon: <SearchOutlined />, label: "搜索" },
   { key: "automation", icon: <ThunderboltOutlined />, label: "自动化" },
   { key: "plugins", icon: <AppstoreOutlined />, label: "插件市场" },
