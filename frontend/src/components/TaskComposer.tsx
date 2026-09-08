@@ -1,11 +1,11 @@
 import {
   ArrowUpOutlined,
   DownOutlined,
-  EyeOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
   LoadingOutlined,
   PaperClipOutlined,
+  PictureOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import type { CascaderProps } from "antd";
@@ -23,7 +23,7 @@ type ModelOption = {
   value: string;
   label: string;
   children?: ModelOption[];
-  vision?: boolean;
+  imageVision?: boolean;
 };
 
 const effortLevels = ["低", "中", "高", "最高"] as const;
@@ -74,7 +74,7 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
     children: group.models.map((model) => ({
       value: model.name,
       label: model.name,
-      vision: model.vision,
+      imageVision: model.image_vision,
     })),
   }));
   const hasModels = modelGroups.some((group) => group.models.length > 0);
@@ -130,7 +130,9 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
             optionRender={(option) => (
               <span className="model-option">
                 <span>{option.label}</span>
-                {option.vision && <EyeOutlined className="model-capability" title="支持视觉输入" />}
+                {option.imageVision && (
+                  <PictureOutlined className="model-capability" title="支持图片输入" />
+                )}
               </span>
             )}
             options={modelOptions}

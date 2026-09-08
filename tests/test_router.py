@@ -12,7 +12,7 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
     path.write_text(
         '[[model]]\nname = "内部部署"\napi_key = "secret"\n'
         'api_url = "https://api.example.com"\n'
-        '[[model.models]]\nname = "model-a"\nvision = true\n'
+        '[[model.models]]\nname = "model-a"\nimage_vision = true\n'
         '[[model.models]]\nname = "model-b"\n',
         encoding="utf-8",
     )
@@ -22,8 +22,8 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
         {
             "name": "内部部署",
             "models": [
-                {"name": "model-a", "vision": True},
-                {"name": "model-b", "vision": False},
+                {"name": "model-a", "image_vision": True},
+                {"name": "model-b", "image_vision": False},
             ],
         }
     ]

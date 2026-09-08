@@ -9,7 +9,7 @@ class ModelInfo(TypedDict):
     """Model fields that are safe to expose to the Web UI."""
 
     name: str
-    vision: bool
+    image_vision: bool
 
 
 class ModelGroup(TypedDict):
@@ -28,7 +28,7 @@ class ModelRouter:
             {
                 "name": site.name,
                 "models": [
-                    {"name": model.name, "vision": model.vision}
+                    {"name": model.name, "image_vision": model.image_vision}
                     for model in site.models
                 ],
             }

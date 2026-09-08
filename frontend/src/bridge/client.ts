@@ -12,7 +12,7 @@ export type ModelGroup = {
 
 export type ModelConfig = {
   name: string;
-  vision: boolean;
+  image_vision: boolean;
 };
 
 declare global {

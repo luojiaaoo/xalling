@@ -4,8 +4,8 @@ api_key = ""
 api_url = "https://ark.cn-beijing.volces.com/api/plan"
 [[model.models]]
 name = "glm-5.3-flash"
-vision = true
+image_vision = true
 
 [[model.models]]
 name = "glm-5.3"
-vision = false
+image_vision = false

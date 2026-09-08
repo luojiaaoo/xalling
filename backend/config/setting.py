@@ -21,7 +21,7 @@ class ModelConfig(BaseModel):
     """One model and its capabilities."""
 
     name: str
-    vision: bool = False
+    image_vision: bool = False
 
 
 class ModelSiteConfig(BaseModel):
