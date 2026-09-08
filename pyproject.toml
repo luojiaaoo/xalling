@@ -5,12 +5,18 @@ description = "Xalling desktop application built with pywebview"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiofiles>=25.1.0",
+    "pydantic-settings>=2.15.0",
     "pywebview>=6.2.1",
+    "tomli-w>=1.2.0",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [dependency-groups]
 dev = [

@@ -41,8 +41,32 @@ flowchart LR
 | AI UI | [Ant Design X](https://x.ant.design/components/introduce-cn/) | 会话、消息气泡、输入、快捷提示、思考/任务状态等 AI 交互组件 |
 | 图表 | [Ant Design Charts](https://charts.ant.design/examples/statistics/line/#basic) | 任务趋势、统计和分析视图；连续数据优先使用折线图 |
 | 智能体 | [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/python) | Python 智能体、会话、工具与任务循环 |
+| 配置 | Pydantic Settings + Tomli-W | TOML 配置加载、类型校验与局部更新 |
 
 智能体层规划使用 **Claude Agent SDK for Python**，当前尚未接入执行逻辑。
+
+## 模型配置
+
+本地配置使用以下结构；`models` 可以包含多个模型名：
+
+```toml
+[model]
+api_key = ""
+api_url = "https://api.anthropic.com"
+models = ["claude-sonnet-4-6", "claude-opus-4-6"]
+```
+
+`backend/config/setting.py` 中的 `ModelConfig` 会根据 `SettingsConfigDict` 自动加载 `[model]`；`backend/config/edit.py` 只负责写回指定属组并保留其他属组。`update()` 只覆盖传入字段，校验通过后同时更新当前对象和 TOML 文件：
+
+```python
+from backend.config.setting import ModelConfig
+
+config = ModelConfig()
+config.update(models=["claude-sonnet-4-6"])
+config.update(api_url="https://api.anthropic.com")
+```
+
+真实 `config.toml` 已加入忽略规则；可从 `config.example.toml` 复制创建。
 
 ## 通信契约
 
