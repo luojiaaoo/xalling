@@ -62,29 +62,4 @@ class Settings(BaseSettings):
         contents = tomli_w.dumps(self.model_dump(mode="json"))
         async with aiofiles.open(conf_file_path, "w", encoding="utf-8") as file:
             await file.write(contents)
-
-    def update(self, **values: Any) -> Self:
-        """Apply validated values and write them while retaining unmanaged TOML groups."""
-        updated_values = self.model_dump(mode="json")
-        for field_name, value in values.items():
-            current_value = updated_values.get(field_name)
-            if isinstance(current_value, dict) and isinstance(value, dict):
-                updated_values[field_name] = current_value | value
-            else:
-                updated_values[field_name] = value
-
-        updated_settings = type(self).model_validate(updated_values)
-        conf_file_path = self._conf_file_path()
-        try:
-            with conf_file_path.open("rb") as file:
-                persisted_values = tomllib.load(file)
-        except FileNotFoundError:
-            persisted_values = {}
-
-        persisted_values.update(updated_settings.model_dump(mode="json"))
-        conf_file_path.parent.mkdir(parents=True, exist_ok=True)
-        conf_file_path.write_text(tomli_w.dumps(persisted_values), encoding="utf-8")
-        self.__dict__.update(updated_settings.__dict__)
         return self
-
-
