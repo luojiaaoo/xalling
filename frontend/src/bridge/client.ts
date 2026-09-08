@@ -4,6 +4,7 @@ type PyWebviewApi = {
   close_window: () => Promise<void>;
   resize_window: (width: number, height: number, edge: string) => Promise<void>;
   select_project_folder: () => Promise<ProjectFolder | null>;
+  get_home_folder: () => Promise<ProjectFolder>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
   save_model_site: (
@@ -16,6 +17,12 @@ type PyWebviewApi = {
   delete_model_site: (name: string) => Promise<void>;
   get_current_model: () => Promise<ModelSelection | null>;
   set_current_model: (site: string, model: string) => Promise<void>;
+  send_chat_message: (
+    prompt: string,
+    projectPath: string | null,
+    sessionId: string | null,
+    effort: ChatEffort,
+  ) => Promise<ChatReply>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
 };
@@ -47,6 +54,13 @@ export type ProjectFolder = {
   path: string;
 };
 
+export type ChatEffort = "low" | "medium" | "high" | "max";
+
+export type ChatReply = {
+  content: string;
+  session_id: string;
+};
+
 declare global {
   interface Window {
     pywebview?: { api: PyWebviewApi };
@@ -73,6 +87,11 @@ export async function resizeWindow(width: number, height: number, edge: string):
 export async function selectProjectFolder(): Promise<ProjectFolder | null> {
   const api = await getBridgeApi();
   return (await api?.select_project_folder()) ?? null;
+}
+
+export async function getHomeFolder(): Promise<ProjectFolder | null> {
+  const api = await getBridgeApi();
+  return (await api?.get_home_folder()) ?? null;
 }
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {
@@ -129,6 +148,19 @@ export async function getCurrentModel(): Promise<ModelSelection | null> {
 export async function setCurrentModel(site: string, model: string): Promise<void> {
   const api = await getBridgeApi();
   await api?.set_current_model(site, model);
+}
+
+export async function sendChatMessage(
+  prompt: string,
+  projectPath: string | null,
+  sessionId: string | null,
+  effort: ChatEffort,
+): Promise<ChatReply> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.send_chat_message(prompt, projectPath, sessionId, effort);
 }
 
 export async function getCurrentTheme(): Promise<string> {

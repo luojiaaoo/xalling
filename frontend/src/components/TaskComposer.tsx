@@ -36,8 +36,24 @@ import {
 } from "../bridge/client";
 
 type TaskComposerProps = {
-  prompt: string;
-  onPromptChange: (prompt: string) => void;
+  busy?: boolean;
+  conversationStarted?: boolean;
+  onProjectChange: (project: ProjectFolder | null) => void;
+  onSend: (draft: ComposerDraft) => void;
+  selectedProject: ProjectFolder | null;
+};
+
+export type ComposerAttachment = {
+  name: string;
+  size?: number;
+  type?: string;
+};
+
+export type ComposerDraft = {
+  attachments: ComposerAttachment[];
+  effort: "low" | "medium" | "high" | "max";
+  project: ProjectFolder | null;
+  text: string;
 };
 
 type ModelOption = {
@@ -48,18 +64,24 @@ type ModelOption = {
 };
 
 const effortLevels = ["低", "中", "高", "最高"] as const;
+const effortValues = ["low", "medium", "high", "max"] as const;
 const MAX_ATTACHMENTS = 10;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
-  const [submitting, setSubmitting] = useState(false);
+export function TaskComposer({
+  busy = false,
+  conversationStarted = false,
+  onProjectChange,
+  onSend,
+  selectedProject,
+}: TaskComposerProps) {
+  const [prompt, setPrompt] = useState("");
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
   const [selectedModel, setSelectedModel] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [effort, setEffort] = useState(2);
   const [attachmentItems, setAttachmentItems] = useState<UploadFile[]>([]);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [selectingProject, setSelectingProject] = useState(false);
   const attachmentsRef = useRef<AttachmentsRef>(null);
   const senderRef = useRef<SenderRef>(null);
@@ -121,19 +143,29 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
     }
   };
 
-  const handleSubmit = async (value: string) => {
+  const handleSubmit = (value: string) => {
     const content = value.trim();
     if (!content && !attachmentItems.length) {
       messageApi.warning("请输入消息或添加附件。");
       return;
     }
-
-    setSubmitting(true);
-    try {
-      messageApi.info("当前仅完成界面交互，智能体能力将在后续步骤接入。");
-    } finally {
-      setSubmitting(false);
+    if (busy) {
+      return;
     }
+
+    onSend({
+      text: content,
+      project: selectedProject,
+      effort: effortValues[effort],
+      attachments: attachmentItems.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      })),
+    });
+    setPrompt("");
+    setAttachmentItems([]);
+    setAttachmentsOpen(false);
   };
 
   const beforeAttach = (file: RcFile) => {
@@ -188,7 +220,7 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
     try {
       const project = await selectProjectFolder();
       if (project) {
-        setSelectedProject(project);
+        onProjectChange(project);
       }
     } catch {
       messageApi.error("项目文件夹选择失败。");
@@ -198,20 +230,22 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
   };
 
   return (
-    <section className="composer" aria-label="新建任务">
+    <section className={`composer${conversationStarted ? " composer-chat" : ""}`} aria-label="发送消息">
       {contextHolder}
       <Sender
         ref={senderRef}
         className="task-sender"
-        autoSize={{ minRows: 3, maxRows: 7 }}
+        autoSize={{ minRows: conversationStarted ? 2 : 3, maxRows: 7 }}
         value={prompt}
-        onChange={onPromptChange}
-        onSubmit={(value) => void handleSubmit(value)}
+        onChange={setPrompt}
+        onSubmit={handleSubmit}
         onPasteFile={addPastedFiles}
-        loading={submitting}
+        loading={busy}
         submitType="enter"
         suffix={false}
-        placeholder="描述你想完成的任务，使用 @ 添加上下文，使用 / 选择命令或能力"
+        placeholder={conversationStarted
+          ? "继续输入以排队后续修改"
+          : "描述你想完成的任务，使用 @ 添加上下文，使用 / 选择命令或能力"}
         header={(
           <>
             <Tooltip title={selectedProject?.path}>
@@ -326,10 +360,10 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
               <Button
                 aria-label="发送消息"
                 className="sender-send-button"
-                disabled={!prompt.trim() && !attachmentItems.length}
+                disabled={busy || (!prompt.trim() && !attachmentItems.length)}
                 icon={<ArrowUpOutlined />}
-                loading={submitting}
-                onClick={() => void handleSubmit(prompt)}
+                loading={busy}
+                onClick={() => handleSubmit(prompt)}
                 shape="circle"
                 type="primary"
               />

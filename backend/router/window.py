@@ -68,6 +68,12 @@ class WindowRouter:
             raise ValueError("选择的项目文件夹不存在")
         return {"name": folder.name or str(folder), "path": str(folder)}
 
+    @staticmethod
+    def get_home_folder() -> dict[str, str]:
+        """Return the user's home folder as the default project directory."""
+        folder = Path.home().resolve()
+        return {"name": folder.name or str(folder), "path": str(folder)}
+
     def resize_window(self, width: int, height: int, edge: str) -> None:
         """Resize the frameless window while keeping the opposite edges fixed."""
         if type(width) is not int or type(height) is not int:

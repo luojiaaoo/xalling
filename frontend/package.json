@@ -12,13 +12,16 @@
     "@ant-design/charts": "^2.6.5",
     "@ant-design/icons": "^6.1.0",
     "@ant-design/x": "^2.9.0",
+    "@ant-design/x-markdown": "^2.9.0",
     "antd": "^6.6.2",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "react-syntax-highlighter": "^16.1.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^5.1.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.6"

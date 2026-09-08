@@ -7,7 +7,7 @@ from webview.window import FixPoint
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router import ModelRouter, ThemeRouter, WindowRouter
+from backend.router import ChatRouter, ModelRouter, ThemeRouter, WindowRouter
 from main import ApplicationBridge
 
 
@@ -115,6 +115,7 @@ def test_application_bridge_composes_window_and_model_routers() -> None:
     assert isinstance(bridge, WindowRouter)
     assert isinstance(bridge, ModelRouter)
     assert isinstance(bridge, ThemeRouter)
+    assert isinstance(bridge, ChatRouter)
 
 
 @pytest.mark.parametrize(
@@ -189,6 +190,17 @@ def test_window_router_keeps_project_when_folder_picker_is_cancelled() -> None:
     router.bind_window(WindowStub())
 
     assert router.select_project_folder() is None
+
+
+def test_window_router_returns_home_as_default_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    assert WindowRouter.get_home_folder() == {
+        "name": tmp_path.name,
+        "path": str(tmp_path.resolve()),
+    }
 
 
 def test_theme_router_persists_selection(
