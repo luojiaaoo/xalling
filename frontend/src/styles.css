@@ -10,10 +10,10 @@
   position: relative; flex: 1; min-width: 0; overflow: auto; padding: 58px clamp(28px, 5vw, 76px) 42px;
   background: #f8f8fc;
 }
-.settings-header { display: flex; align-items: center; justify-content: space-between; max-width: 1120px; margin: 0 auto 25px; }
-.settings-header .ant-btn { color: #686978; }
-.settings-header .ant-btn:hover { color: #5d4cf0 !important; background: #eeecff !important; }
 .settings-title { max-width: 1120px; margin: 0 auto 28px; }
+.model-settings-title { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.model-settings-title .ant-btn { flex: none; color: #686978; }
+.model-settings-title .ant-btn:hover { color: #5d4cf0 !important; background: #eeecff !important; }
 .settings-kicker { color: #8178d8; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
 .settings-title h1 { margin: 6px 0 7px; font-size: 31px; letter-spacing: -.035em; }
 .settings-title p { margin: 0; color: #77798a; font-size: 14px; }

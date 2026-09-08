@@ -188,19 +188,18 @@ export function ModelSettings({ section }: { section: string }) {
 
   return (
     <main className="settings-page">
-      <header className="settings-header">
+      <header className="settings-title model-settings-title">
+        <div>
+          <span className="settings-kicker">设置</span>
+          <h1>模型管理</h1>
+          <p>管理模型供应商、访问凭据和可在对话中选择的模型。</p>
+        </div>
         {section === "model" && (
           <Button type="text" icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
             刷新
           </Button>
         )}
       </header>
-
-      <div className="settings-title">
-        <span className="settings-kicker">设置</span>
-        <h1>模型管理</h1>
-        <p>管理模型供应商、访问凭据和可在对话中选择的模型。</p>
-      </div>
 
       <section className="model-settings-layout" aria-label="模型管理">
         <aside className="provider-list">
