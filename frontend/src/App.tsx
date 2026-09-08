@@ -80,7 +80,9 @@ export default function App() {
               mode={view}
               onCollapse={() => setSidebarVisible(false)}
               onNewTask={handleNewTask}
-              onSettingsClick={() => setView("settings")}
+              onSettingsClick={() =>
+                setView((currentView) => currentView === "settings" ? "workspace" : "settings")
+              }
               activeSettingsSection={settingsSection}
               onSettingsSectionChange={setSettingsSection}
               onBackToWorkspace={() => setView("workspace")}
