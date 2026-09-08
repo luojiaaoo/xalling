@@ -3,9 +3,9 @@ import {
   DownOutlined,
   EyeOutlined,
   FolderOpenOutlined,
+  GlobalOutlined,
   LoadingOutlined,
   PaperClipOutlined,
-  RobotOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import type { CascaderProps } from "antd";
@@ -49,7 +49,7 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
         setModelGroups(configuredGroups);
         const firstGroupIndex = configuredGroups.findIndex((group) => group.models.length > 0);
         if (firstGroupIndex >= 0) {
-          setSelectedModel([String(firstGroupIndex), configuredGroups[firstGroupIndex].models[0]]);
+          setSelectedModel([String(firstGroupIndex), configuredGroups[firstGroupIndex].models[0].name]);
         }
       } catch {
         if (active) {
@@ -72,9 +72,9 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
     value: String(groupIndex),
     label: group.name,
     children: group.models.map((model) => ({
-      value: model,
-      label: model,
-      vision: group.vision,
+      value: model.name,
+      label: model.name,
+      vision: model.vision,
     })),
   }));
   const hasModels = modelGroups.some((group) => group.models.length > 0);
@@ -124,7 +124,7 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
             aria-label="选择模型"
             className="model-select"
             disabled={modelsLoading || !hasModels}
-            displayRender={(labels) => labels.at(-1)}
+            displayRender={(labels) => labels.join(" · ")}
             expandTrigger="hover"
             onChange={handleModelChange}
             optionRender={(option) => (
@@ -135,7 +135,7 @@ export function TaskComposer({ prompt, onPromptChange }: TaskComposerProps) {
             )}
             options={modelOptions}
             placeholder={modelsLoading ? "读取模型…" : "未配置模型"}
-            prefix={<RobotOutlined />}
+            prefix={<GlobalOutlined />}
             showSearch
             size="small"
             suffixIcon={modelsLoading ? <LoadingOutlined spin /> : <DownOutlined />}

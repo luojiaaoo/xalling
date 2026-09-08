@@ -69,7 +69,7 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .composer-footer { display: flex; align-items: center; justify-content: space-between; padding: 5px 2px 0; }
 .composer-footer .ant-btn { color: #6d6e7e; font-size: 12px; }
 .composer-footer .ant-btn:hover { color: #5d4cf0 !important; background: #f1efff !important; }
-.model-select { min-width: 132px; max-width: 190px; }
+.model-select { min-width: 220px; max-width: 280px; }
 .model-select .ant-select-selector { padding-inline: 7px !important; color: #6d6e7e; font-size: 12px; }
 .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #5d4cf0; background: #f1efff; }
 .model-select .ant-select-selection-item { overflow: hidden; text-overflow: ellipsis; }

@@ -18,13 +18,19 @@ CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
 
 
 class ModelConfig(BaseModel):
-    """One model provider and the models available through it."""
+    """One model and its capabilities."""
+
+    name: str
+    vision: bool = False
+
+
+class ModelSiteConfig(BaseModel):
+    """One model site and the models available through it."""
 
     name: str
     api_key: str = Field(default="", repr=False)
     api_url: str = ""
-    models: list[str] = Field(default_factory=list)
-    vision: bool = False
+    models: list[ModelConfig] = Field(default_factory=list)
 
 
 class Settings(BaseSettings):
@@ -35,7 +41,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    model: list[ModelConfig] = Field(default_factory=list)
+    model: list[ModelSiteConfig] = Field(default_factory=list)
 
     @classmethod
     def settings_customise_sources(

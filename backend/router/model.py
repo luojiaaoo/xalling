@@ -5,12 +5,18 @@ from typing import TypedDict
 from backend.config.setting import Settings
 
 
+class ModelInfo(TypedDict):
+    """Model fields that are safe to expose to the Web UI."""
+
+    name: str
+    vision: bool
+
+
 class ModelGroup(TypedDict):
     """Model provider fields that are safe to expose to the Web UI."""
 
     name: str
-    models: list[str]
-    vision: bool
+    models: list[ModelInfo]
 
 
 class ModelRouter:
@@ -18,4 +24,13 @@ class ModelRouter:
 
     def get_model_groups(self) -> list[ModelGroup]:
         """Return model groups without exposing credentials or endpoint URLs."""
-        return [{"name": model.name, "models": model.models, "vision": model.vision} for model in Settings().model]
+        return [
+            {
+                "name": site.name,
+                "models": [
+                    {"name": model.name, "vision": model.vision}
+                    for model in site.models
+                ],
+            }
+            for site in Settings().model
+        ]

@@ -7,7 +7,11 @@ type PyWebviewApi = {
 
 export type ModelGroup = {
   name: string;
-  models: string[];
+  models: ModelConfig[];
+};
+
+export type ModelConfig = {
+  name: string;
   vision: boolean;
 };
 
