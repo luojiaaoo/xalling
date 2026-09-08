@@ -26,8 +26,10 @@ def main() -> None:
         width=1280,
         height=820,
         min_size=(1050, 680),
+        resizable=True,
         frameless=True,
         easy_drag=False,
+        text_select=True,
         shadow=True,
         background_color="#f7f7fb",
     )
