@@ -48,7 +48,7 @@
 .settings-field .ant-input:focus, .settings-field .ant-input-affix-wrapper:focus-within, .model-editor-row .ant-input:focus { border-color: #9c93f8; }
 .settings-field small { color: #9697a5; font-size: 11px; font-weight: 400; }
 .model-list-heading { margin-top: 31px; padding-top: 23px; border-top: 1px solid #eeeeF4; }
-.model-list-heading h3 { margin: 0 0 4px; color: #454653; font-size: 15px; }
+.model-list-heading h3 { margin: 0; color: #454653; font-size: 15px; }
 .model-list-heading p { margin: 0; color: #90919e; font-size: 12px; }
 .model-list-heading .ant-btn { color: #5a49eb; border-color: #d8d3ff; }
 .model-editor-list { display: grid; gap: 8px; margin-top: 15px; }

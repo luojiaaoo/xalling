@@ -60,7 +60,7 @@ export function Workspace() {
       <div className="watermark" aria-hidden="true">X</div>
       <div className="workspace-content">
         <div className="eyebrow">XALLING · AI WORKSPACE</div>
-        <h1>{greeting}</h1>
+        <h2>{greeting}</h2>
         <p className="subtitle">{quote}</p>
         <TaskComposer prompt={prompt} onPromptChange={setPrompt} />
       </div>

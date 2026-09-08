@@ -236,7 +236,7 @@ export function ModelSettings({ section }: { section: string }) {
           <div className="provider-editor-heading">
             <div>
               <span className="settings-kicker">{isNew ? "新供应商" : "供应商配置"}</span>
-              <h2>{isNew ? "添加模型供应商" : draft.name || "未命名供应商"}</h2>
+              <h2>{isNew ? "添加模型供应商" : "编辑模型供应商"}</h2>
             </div>
             {!isNew && (
               <Popconfirm
@@ -253,16 +253,16 @@ export function ModelSettings({ section }: { section: string }) {
           </div>
 
           <div className="settings-form-grid">
-            <label className="settings-field">
+            <label className="settings-field settings-field-wide">
               <span>供应商名称</span>
               <Input
                 value={draft.name}
-                placeholder="例如：OpenAI 或公司网关"
+                placeholder="例如：Claude"
                 maxLength={120}
                 onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
               />
             </label>
-            <label className="settings-field">
+            <label className="settings-field settings-field-wide">
               <span>API 地址</span>
               <Input
                 value={draft.apiUrl}
@@ -282,14 +282,12 @@ export function ModelSettings({ section }: { section: string }) {
                   apiKey: event.target.value,
                 }))}
               />
-              <small>API Key 为必填项，已保存的密钥会自动填入。</small>
             </label>
           </div>
 
           <div className="model-list-heading">
             <div>
               <h3>可用模型</h3>
-              <p>添加后会显示在工作区的模型选择器中。</p>
             </div>
             <Button
               icon={<PlusOutlined />}
