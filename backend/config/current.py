@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import aiofiles
-import aiofiles.os
 import tomli_w
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -25,6 +23,12 @@ class CurrentModelConfig(BaseModel):
     name: str = ""
 
 
+class CurrentThemeConfig(BaseModel):
+    """The currently selected UI theme."""
+
+    name: str = "default"
+
+
 class CurrentConfig(BaseSettings):
     """Current application state grouped by feature."""
 
@@ -34,6 +38,7 @@ class CurrentConfig(BaseSettings):
     )
 
     model: CurrentModelConfig = Field(default_factory=CurrentModelConfig)
+    theme: CurrentThemeConfig = Field(default_factory=CurrentThemeConfig)
 
     @classmethod
     def settings_customise_sources(
@@ -52,10 +57,9 @@ class CurrentConfig(BaseSettings):
         """Return the path to the current-selection TOML file."""
         return Path(cls.model_config["toml_file"])
 
-    async def write(self) -> None:
+    def write(self) -> None:
         """Write the current selection to its dedicated TOML file."""
         conf_file_path = self._conf_file_path()
-        await aiofiles.os.makedirs(conf_file_path.parent, exist_ok=True)
+        conf_file_path.parent.mkdir(parents=True, exist_ok=True)
         contents = tomli_w.dumps(self.model_dump(mode="json"))
-        async with aiofiles.open(conf_file_path, "w", encoding="utf-8") as file:
-            await file.write(contents)
+        conf_file_path.write_text(contents, encoding="utf-8")

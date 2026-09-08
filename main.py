@@ -2,10 +2,10 @@ from pathlib import Path
 
 import webview
 
-from backend.router import ModelRouter, WindowRouter
+from backend.router import ModelRouter, ThemeRouter, WindowRouter
 
 
-class ApplicationBridge(WindowRouter, ModelRouter):
+class ApplicationBridge(WindowRouter, ModelRouter, ThemeRouter):
     """Compose the JSON-only routers exposed to the local Web UI."""
 
 

@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import aiofiles
-import aiofiles.os
 import tomli_w
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -60,11 +58,9 @@ class Settings(BaseSettings):
         """Return the path to the TOML configuration file."""
         return Path(cls.model_config["toml_file"])
 
-    async def write(self) -> None:
+    def write(self) -> None:
         """Write all values from this instance to the configured TOML file."""
         conf_file_path = self._conf_file_path()
-        await aiofiles.os.makedirs(conf_file_path.parent, exist_ok=True)
+        conf_file_path.parent.mkdir(parents=True, exist_ok=True)
         contents = tomli_w.dumps(self.model_dump(mode="json"))
-        async with aiofiles.open(conf_file_path, "w", encoding="utf-8") as file:
-            await file.write(contents)
-        return self
+        conf_file_path.write_text(contents, encoding="utf-8")

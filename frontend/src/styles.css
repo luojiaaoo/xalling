@@ -6,6 +6,152 @@
 
 * { box-sizing: border-box; }
 
+.settings-page {
+  position: relative; flex: 1; min-width: 0; overflow: auto; padding: 58px clamp(28px, 5vw, 76px) 42px;
+  background: #f8f8fc;
+}
+.settings-header { display: flex; align-items: center; justify-content: space-between; max-width: 1120px; margin: 0 auto 25px; }
+.settings-header .ant-btn { color: #686978; }
+.settings-header .ant-btn:hover { color: #5d4cf0 !important; background: #eeecff !important; }
+.settings-title { max-width: 1120px; margin: 0 auto 28px; }
+.settings-kicker { color: #8178d8; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.settings-title h1 { margin: 6px 0 7px; font-size: 31px; letter-spacing: -.035em; }
+.settings-title p { margin: 0; color: #77798a; font-size: 14px; }
+.model-settings-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); max-width: 1120px; min-height: 540px; margin: 0 auto; overflow: hidden; border: 1px solid #e4e3ed; border-radius: 16px; background: #fff; box-shadow: 0 15px 35px rgba(48, 43, 102, .07); }
+.provider-list { display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 18px 14px 14px; border-right: 1px solid #e9e8f1; background: #fcfcff; }
+.provider-list-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 5px; color: #565766; font-size: 13px; font-weight: 700; }
+.provider-count { display: grid; min-width: 21px; height: 21px; place-items: center; color: #7266e5; font-size: 11px; border-radius: 999px; background: #eeecff; }
+.provider-items { flex: 1; min-height: 0; overflow: auto; }
+.provider-loading, .provider-empty { padding-top: 32px; color: #8d8e9b; text-align: center; font-size: 12px; }
+.provider-loading svg { margin-right: 7px; color: #6d5dfc; }
+.provider-empty.ant-empty { margin: 28px 0; }
+.provider-empty .ant-empty-description { color: #9697a5; font-size: 12px; }
+.provider-item { display: flex; width: 100%; align-items: center; gap: 9px; margin-bottom: 4px; padding: 10px; color: #777886; text-align: left; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
+.provider-item:hover { color: #5141e6; background: #f3f1ff; }
+.provider-item-active { color: #4938d9; background: #eeecff; }
+.provider-item > svg:first-child { font-size: 17px; }
+.provider-item-content { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.provider-item-content strong { overflow: hidden; color: inherit; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.provider-item-content small { color: #9a9ba8; font-size: 11px; }
+.provider-key-status { color: #39a978; font-size: 13px; }
+.provider-list > .ant-btn { color: #5d4cf0; border-color: #d6d1ff; background: #fff; }
+.provider-editor { min-width: 0; padding: 30px clamp(24px, 4vw, 46px) 22px; }
+.provider-editor-heading, .model-list-heading, .settings-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.provider-editor-heading { margin-bottom: 28px; }
+.provider-editor-heading h2 { margin: 5px 0 0; color: #30313d; font-size: 21px; letter-spacing: -.025em; }
+.settings-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.settings-field { display: grid; gap: 7px; color: #555665; font-size: 12px; font-weight: 650; }
+.settings-field-wide { grid-column: 1 / -1; }
+.settings-field em { margin-left: 7px; color: #31a572; font-style: normal; font-weight: 500; }
+.settings-field em svg { margin-right: 3px; }
+.settings-field .ant-input, .settings-field .ant-input-affix-wrapper, .model-editor-row .ant-input { border-color: #e0dfe9; box-shadow: none; }
+.settings-field .ant-input:focus, .settings-field .ant-input-affix-wrapper:focus-within, .model-editor-row .ant-input:focus { border-color: #9c93f8; }
+.settings-field small { color: #9697a5; font-size: 11px; font-weight: 400; }
+.model-list-heading { margin-top: 31px; padding-top: 23px; border-top: 1px solid #eeeeF4; }
+.model-list-heading h3 { margin: 0 0 4px; color: #454653; font-size: 15px; }
+.model-list-heading p { margin: 0; color: #90919e; font-size: 12px; }
+.model-list-heading .ant-btn { color: #5a49eb; border-color: #d8d3ff; }
+.model-editor-list { display: grid; gap: 8px; margin-top: 15px; }
+.model-editor-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto 34px; align-items: center; gap: 12px; padding: 8px; border: 1px solid #ebeaf2; border-radius: 10px; background: #fcfcfe; }
+.model-vision-toggle { display: inline-flex; align-items: center; gap: 7px; color: #767786; font-size: 12px; white-space: nowrap; }
+.model-vision-toggle > svg { color: #6d5dfc; }
+.model-editor-empty { padding: 17px; color: #9899a5; font-size: 12px; text-align: center; border: 1px dashed #dedce8; border-radius: 10px; }
+.settings-save-bar { min-height: 58px; margin-top: 24px; padding-top: 17px; border-top: 1px solid #eeeeF4; }
+.settings-save-bar .ant-btn-primary { min-width: 98px; background: #6d5dfc; }
+.settings-error, .settings-success { font-size: 12px; }
+.settings-error { color: #d24f4f; }
+.settings-success { color: #259868; }
+.settings-success svg { margin-right: 4px; }
+
+.theme-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; max-width: 1120px; margin: 0 auto; }
+.theme-option { position: relative; display: grid; gap: 7px; padding: 16px; text-align: left; border: 1px solid #e4e3ed; border-radius: 14px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.theme-option:hover { border-color: #b9b1f5; box-shadow: 0 8px 20px rgba(48, 43, 102, .08); }
+.theme-option-active { border-color: #6d5dfc; box-shadow: 0 0 0 3px rgba(109, 93, 252, .14); }
+.theme-option strong { color: #30313d; font-size: 14px; }
+.theme-option small { color: #90919e; font-size: 12px; }
+.theme-option-check { position: absolute; top: 12px; right: 12px; color: #6d5dfc; font-size: 15px; }
+.theme-option-swatch { display: grid; gap: 5px; padding: 10px; border: 1px solid #ecebf3; border-radius: 10px; }
+.theme-swatch-bar { height: 8px; border-radius: 99px; background: #e8e7f0; }
+.theme-swatch-bar-accent { background: #6d5dfc; }
+.theme-swatch-dark { background: #0d0d0f; border-color: #23232a; }
+.theme-swatch-dark .theme-swatch-bar { background: #2a2a33; }
+.theme-swatch-dark .theme-swatch-bar-accent { background: #6d5dfc; }
+.theme-swatch-cartoon { background: #F5E8C0; border-color: #225555; border-width: 2px; }
+.theme-swatch-cartoon .theme-swatch-bar { background: #CBC4AF; }
+.theme-swatch-cartoon .theme-swatch-bar-accent { background: #225555; }
+
+/* ---------- 黑暗主题（自定义样式面，antd 组件由 token 接管） ---------- */
+html[data-theme="dark"] { color: rgba(255, 255, 255, 0.88); background: #050505; }
+html[data-theme="dark"] .app-shell, html[data-theme="dark"] .settings-page { background: #0a0a0c; }
+html[data-theme="dark"] .sidebar { background: #0d0d10; border-right-color: #1e1e24; }
+html[data-theme="dark"] .brand-name { color: rgba(255, 255, 255, 0.9); }
+html[data-theme="dark"] .new-task-button, html[data-theme="dark"] .back-workspace-button { color: rgba(255, 255, 255, 0.85); border-color: #26262e; background: #141419; box-shadow: none; }
+html[data-theme="dark"] .main-menu .ant-menu-item { color: rgba(255, 255, 255, 0.65); }
+html[data-theme="dark"] .main-menu .ant-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .main-menu .ant-menu-item-selected { background: rgba(109, 93, 252, 0.22); }
+html[data-theme="dark"] .settings-menu .ant-menu-submenu-title { color: rgba(255, 255, 255, 0.85); }
+html[data-theme="dark"] .project-heading, html[data-theme="dark"] .profile-row { color: rgba(255, 255, 255, 0.7); border-top-color: #1e1e24; }
+html[data-theme="dark"] .project-row, html[data-theme="dark"] .task-row { color: rgba(255, 255, 255, 0.6); }
+html[data-theme="dark"] .project-row:hover, html[data-theme="dark"] .task-row:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .window-controls .ant-btn { color: rgba(255, 255, 255, 0.6); }
+html[data-theme="dark"] .window-controls .ant-btn:hover { background: rgba(255, 255, 255, 0.1); }
+html[data-theme="dark"] .settings-title h1 { color: rgba(255, 255, 255, 0.92); }
+html[data-theme="dark"] .settings-title p, html[data-theme="dark"] .settings-kicker { color: rgba(255, 255, 255, 0.45); }
+html[data-theme="dark"] .model-settings-layout { border-color: #1e1e24; background: #111114; box-shadow: none; }
+html[data-theme="dark"] .provider-list { border-right-color: #1e1e24; background: #0d0d10; }
+html[data-theme="dark"] .provider-list-heading { color: rgba(255, 255, 255, 0.75); }
+html[data-theme="dark"] .provider-item { color: rgba(255, 255, 255, 0.65); }
+html[data-theme="dark"] .provider-item:hover { color: #a99cff; background: rgba(109, 93, 252, 0.12); }
+html[data-theme="dark"] .provider-item-active { color: #a99cff; background: rgba(109, 93, 252, 0.2); }
+html[data-theme="dark"] .provider-item-content small, html[data-theme="dark"] .settings-field small { color: rgba(255, 255, 255, 0.4); }
+html[data-theme="dark"] .provider-editor-heading h2, html[data-theme="dark"] .model-list-heading h3 { color: rgba(255, 255, 255, 0.88); }
+html[data-theme="dark"] .model-list-heading p { color: rgba(255, 255, 255, 0.42); }
+html[data-theme="dark"] .model-editor-row { border-color: #26262e; background: #141419; }
+html[data-theme="dark"] .model-editor-empty { color: rgba(255, 255, 255, 0.4); border-color: #2c2c35; }
+html[data-theme="dark"] .model-list-heading, html[data-theme="dark"] .settings-save-bar { border-top-color: #1e1e24; }
+html[data-theme="dark"] .theme-option { border-color: #26262e; background: #111114; }
+html[data-theme="dark"] .theme-option strong { color: rgba(255, 255, 255, 0.88); }
+html[data-theme="dark"] .theme-option small { color: rgba(255, 255, 255, 0.42); }
+html[data-theme="dark"] .workspace { background: radial-gradient(circle at 50% 24%, #101014 0, #0c0c0f 31%, #08080a 76%); }
+html[data-theme="dark"] .settings-error { color: #e57373; }
+html[data-theme="dark"] .settings-success { color: #66bb8a; }
+
+/* ---------- 卡通主题（自定义样式面） ---------- */
+html[data-theme="cartoon"] { color: #51463B; background: #FAFAEE; }
+html[data-theme="cartoon"] .app-shell, html[data-theme="cartoon"] .settings-page { background: #FAFAEE; }
+html[data-theme="cartoon"] .sidebar { background: #F5E8C0; border-right: 2px solid #225555; }
+html[data-theme="cartoon"] .brand-name { color: #51463B; }
+html[data-theme="cartoon"] .new-task-button, html[data-theme="cartoon"] .back-workspace-button { color: #51463B; border: 2px solid #225555; background: #fff; box-shadow: none; }
+html[data-theme="cartoon"] .main-menu .ant-menu-item { color: #51463B; }
+html[data-theme="cartoon"] .main-menu .ant-menu-item-selected { background: #E8D29A; }
+html[data-theme="cartoon"] .settings-menu .ant-menu-submenu-title { color: #51463B; }
+html[data-theme="cartoon"] .project-heading, html[data-theme="cartoon"] .profile-row { color: #51463B; border-top: 2px solid #225555; }
+html[data-theme="cartoon"] .project-row, html[data-theme="cartoon"] .task-row { color: #6f6353; }
+html[data-theme="cartoon"] .project-row:hover, html[data-theme="cartoon"] .task-row:hover { color: #51463B; background: #E8D29A; }
+html[data-theme="cartoon"] .window-controls .ant-btn { color: #51463B; }
+html[data-theme="cartoon"] .window-controls .ant-btn:hover { background: #E8D29A; }
+html[data-theme="cartoon"] .settings-title h1 { color: #51463B; }
+html[data-theme="cartoon"] .settings-title p { color: #7a6e5d; }
+html[data-theme="cartoon"] .settings-kicker { color: #225555; }
+html[data-theme="cartoon"] .model-settings-layout { border: 2px solid #225555; background: #fff; box-shadow: none; }
+html[data-theme="cartoon"] .provider-list { border-right: 2px solid #225555; background: #F5E8C0; }
+html[data-theme="cartoon"] .provider-list-heading { color: #51463B; }
+html[data-theme="cartoon"] .provider-item { color: #51463B; }
+html[data-theme="cartoon"] .provider-item:hover { background: #E8D29A; }
+html[data-theme="cartoon"] .provider-item-active { background: #E8D29A; }
+html[data-theme="cartoon"] .provider-item-content small, html[data-theme="cartoon"] .settings-field small { color: #7a6e5d; }
+html[data-theme="cartoon"] .provider-editor-heading h2, html[data-theme="cartoon"] .model-list-heading h3 { color: #51463B; }
+html[data-theme="cartoon"] .model-list-heading p { color: #7a6e5d; }
+html[data-theme="cartoon"] .model-editor-row { border: 2px solid #225555; background: #FAFAEE; }
+html[data-theme="cartoon"] .model-editor-empty { color: #7a6e5d; border: 2px dashed #225555; }
+html[data-theme="cartoon"] .model-list-heading, html[data-theme="cartoon"] .settings-save-bar { border-top: 2px solid #225555; }
+html[data-theme="cartoon"] .theme-option { border: 2px solid #225555; background: #fff; }
+html[data-theme="cartoon"] .theme-option-active { border-color: #225555; box-shadow: 0 0 0 3px rgba(34, 85, 85, 0.18); }
+html[data-theme="cartoon"] .theme-option strong { color: #51463B; }
+html[data-theme="cartoon"] .theme-option small { color: #7a6e5d; }
+html[data-theme="cartoon"] .theme-option-check { color: #225555; }
+html[data-theme="cartoon"] .theme-option-swatch { border: 2px solid #225555; }
+
 body { margin: 0; min-width: 1050px; min-height: 100vh; }
 
 button, textarea { font: inherit; }
@@ -40,6 +186,11 @@ button, textarea { font: inherit; }
 .main-menu { border-inline-end: 0 !important; background: transparent !important; }
 .main-menu .ant-menu-item { width: 100%; height: 40px; line-height: 40px; margin: 3px 0; color: #686a79; border-radius: 9px; }
 .main-menu .ant-menu-item-selected { color: #5948ed; font-weight: 600; background: #eeebff; }
+
+.back-workspace-button { display: flex; align-items: center; justify-content: flex-start; gap: 8px; height: 42px; margin-bottom: 14px; color: #3c3d4a; border: 1px solid #e4e3ed; background: #fff; box-shadow: 0 3px 10px rgba(39, 35, 92, .04); }
+.back-workspace-button:hover { color: #5d4cf0 !important; border-color: #d8d2ff !important; background: #f6f4ff !important; }
+.settings-menu .ant-menu-submenu-title { height: 40px; line-height: 40px; margin: 3px 0; color: #3c3d4a; border-radius: 9px; }
+.settings-menu .ant-menu-sub .ant-menu-item { height: 36px; line-height: 36px; margin: 2px 0; padding-left: 26px !important; }
 
 .sidebar-bottom { display: flex; flex-direction: column; gap: 4px; }
 .project-heading { display: flex; justify-content: space-between; align-items: center; padding: 8px 8px 4px; color: #aaaab5; font-size: 12px; }

@@ -1,4 +1,3 @@
-import asyncio
 import tomllib
 from pathlib import Path
 
@@ -66,7 +65,7 @@ def test_write_writes_all_settings_and_creates_parent_directory(
         ]
     )
 
-    asyncio.run(config.write())
+    config.write()
 
     with path.open("rb") as file:
         assert tomllib.load(file) == {

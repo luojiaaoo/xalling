@@ -83,6 +83,7 @@ uv run ruff check . --fix 2>/dev/null
 # 多task并发（不使用asyncio原生接口，使用asyncer）
 # 包装同步函数为异步（不使用asyncio原生接口，使用asyncer）
 # 包装异步函数为同步（使用asyncer，禁止使用！）
+# 除了程序入口，其他地方不要用 asyncio.run()
 
 # 超时控制
 try:

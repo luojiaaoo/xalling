@@ -5,8 +5,83 @@ import pytest
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router import ModelRouter, WindowRouter
+from backend.router import ModelRouter, ThemeRouter, WindowRouter
 from main import ApplicationBridge
+
+
+def test_model_router_manages_sites_and_returns_api_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings_path = tmp_path / "setting.toml"
+    settings_path.write_text(
+        '[[model]]\nname = "Provider A"\napi_key = "secret"\n'
+        'api_url = "https://api.example.com/v1"\n'
+        '[[model.models]]\nname = "model-a"\n',
+        encoding="utf-8",
+    )
+    current_path = tmp_path / "current.toml"
+    monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
+    monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
+    router = ModelRouter()
+
+    assert router.get_model_sites() == [
+        {
+            "name": "Provider A",
+            "api_url": "https://api.example.com/v1",
+            "api_key": "secret",
+            "models": [{"name": "model-a", "image_vision": False}],
+        }
+    ]
+
+    router.save_model_site(
+        "Provider A",
+        "Provider B",
+        "https://api.example.com/v2",
+        "replacement-secret",
+        [{"name": "model-b", "image_vision": True}],
+    )
+
+    with settings_path.open("rb") as file:
+        assert tomllib.load(file) == {
+            "model": [
+                {
+                    "name": "Provider B",
+                    "api_key": "replacement-secret",
+                    "api_url": "https://api.example.com/v2",
+                    "models": [{"name": "model-b", "image_vision": True}],
+                }
+            ]
+        }
+    with current_path.open("rb") as file:
+        assert tomllib.load(file) == {
+            "model": {"site": "Provider B", "name": "model-b"},
+            "theme": {"name": "default"},
+        }
+
+
+def test_model_router_deletes_site_and_replaces_current_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings_path = tmp_path / "setting.toml"
+    settings_path.write_text(
+        '[[model]]\nname = "Provider A"\n[[model.models]]\nname = "model-a"\n'
+        '[[model]]\nname = "Provider B"\n[[model.models]]\nname = "model-b"\n',
+        encoding="utf-8",
+    )
+    current_path = tmp_path / "current.toml"
+    current_path.write_text(
+        '[model]\nsite = "Provider A"\nname = "model-a"\n', encoding="utf-8"
+    )
+    monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
+    monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
+
+    ModelRouter().delete_model_site("Provider A")
+
+    with current_path.open("rb") as file:
+        assert tomllib.load(file) == {
+            "model": {"site": "Provider B", "name": "model-b"},
+            "theme": {"name": "default"},
+        }
 
 
 def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,6 +111,28 @@ def test_application_bridge_composes_window_and_model_routers() -> None:
 
     assert isinstance(bridge, WindowRouter)
     assert isinstance(bridge, ModelRouter)
+    assert isinstance(bridge, ThemeRouter)
+
+
+def test_theme_router_persists_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current_path = tmp_path / "current.toml"
+    monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
+    router = ThemeRouter()
+
+    assert router.get_current_theme() == "default"
+
+    router.set_current_theme("dark")
+
+    assert router.get_current_theme() == "dark"
+    with current_path.open("rb") as file:
+        assert tomllib.load(file) == {
+            "model": {"site": "", "name": ""},
+            "theme": {"name": "dark"},
+        }
+    with pytest.raises(ValueError, match="不支持的主题"):
+        router.set_current_theme("neon")
 
 
 def test_model_router_restores_saved_selection(
@@ -79,7 +176,8 @@ def test_model_router_persists_first_model_when_selection_is_missing(
     }
     with current_path.open("rb") as file:
         assert tomllib.load(file) == {
-            "model": {"site": "可用站点", "name": "model-a"}
+            "model": {"site": "可用站点", "name": "model-a"},
+            "theme": {"name": "default"},
         }
 
 
@@ -105,7 +203,8 @@ def test_model_router_replaces_selection_that_is_no_longer_available(
     }
     with current_path.open("rb") as file:
         assert tomllib.load(file) == {
-            "model": {"site": "可用站点", "name": "model-a"}
+            "model": {"site": "可用站点", "name": "model-a"},
+            "theme": {"name": "default"},
         }
 
 
@@ -127,7 +226,8 @@ def test_model_router_validates_and_persists_changed_selection(
 
     with current_path.open("rb") as file:
         assert tomllib.load(file) == {
-            "model": {"site": "站点一", "name": "model-b"}
+            "model": {"site": "站点一", "name": "model-b"},
+            "theme": {"name": "default"},
         }
     with pytest.raises(ValueError, match="所选模型不在当前配置中"):
         router.set_current_model("站点一", "missing")
