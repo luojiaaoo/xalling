@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { ModelSettings } from "./components/ModelSettings";
 import { Sidebar } from "./components/Sidebar";
+import { TitleBar } from "./components/TitleBar";
+import { WindowResizeHandles } from "./components/WindowResizeHandles";
 import { Workspace } from "./components/Workspace";
 import { getCurrentTheme, setCurrentTheme } from "./bridge/client";
 import { themes, type ThemeName } from "./theme";
@@ -20,6 +22,7 @@ export default function App() {
   const [themeName, setThemeName] = useState<ThemeName>("default");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState(0);
+  const [windowMaximized, setWindowMaximized] = useState(false);
 
   // 启动时从后端读取持久化的主题选择
   useEffect(() => {
@@ -49,6 +52,8 @@ export default function App() {
   return (
     <XProvider theme={themes[themeName]}>
       <div className="desktop-app">
+        <TitleBar maximized={windowMaximized} onMaximizedChange={setWindowMaximized} />
+        <WindowResizeHandles disabled={windowMaximized} />
         {!sidebarVisible && (
           <div className="sidebar-collapsed-actions">
             <Tooltip title="展开侧栏">

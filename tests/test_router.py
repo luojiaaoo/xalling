@@ -2,6 +2,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from webview.window import FixPoint
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
@@ -112,6 +113,53 @@ def test_application_bridge_composes_window_and_model_routers() -> None:
     assert isinstance(bridge, WindowRouter)
     assert isinstance(bridge, ModelRouter)
     assert isinstance(bridge, ThemeRouter)
+
+
+@pytest.mark.parametrize(
+    ("edge", "fix_point"),
+    [
+        ("n", FixPoint.SOUTH),
+        ("s", FixPoint.NORTH),
+        ("w", FixPoint.EAST),
+        ("e", FixPoint.WEST),
+        ("nw", FixPoint.SOUTH | FixPoint.EAST),
+        ("ne", FixPoint.SOUTH | FixPoint.WEST),
+        ("sw", FixPoint.NORTH | FixPoint.EAST),
+        ("se", FixPoint.NORTH | FixPoint.WEST),
+    ],
+)
+def test_window_router_resizes_from_each_edge(edge: str, fix_point: FixPoint) -> None:
+    class WindowStub:
+        resize_args: tuple[int, int, FixPoint] | None = None
+
+        def resize(self, width: int, height: int, anchor: FixPoint) -> None:
+            self.resize_args = (width, height, anchor)
+
+    window = WindowStub()
+    router = WindowRouter()
+    router.bind_window(window)
+
+    router.resize_window(1200, 760, edge)
+
+    assert window.resize_args == (1200, 760, fix_point)
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "edge", "error"),
+    [
+        (1049, 760, "e", ValueError),
+        (1200, 679, "s", ValueError),
+        (1200, 760, "invalid", ValueError),
+        (1200.5, 760, "e", TypeError),
+    ],
+)
+def test_window_router_rejects_invalid_resize(
+    width: object, height: object, edge: str, error: type[Exception]
+) -> None:
+    router = WindowRouter()
+
+    with pytest.raises(error):
+        router.resize_window(width, height, edge)  # type: ignore[arg-type]
 
 
 def test_theme_router_persists_selection(

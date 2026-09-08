@@ -1,14 +1,17 @@
 import { CloseOutlined, FullscreenOutlined, MinusOutlined, ShrinkOutlined } from "@ant-design/icons";
 import { Button } from "antd";
-import { useState } from "react";
 
 import { closeWindow, minimizeWindow, toggleMaximizeWindow } from "../bridge/client";
 
-export function TitleBar() {
-  const [maximized, setMaximized] = useState(false);
+type TitleBarProps = {
+  maximized: boolean;
+  onMaximizedChange: (maximized: boolean) => void;
+};
+
+export function TitleBar({ maximized, onMaximizedChange }: TitleBarProps) {
 
   const handleMaximize = async () => {
-    setMaximized(await toggleMaximizeWindow());
+    onMaximizedChange(await toggleMaximizeWindow());
   };
 
   return (

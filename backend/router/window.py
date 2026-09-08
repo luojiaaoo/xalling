@@ -2,6 +2,23 @@
 
 from typing import Any
 
+from webview.window import FixPoint
+
+MIN_WINDOW_WIDTH = 1050
+MIN_WINDOW_HEIGHT = 680
+MAX_WINDOW_SIZE = 32768
+
+RESIZE_FIX_POINTS = {
+    "n": FixPoint.SOUTH,
+    "s": FixPoint.NORTH,
+    "w": FixPoint.EAST,
+    "e": FixPoint.WEST,
+    "nw": FixPoint.SOUTH | FixPoint.EAST,
+    "ne": FixPoint.SOUTH | FixPoint.WEST,
+    "sw": FixPoint.NORTH | FixPoint.EAST,
+    "se": FixPoint.NORTH | FixPoint.WEST,
+}
+
 
 class WindowRouter:
     """Manage the pywebview window attached to the application bridge."""
@@ -37,3 +54,16 @@ class WindowRouter:
     def close_window(self) -> None:
         """Close the native application window."""
         self._get_window().destroy()
+
+    def resize_window(self, width: int, height: int, edge: str) -> None:
+        """Resize the frameless window while keeping the opposite edges fixed."""
+        if type(width) is not int or type(height) is not int:
+            raise TypeError("窗口尺寸必须是整数")
+        if not MIN_WINDOW_WIDTH <= width <= MAX_WINDOW_SIZE:
+            raise ValueError("窗口宽度超出允许范围")
+        if not MIN_WINDOW_HEIGHT <= height <= MAX_WINDOW_SIZE:
+            raise ValueError("窗口高度超出允许范围")
+        if not isinstance(edge, str) or edge not in RESIZE_FIX_POINTS:
+            raise ValueError("无效的窗口缩放方向")
+
+        self._get_window().resize(width, height, RESIZE_FIX_POINTS[edge])

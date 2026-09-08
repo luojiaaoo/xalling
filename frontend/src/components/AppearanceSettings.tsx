@@ -1,7 +1,6 @@
 import { CheckCircleFilled } from "@ant-design/icons";
 
 import type { ThemeName } from "../theme";
-import { TitleBar } from "./TitleBar";
 
 const themeOptions: Array<{
   value: ThemeName;
@@ -22,7 +21,6 @@ export function AppearanceSettings({
 }) {
   return (
     <main className="settings-page">
-      <TitleBar />
       <div className="settings-title">
         <span className="settings-kicker">基础设置</span>
         <h1>主题设置</h1>

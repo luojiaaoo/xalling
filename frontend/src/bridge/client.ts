@@ -2,6 +2,7 @@ type PyWebviewApi = {
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
+  resize_window: (width: number, height: number, edge: string) => Promise<void>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
   save_model_site: (
@@ -57,6 +58,10 @@ export async function toggleMaximizeWindow(): Promise<boolean> {
 
 export async function closeWindow(): Promise<void> {
   await window.pywebview?.api.close_window();
+}
+
+export async function resizeWindow(width: number, height: number, edge: string): Promise<void> {
+  await window.pywebview?.api.resize_window(width, height, edge);
 }
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {

@@ -82,6 +82,7 @@
 
 /* ---------- 黑暗主题（自定义样式面，antd 组件由 token 接管） ---------- */
 html[data-theme="dark"] { color: rgba(255, 255, 255, 0.88); background: #050505; }
+html[data-theme="dark"] .desktop-app { border-color: #2a2a32; }
 html[data-theme="dark"] .app-shell, html[data-theme="dark"] .settings-page { background: #0a0a0c; }
 html[data-theme="dark"] .sidebar { background: #0d0d10; border-right-color: #1e1e24; }
 html[data-theme="dark"] .brand-name { color: rgba(255, 255, 255, 0.9); }
@@ -120,6 +121,7 @@ html[data-theme="dark"] .settings-success { color: #66bb8a; }
 
 /* ---------- 卡通主题（自定义样式面） ---------- */
 html[data-theme="cartoon"] { color: #51463B; background: #FAFAEE; }
+html[data-theme="cartoon"] .desktop-app { border-color: #225555; }
 html[data-theme="cartoon"] .app-shell, html[data-theme="cartoon"] .settings-page { background: #FAFAEE; }
 html[data-theme="cartoon"] .sidebar { background: #F5E8C0; border-right: 2px solid #225555; }
 html[data-theme="cartoon"] .brand-name { color: #51463B; }
@@ -160,13 +162,32 @@ body { margin: 0; min-width: 1050px; min-height: 100vh; }
 
 button, textarea { font: inherit; }
 
-.desktop-app { position: relative; height: 100vh; overflow: hidden; }
+.desktop-app {
+  position: relative; height: 100vh; overflow: hidden;
+  border: 1px solid #d9d9e2; background: #f7f7fb;
+}
 .title-bar { position: absolute; z-index: 5; top: 0; right: 0; left: 0; display: flex; height: 42px; align-items: center; justify-content: space-between; pointer-events: none; }
-.title-bar-drag { align-self: stretch; flex: 1; pointer-events: auto; }
+.title-bar-drag { align-self: stretch; flex: 1; pointer-events: auto; user-select: none; }
 .window-controls { display: flex; align-self: stretch; pointer-events: auto; }
 .window-controls .ant-btn { width: 46px; height: 42px; color: #6f7080; border-radius: 0; }
 .window-controls .ant-btn:hover { color: #4e3eea; background: #efedff; }
 .window-controls .close-window-button:hover { color: #fff; background: #e05252; }
+
+.window-resize-handles { position: absolute; z-index: 20; inset: 0; pointer-events: none; }
+.window-resize-handle { position: absolute; pointer-events: auto; touch-action: none; }
+.window-resize-n, .window-resize-s { right: 10px; left: 10px; height: 6px; cursor: ns-resize; }
+.window-resize-n { top: 0; }
+.window-resize-s { bottom: 0; }
+.window-resize-w, .window-resize-e { top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.window-resize-w { left: 0; }
+.window-resize-e { right: 0; }
+.window-resize-nw, .window-resize-ne, .window-resize-sw, .window-resize-se { width: 10px; height: 10px; }
+.window-resize-nw, .window-resize-se { cursor: nwse-resize; }
+.window-resize-ne, .window-resize-sw { cursor: nesw-resize; }
+.window-resize-nw { top: 0; left: 0; }
+.window-resize-ne { top: 0; right: 0; }
+.window-resize-sw { bottom: 0; left: 0; }
+.window-resize-se { right: 0; bottom: 0; }
 
 .app-shell { display: flex; height: 100%; background: #f7f7fb; }
 

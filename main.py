@@ -2,7 +2,6 @@ from pathlib import Path
 
 import webview
 
-from backend import native
 from backend.router import ModelRouter, ThemeRouter, WindowRouter
 
 
@@ -35,9 +34,6 @@ def main() -> None:
         background_color="#f7f7fb",
     )
     bridge.bind_window(window)
-    # The frameless window only exposes native resize cursors once the
-    # OS resize border is restored after the window handle exists.
-    window.events.shown += lambda: native.enable_native_resize(window)
     webview.start()
 
 

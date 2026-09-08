@@ -2,7 +2,6 @@ import { useState } from "react";
 
 import { pickQuote } from "../quotes";
 import { TaskComposer } from "./TaskComposer";
-import { TitleBar } from "./TitleBar";
 
 /** 各时段的问候语，随机抽一条，避免每次打开都一样。 */
 const greetingsByPeriod: string[][] = [
@@ -58,7 +57,6 @@ export function Workspace() {
 
   return (
     <main className="workspace">
-      <TitleBar />
       <div className="watermark" aria-hidden="true">X</div>
       <div className="workspace-content">
         <div className="eyebrow">XALLING · AI WORKSPACE</div>

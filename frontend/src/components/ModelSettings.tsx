@@ -17,7 +17,6 @@ import {
   type ModelConfig,
   type ModelSite,
 } from "../bridge/client";
-import { TitleBar } from "./TitleBar";
 
 type ProviderDraft = {
   originalName: string | null;
@@ -189,7 +188,6 @@ export function ModelSettings({ section }: { section: string }) {
 
   return (
     <main className="settings-page">
-      <TitleBar />
       <header className="settings-header">
         {section === "model" && (
           <Button type="text" icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
