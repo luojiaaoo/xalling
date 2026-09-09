@@ -1,9 +1,20 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Self
 from uuid import uuid4
 
 import pytest
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    StreamEvent,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
@@ -27,41 +38,163 @@ def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
 
-def test_chat_router_uses_claude_agent_sdk_and_returns_session(
+def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
     captured: dict[str, object] = {}
+    scripts: list[str] = []
 
-    async def fake_query(
-        *, prompt: str, options: ClaudeAgentOptions
-    ) -> AsyncIterator[ResultMessage]:
-        captured.update(prompt=prompt, options=options)
-        yield ResultMessage(
-            subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
-            is_error=False,
-            num_turns=1,
-            session_id=session_id,
-            result="完成了",
-        )
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            captured["options"] = options
 
-    monkeypatch.setattr("backend.router.chat.query", fake_query)
+        async def __aenter__(self) -> Self:
+            return self
 
-    reply = ChatRouter().send_chat_message(
-        "检查项目", str(tmp_path), None, "high"
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def query(self, prompt: str) -> None:
+            captured["prompt"] = prompt
+
+        async def receive_response(
+            self,
+        ) -> AsyncIterator[
+            StreamEvent | AssistantMessage | UserMessage | ResultMessage
+        ]:
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={"type": "message_start", "message": {"id": "message-1"}},
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                },
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": "先检查"},
+                },
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={"type": "content_block_stop", "index": 0},
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={
+                    "type": "content_block_start",
+                    "index": 1,
+                    "content_block": {"type": "text", "text": ""},
+                },
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {"type": "text_delta", "text": "完成"},
+                },
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {"type": "text_delta", "text": "了"},
+                },
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={"type": "content_block_stop", "index": 1},
+            )
+            yield AssistantMessage(
+                content=[
+                    ThinkingBlock(thinking="先检查", signature="signature"),
+                    TextBlock(text="完成了"),
+                    ToolUseBlock(
+                        id="tool-1",
+                        name="Read",
+                        input={"file_path": "README.md"},
+                    ),
+                ],
+                model="claude-sonnet",
+                message_id="message-1",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="tool-1",
+                        content="不应发送到 UI 的工具结果",
+                        is_error=False,
+                    )
+                ]
+            )
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=session_id,
+                result="完成了",
+            )
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            scripts.append(script)
+
+    monkeypatch.setattr("backend.router.chat.ClaudeSDKClient", FakeClaudeSDKClient)
+
+    router = ChatRouter()
+    router._window = WindowStub()
+    reply = router.send_chat_message(
+        "检查项目", str(tmp_path), None, "high", "request-1"
     )
 
-    assert reply == {"content": "完成了", "session_id": session_id}
+    assert reply == {
+        "content": "完成了",
+        "final_output_block_id": "message-1-block-1",
+        "session_id": session_id,
+    }
     assert captured["prompt"] == "检查项目"
     options = captured["options"]
     assert isinstance(options, ClaudeAgentOptions)
     assert options.cwd == tmp_path.resolve()
     assert options.model == "claude-sonnet"
+    assert options.include_partial_messages is True
+    assert options.thinking == {"type": "adaptive", "display": "summarized"}
     assert options.env["ANTHROPIC_BASE_URL"] == "https://api.example.com"
     assert options.env["ANTHROPIC_AUTH_TOKEN"] == "secret"
+    assert len(scripts) == 9
+    assert '"request_id":"request-1"' in scripts[0]
+    assert '"type":"thinking_start"' in scripts[0]
+    assert '"type":"thinking_delta"' in scripts[1]
+    assert '"type":"output_delta"' in scripts[4]
+    assert '"text":"\\u5b8c\\u6210"' in scripts[4]
+    assert sum('"type":"output_start"' in script for script in scripts) == 1
+    assert '"type":"tool_start"' in scripts[7]
+    assert '"name":"Read"' in scripts[7]
+    assert '"summary":"file_path: README.md"' in scripts[7]
+    assert '"type":"tool_complete"' in scripts[8]
+    assert '"status":"success"' in scripts[8]
+    assert all('"content":' not in script for script in scripts)
 
 
 def test_chat_router_passes_resume_session_to_sdk(
@@ -71,21 +204,31 @@ def test_chat_router_passes_resume_session_to_sdk(
     session_id = str(uuid4())
     captured: dict[str, object] = {}
 
-    async def fake_query(
-        *, prompt: str, options: ClaudeAgentOptions
-    ) -> AsyncIterator[ResultMessage]:
-        captured["resume"] = options.resume
-        yield ResultMessage(
-            subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
-            is_error=False,
-            num_turns=1,
-            session_id=session_id,
-            result=prompt,
-        )
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            captured["resume"] = options.resume
 
-    monkeypatch.setattr("backend.router.chat.query", fake_query)
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def query(self, prompt: str) -> None:
+            captured["prompt"] = prompt
+
+        async def receive_response(self) -> AsyncIterator[ResultMessage]:
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=session_id,
+                result=str(captured["prompt"]),
+            )
+
+    monkeypatch.setattr("backend.router.chat.ClaudeSDKClient", FakeClaudeSDKClient)
 
     ChatRouter().send_chat_message("继续", str(tmp_path), session_id, "medium")
 

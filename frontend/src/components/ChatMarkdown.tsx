@@ -36,13 +36,23 @@ const markdownComponents = {
   code: MarkdownCode,
 };
 
-export function ChatMarkdown({ content }: { content: string }) {
+type ChatMarkdownProps = {
+  content: string;
+  streaming?: boolean;
+};
+
+export function ChatMarkdown({ content, streaming = false }: ChatMarkdownProps) {
   return (
     <XMarkdown
       className="chat-markdown"
       components={markdownComponents}
       content={content}
       openLinksInNewTab
+      streaming={{
+        enableAnimation: true,
+        hasNextChunk: streaming,
+        tail: streaming,
+      }}
     />
   );
 }

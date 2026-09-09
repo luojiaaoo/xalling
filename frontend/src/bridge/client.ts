@@ -22,6 +22,7 @@ type PyWebviewApi = {
     projectPath: string | null,
     sessionId: string | null,
     effort: ChatEffort,
+    requestId: string,
   ) => Promise<ChatReply>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
@@ -58,8 +59,106 @@ export type ChatEffort = "low" | "medium" | "high" | "max";
 
 export type ChatReply = {
   content: string;
+  final_output_block_id: string | null;
   session_id: string;
 };
+
+type ChatContentEvent = {
+  block_id: string;
+  request_id: string;
+  type:
+    | "thinking_start"
+    | "thinking_complete"
+    | "output_start"
+    | "output_complete";
+};
+
+type ChatContentDeltaEvent = {
+  block_id: string;
+  request_id: string;
+  text: string;
+  type: "thinking_delta" | "output_delta";
+};
+
+type ChatToolStartEvent = {
+  group_id: string;
+  name: string;
+  request_id: string;
+  summary: string;
+  tool_id: string;
+  type: "tool_start";
+};
+
+type ChatToolCompleteEvent = {
+  request_id: string;
+  status: "error" | "success";
+  tool_id: string;
+  type: "tool_complete";
+};
+
+export type ChatStreamEvent =
+  | ChatContentEvent
+  | ChatContentDeltaEvent
+  | ChatToolStartEvent
+  | ChatToolCompleteEvent;
+
+const CHAT_STREAM_EVENT = "xalling:chat-event";
+let chatRequestSequence = 0;
+
+function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !("request_id" in value)
+    || typeof value.request_id !== "string"
+    || !("type" in value)
+    || typeof value.type !== "string"
+  ) {
+    return false;
+  }
+  if (value.type === "tool_start") {
+    return (
+      "group_id" in value
+      && typeof value.group_id === "string"
+      && "tool_id" in value
+      && typeof value.tool_id === "string"
+      && "name" in value
+      && typeof value.name === "string"
+      && "summary" in value
+      && typeof value.summary === "string"
+    );
+  }
+  if (value.type === "tool_complete") {
+    return (
+      "tool_id" in value
+      && typeof value.tool_id === "string"
+      && "status" in value
+      && (value.status === "success" || value.status === "error")
+    );
+  }
+  if (
+    value.type === "thinking_delta"
+    || value.type === "output_delta"
+  ) {
+    return (
+      "block_id" in value
+      && typeof value.block_id === "string"
+      && "text" in value
+      && typeof value.text === "string"
+    );
+  }
+  return (
+    value.type === "thinking_start"
+    || value.type === "thinking_complete"
+    || value.type === "output_start"
+    || value.type === "output_complete"
+  ) && "block_id" in value && typeof value.block_id === "string";
+}
+
+function createChatRequestId(): string {
+  chatRequestSequence += 1;
+  return `chat-${Date.now()}-${chatRequestSequence}`;
+}
 
 declare global {
   interface Window {
@@ -155,12 +254,26 @@ export async function sendChatMessage(
   projectPath: string | null,
   sessionId: string | null,
   effort: ChatEffort,
+  onEvent?: (event: ChatStreamEvent) => void,
 ): Promise<ChatReply> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.send_chat_message(prompt, projectPath, sessionId, effort);
+
+  const requestId = createChatRequestId();
+  const handleStreamEvent: EventListener = (event) => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (isChatStreamEvent(detail) && detail.request_id === requestId) {
+      onEvent?.(detail);
+    }
+  };
+  window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
+  try {
+    return await api.send_chat_message(prompt, projectPath, sessionId, effort, requestId);
+  } finally {
+    window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
+  }
 }
 
 export async function getCurrentTheme(): Promise<string> {

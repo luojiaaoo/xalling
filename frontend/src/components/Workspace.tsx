@@ -1,9 +1,15 @@
-import { LoadingOutlined, PaperClipOutlined, RightOutlined } from "@ant-design/icons";
+import { PaperClipOutlined } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
 import { useEffect, useRef, useState } from "react";
 
 import { getHomeFolder, sendChatMessage, type ProjectFolder } from "../bridge/client";
 import { pickQuote } from "../quotes";
+import {
+  AgentTrace,
+  applyChatStreamEvent,
+  finishAgentTrace,
+  type AgentTraceItem,
+} from "./AgentTrace";
 import { ChatMarkdown } from "./ChatMarkdown";
 import {
   TaskComposer,
@@ -23,10 +29,14 @@ const greetingsByPeriod: string[][] = [
 type ConversationMessage = {
   attachments?: ComposerAttachment[];
   content: string;
+  expandedTraceItemKeys?: string[];
+  finalOutputKey?: string;
   key: string;
   loading?: boolean;
   role: "ai" | "user";
   status?: "error" | "success";
+  trace?: AgentTraceItem[];
+  traceExpanded?: boolean;
   workingSeconds?: number;
 };
 
@@ -111,7 +121,15 @@ export function Workspace() {
         attachments: draft.attachments,
         status: "success",
       },
-      { key: assistantKey, role: "ai", content: "", loading: true },
+      {
+        key: assistantKey,
+        role: "ai",
+        content: "",
+        expandedTraceItemKeys: [],
+        loading: true,
+        trace: [],
+        traceExpanded: false,
+      },
     ]);
     setBusy(true);
 
@@ -120,6 +138,26 @@ export function Workspace() {
       draft.project?.path ?? null,
       sessionIdRef.current,
       draft.effort,
+      (event) => {
+        setMessages((current) => current.map((item) => {
+          if (item.key !== assistantKey) {
+            return item;
+          }
+          const trace = item.trace ?? [];
+          const startsNewOutput = (
+            event.type === "output_start" || event.type === "output_delta"
+          ) && !trace.some((traceItem) => traceItem.key === event.block_id);
+          const separator = startsNewOutput && item.content ? "\n\n" : "";
+          const content = event.type === "output_delta"
+            ? `${item.content}${separator}${event.text}`
+            : `${item.content}${separator}`;
+          return {
+            ...item,
+            content,
+            trace: applyChatStreamEvent(trace, event),
+          };
+        }));
+      },
     )
       .then((reply) => {
         sessionIdRef.current = reply.session_id;
@@ -128,8 +166,11 @@ export function Workspace() {
             ? {
                 ...item,
                 content: reply.content,
+                finalOutputKey: reply.final_output_block_id ?? undefined,
                 loading: false,
                 status: "success",
+                trace: finishAgentTrace(item.trace ?? [], "success"),
+                traceExpanded: false,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
             : item
@@ -143,6 +184,8 @@ export function Workspace() {
                 content: errorText(error),
                 loading: false,
                 status: "error",
+                trace: finishAgentTrace(item.trace ?? [], "error"),
+                traceExpanded: false,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
             : item
@@ -151,41 +194,86 @@ export function Workspace() {
       .finally(() => setBusy(false));
   };
 
-  const bubbleItems = messages.map((item) => ({
-    key: item.key,
-    role: item.role,
-    status: item.status,
-    content: item.role === "ai" ? (
-      <article className="assistant-turn">
-        <div className="assistant-status">
-          {item.loading && <LoadingOutlined spin />}
-          <span>
-            {item.loading ? "工作中" : item.status === "error" ? "执行失败" : "已工作"}
-            {item.loading
-              ? elapsedSeconds > 0 && ` ${elapsedSeconds} 秒`
-              : ` ${item.workingSeconds ?? 1} 秒`}
-          </span>
-          <RightOutlined />
-        </div>
-        {!item.loading && (
-          item.status === "error"
+  const setTraceExpanded = (messageKey: string, expanded: boolean) => {
+    setMessages((current) => current.map((message) => (
+      message.key === messageKey ? { ...message, traceExpanded: expanded } : message
+    )));
+  };
+
+  const setTraceItemExpanded = (
+    messageKey: string,
+    traceItemKey: string,
+    expanded: boolean,
+  ) => {
+    setMessages((current) => current.map((message) => {
+      if (message.key !== messageKey) {
+        return message;
+      }
+      const expandedKeys = message.expandedTraceItemKeys ?? [];
+      return {
+        ...message,
+        expandedTraceItemKeys: expanded
+          ? expandedKeys.includes(traceItemKey)
+            ? expandedKeys
+            : [...expandedKeys, traceItemKey]
+          : expandedKeys.filter((key) => key !== traceItemKey),
+      };
+    }));
+  };
+
+  const bubbleItems = messages.map((item) => {
+    const traceItems = item.trace ?? [];
+    const lastTraceItem = traceItems.at(-1);
+    const streamingOutput = item.loading && lastTraceItem?.kind === "output"
+      ? lastTraceItem
+      : undefined;
+    const externalOutputKey = item.loading ? streamingOutput?.key : item.finalOutputKey;
+    const responseContent = item.loading ? streamingOutput?.content : item.content;
+
+    return {
+      key: item.key,
+      role: item.role,
+      status: item.status,
+      streaming: item.role === "ai" && item.loading,
+      content: item.role === "ai" ? (
+        <article className="assistant-turn">
+          <AgentTrace
+            elapsedSeconds={elapsedSeconds}
+            expanded={Boolean(item.traceExpanded)}
+            expandedItemKeys={item.expandedTraceItemKeys ?? []}
+            externalOutputKey={externalOutputKey}
+            failed={item.status === "error"}
+            items={traceItems}
+            loading={Boolean(item.loading)}
+            onExpandedChange={(expanded) => setTraceExpanded(item.key, expanded)}
+            onItemExpandedChange={(traceItemKey, expanded) => (
+              setTraceItemExpanded(item.key, traceItemKey, expanded)
+            )}
+            workingSeconds={item.workingSeconds}
+          />
+          {item.status === "error"
             ? <div className="chat-message-error">{item.content}</div>
-            : <ChatMarkdown content={item.content} />
-        )}
-      </article>
-    ) : (
-      <div className="user-message">
-        <div className="chat-message-text">{item.content}</div>
-        {!!item.attachments?.length && (
-          <div className="chat-message-files">
-            {item.attachments.map((file, index) => (
-              <span key={`${file.name}-${index}`}><PaperClipOutlined />{file.name}</span>
-            ))}
-          </div>
-        )}
-      </div>
-    ),
-  }));
+            : responseContent && (
+                <ChatMarkdown
+                  content={responseContent}
+                  streaming={Boolean(item.loading && streamingOutput?.status === "running")}
+                />
+              )}
+        </article>
+      ) : (
+        <div className="user-message">
+          <div className="chat-message-text">{item.content}</div>
+          {!!item.attachments?.length && (
+            <div className="chat-message-files">
+              {item.attachments.map((file, index) => (
+                <span key={`${file.name}-${index}`}><PaperClipOutlined />{file.name}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      ),
+    };
+  });
 
   return (
     <main className={`workspace${conversationStarted ? " workspace-chat" : ""}`}>

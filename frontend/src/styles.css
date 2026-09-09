@@ -119,7 +119,10 @@ html[data-theme="dark"] .workspace { background: radial-gradient(circle at 50% 2
 html[data-theme="dark"] .workspace-chat { background: #151515; }
 html[data-theme="dark"] .chat-composer-column { border-top-color: rgba(255, 255, 255, .08); }
 html[data-theme="dark"] .chat-message-files span { color: rgba(255, 255, 255, .62); background: rgba(255, 255, 255, .07); }
-html[data-theme="dark"] .assistant-status { color: rgba(255, 255, 255, .48); border-bottom-color: rgba(255, 255, 255, .08); }
+html[data-theme="dark"] .agent-trace-header { color: rgba(255, 255, 255, .48); border-bottom-color: rgba(255, 255, 255, .08); }
+html[data-theme="dark"] .agent-trace-content, html[data-theme="dark"] .agent-trace-thinking .ant-think-content, html[data-theme="dark"] .agent-trace-tools .ant-think-content { border-left-color: rgba(255, 255, 255, .1); }
+html[data-theme="dark"] .agent-trace-output-title, html[data-theme="dark"] .agent-trace-empty { color: rgba(255, 255, 255, .44); }
+html[data-theme="dark"] .agent-tool-description code { color: rgba(255, 255, 255, .72); background: rgba(255, 255, 255, .07); }
 html[data-theme="dark"] .user-bubble .ant-bubble-content { color: rgba(255, 255, 255, .88); border-color: #3b3b3b; background: #242424; }
 html[data-theme="dark"] .chat-markdown { color: rgba(255, 255, 255, .84); }
 html[data-theme="dark"] .chat-markdown h1, html[data-theme="dark"] .chat-markdown h2, html[data-theme="dark"] .chat-markdown h3, html[data-theme="dark"] .chat-markdown h4 { color: rgba(255, 255, 255, .92); }
@@ -273,9 +276,27 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .user-bubble .ant-bubble-body { max-width: min(620px, 72%); }
 .user-bubble .ant-bubble-content { max-width: 100%; padding: 10px 14px; border-color: #dedee6; border-radius: 14px; background: #fff; }
 .assistant-turn { width: 100%; }
-.assistant-status { display: flex; height: 35px; align-items: flex-start; gap: 7px; margin-bottom: 18px; color: #858692; font-size: 12px; border-bottom: 1px solid #e7e7ec; }
-.assistant-status .anticon-loading { margin-top: 2px; }
-.assistant-status .anticon-right { margin-top: 4px; font-size: 9px; }
+.agent-trace { width: 100%; margin-bottom: 18px; }
+.agent-trace-header { width: 100% !important; min-height: 35px; align-items: flex-start !important; gap: 7px !important; color: #858692 !important; font-size: 12px !important; border-bottom: 1px solid #e7e7ec; }
+.agent-trace-header .ant-think-status-icon { margin-top: 1px; font-size: 14px; }
+.agent-trace-header .ant-think-status-down-icon { margin-top: 3px; font-size: 9px; }
+.agent-trace-content { margin-top: 0 !important; padding: 16px 0 2px 18px !important; border-left: 1px solid #dedee5 !important; }
+.agent-trace-timeline { display: grid; gap: 15px; min-width: 0; }
+.agent-trace-empty { color: #92939d; font-size: 12px; }
+.agent-trace-waiting { min-height: 18px; font-size: 14px; }
+.agent-trace-thinking .ant-think-status-wrapper, .agent-trace-tools .ant-think-status-wrapper { font-size: 12px; }
+.agent-trace-thinking .ant-think-content, .agent-trace-tools .ant-think-content { margin-top: 9px; padding-left: 15px; border-left-width: 1px; }
+.agent-trace-thinking .chat-markdown { color: #686974; font-size: 13px; }
+.agent-trace-output { min-width: 0; }
+.agent-trace-output-title { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: #777883; font-size: 12px; }
+.agent-trace-output .chat-markdown { font-size: 13px; }
+.agent-trace-tools .ant-thought-chain { padding-top: 2px; }
+.agent-tool-description { display: inline-flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
+.agent-tool-description code { max-width: 100%; padding: 1px 5px; overflow: hidden; color: #595a66; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; background: #eeeeF3; }
+.agent-tool-status { font-size: 11px; }
+.agent-tool-status-running { color: #6d5dfc; }
+.agent-tool-status-success { color: #4f946d; }
+.agent-tool-status-error { color: #c74747; }
 .chat-message-text { line-height: 1.72; overflow-wrap: anywhere; white-space: pre-wrap; }
 .chat-message-files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .chat-message-files span { display: inline-flex; max-width: 210px; align-items: center; gap: 4px; padding: 3px 7px; overflow: hidden; color: #696a78; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; background: rgba(116, 105, 198, .09); }

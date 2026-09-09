@@ -238,6 +238,20 @@ export function TaskComposer({
         autoSize={{ minRows: conversationStarted ? 2 : 3, maxRows: 7 }}
         value={prompt}
         onChange={setPrompt}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || event.nativeEvent.isComposing) {
+            return undefined;
+          }
+          if (event.ctrlKey) {
+            return false;
+          }
+          if (event.shiftKey || event.altKey || event.metaKey) {
+            return undefined;
+          }
+          event.preventDefault();
+          handleSubmit(prompt);
+          return false;
+        }}
         onSubmit={handleSubmit}
         onPasteFile={addPastedFiles}
         loading={busy}
