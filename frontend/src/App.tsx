@@ -10,12 +10,22 @@ import { TitleBar } from "./components/TitleBar";
 import { WindowResizeHandles } from "./components/WindowResizeHandles";
 import { Workspace } from "./components/Workspace";
 import { getCurrentTheme, setCurrentTheme } from "./bridge/client";
+import useGeekTheme from "./geekTheme";
+import useIllustrationTheme from "./illustrationTheme";
+import useSereneTheme from "./sereneTheme";
 import { themes, type ThemeName } from "./theme";
 
 const SIDEBAR_AUTO_COLLAPSE_WIDTH = 500;
 
 function isThemeName(value: string): value is ThemeName {
-  return value === "default" || value === "dark" || value === "cartoon";
+  return (
+    value === "default" ||
+    value === "dark" ||
+    value === "cartoon" ||
+    value === "illustration" ||
+    value === "geek" ||
+    value === "serene"
+  );
 }
 
 export default function App() {
@@ -25,6 +35,18 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [windowMaximized, setWindowMaximized] = useState(false);
+  const illustrationTheme = useIllustrationTheme();
+  const geekTheme = useGeekTheme();
+  const sereneTheme = useSereneTheme();
+
+  const configProps =
+    themeName === "illustration"
+      ? illustrationTheme
+      : themeName === "geek"
+        ? geekTheme
+        : themeName === "serene"
+          ? sereneTheme
+          : { theme: themes[themeName] };
 
   // 启动时从后端读取持久化的主题选择
   useEffect(() => {
@@ -39,7 +61,8 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeName;
-    document.documentElement.style.colorScheme = themeName === "dark" ? "dark" : "light";
+    document.documentElement.style.colorScheme =
+      themeName === "dark" || themeName === "geek" ? "dark" : "light";
   }, [themeName]);
 
   useEffect(() => {
@@ -65,7 +88,7 @@ export default function App() {
   }
 
   return (
-    <XProvider theme={themes[themeName]}>
+    <XProvider {...configProps}>
       <div className="desktop-app">
         <TitleBar maximized={windowMaximized} onMaximizedChange={setWindowMaximized} />
         <WindowResizeHandles disabled={windowMaximized} />
@@ -103,14 +126,13 @@ export default function App() {
               onBackToWorkspace={() => setView("workspace")}
             />
           )}
-          {view === "settings" ? (
+          <Workspace key={workspaceKey} hidden={view === "settings"} />
+          {view === "settings" && (
             settingsSection === "theme" ? (
               <AppearanceSettings themeName={themeName} onThemeChange={handleThemeChange} />
             ) : (
               <ModelSettings section={settingsSection} />
             )
-          ) : (
-            <Workspace key={workspaceKey} />
           )}
         </div>
       </div>

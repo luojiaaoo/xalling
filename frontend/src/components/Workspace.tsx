@@ -70,7 +70,11 @@ function errorText(error: unknown): string {
   return "发送失败，请检查模型配置后重试。";
 }
 
-export function Workspace() {
+type WorkspaceProps = {
+  hidden?: boolean;
+};
+
+export function Workspace({ hidden = false }: WorkspaceProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -335,7 +339,11 @@ export function Workspace() {
   });
 
   return (
-    <main className={`workspace${conversationStarted ? " workspace-chat" : ""}`}>
+    <main
+      aria-hidden={hidden}
+      className={`workspace${conversationStarted ? " workspace-chat" : ""}`}
+      hidden={hidden}
+    >
       <div className="watermark" aria-hidden="true">X</div>
       <div className={conversationStarted ? "chat-layout" : "workspace-content"}>
         {!conversationStarted && (

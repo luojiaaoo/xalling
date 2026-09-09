@@ -1,12 +1,19 @@
 import { theme } from "antd";
 import type { ThemeConfig } from "antd";
 
-export type ThemeName = "default" | "dark" | "cartoon";
+export type ThemeName =
+  | "default"
+  | "dark"
+  | "cartoon"
+  | "illustration"
+  | "geek"
+  | "serene";
+export type StaticThemeName = Exclude<ThemeName, "illustration" | "geek" | "serene">;
 
 const fontFamily = "Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif";
 
-/** 应用支持的全部主题，key 与外观设置中的选项一一对应。 */
-export const themes: Record<ThemeName, ThemeConfig> = {
+/** 不需要组件级样式增强的基础主题。 */
+export const themes: Record<StaticThemeName, ThemeConfig> = {
   default: {
     token: {
       colorPrimary: "#6d5dfc",

@@ -2,7 +2,7 @@
 
 from backend.config.current import CurrentConfig
 
-THEME_NAMES = ("default", "dark", "cartoon")
+THEME_NAMES = ("default", "dark", "cartoon", "illustration", "geek", "serene")
 
 
 class ThemeRouter:

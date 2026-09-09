@@ -10,6 +10,9 @@ const themeOptions: Array<{
   { value: "default", label: "默认主题", description: "清爽的浅色界面" },
   { value: "dark", label: "黑暗主题", description: "深色背景，夜间更护眼" },
   { value: "cartoon", label: "卡通主题", description: "圆润边框，色彩明快" },
+  { value: "illustration", label: "插画主题", description: "粗线条与明快配色，活泼醒目" },
+  { value: "geek", label: "极客主题", description: "荧光绿终端风格，锐利硬朗" },
+  { value: "serene", label: "静谧主题", description: "温润米白与深棕配色，安静克制" },
 ];
 
 export function AppearanceSettings({
