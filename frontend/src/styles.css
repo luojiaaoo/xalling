@@ -132,6 +132,8 @@ html[data-theme="dark"] .markdown-code-highlighter, html[data-theme="dark"] .cha
 html[data-theme="dark"] .composer-chat .task-sender { box-shadow: none; }
 html[data-theme="dark"] .composer-project { color: rgba(255, 255, 255, 0.62); }
 html[data-theme="dark"] .composer-project:hover { color: #a99cff; background: rgba(109, 93, 252, 0.14); }
+html[data-theme="dark"] .composer-project-locked,
+html[data-theme="dark"] .composer-project-locked:hover { color: rgba(255, 255, 255, .34); background: transparent; }
 html[data-theme="dark"] .composer-footer .ant-btn { color: rgba(255, 255, 255, .62); }
 html[data-theme="dark"] .composer-footer .ant-btn:hover,
 html[data-theme="dark"] .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #a99cff !important; background: rgba(109, 93, 252, .14) !important; }
@@ -215,6 +217,8 @@ html[data-theme="cartoon"] .chat-markdown th,
 html[data-theme="cartoon"] .chat-markdown td { border-color: #225555; }
 html[data-theme="cartoon"] .composer-project { color: #51463B; }
 html[data-theme="cartoon"] .composer-project:hover { color: #225555; background: #E8D29A; }
+html[data-theme="cartoon"] .composer-project-locked,
+html[data-theme="cartoon"] .composer-project-locked:hover { color: #9b907e; background: transparent; }
 html[data-theme="cartoon"] .composer-footer .ant-btn { color: #51463B; }
 html[data-theme="cartoon"] .composer-footer .ant-btn:hover,
 html[data-theme="cartoon"] .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #225555 !important; background: #E8D29A !important; }
@@ -498,6 +502,7 @@ html[data-theme="cartoon"] .ask-question-option-copy small { color: #7a6e5d; }
 .mention-chip { display: inline-flex; align-items: center; gap: 4px; }
 .composer-project { display: flex; max-width: calc(100% - 28px); align-items: center; gap: 6px; margin: 7px 10px 1px; padding: 4px 5px; overflow: hidden; color: #707180; font-size: 13px; font-weight: 500; text-align: left; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
 .composer-project:hover { color: #5d4cf0; background: #f1efff; }
+.composer-project-locked, .composer-project-locked:hover { color: #999aa6; background: transparent; cursor: not-allowed; }
 .composer-project span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-project svg:last-child { font-size: 10px; }
 .task-sender .ant-sender-header,

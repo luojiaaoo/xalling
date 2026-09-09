@@ -7,6 +7,7 @@ import {
   FolderOpenOutlined,
   FolderOutlined,
   GlobalOutlined,
+  LockOutlined,
   LoadingOutlined,
   PictureOutlined,
   PlusOutlined,
@@ -159,6 +160,8 @@ export function TaskComposer({
   const senderRef = useRef<SenderRef>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
   const mentionSequenceRef = useRef(0);
+  const conversationStartedRef = useRef(conversationStarted);
+  conversationStartedRef.current = conversationStarted;
   const [messageApi, contextHolder] = message.useMessage();
 
   useEffect(() => {
@@ -419,10 +422,13 @@ export function TaskComposer({
   };
 
   const chooseProjectFolder = async () => {
+    if (conversationStarted || selectingProject) {
+      return;
+    }
     setSelectingProject(true);
     try {
       const project = await selectProjectFolder();
-      if (project) {
+      if (project && !conversationStartedRef.current) {
         onProjectChange(project);
       }
     } catch {
@@ -589,15 +595,22 @@ export function TaskComposer({
           : "描述你想完成的任务，使用 @ 添加上下文，使用 / 选择命令或能力"}
         header={(
           <>
-            <Tooltip title={selectedProject?.path}>
+            <Tooltip
+              title={conversationStarted
+                ? "当前会话已锁定工作区；新建任务后可重新选择"
+                : selectedProject?.path}
+            >
               <button
-                className="composer-project"
+                aria-disabled={conversationStarted || selectingProject}
+                aria-label={conversationStarted ? "当前会话的工作区已锁定" : "选择工作区"}
+                className={`composer-project${conversationStarted ? " composer-project-locked" : ""}`}
+                disabled={conversationStarted || selectingProject}
                 type="button"
                 onClick={() => void chooseProjectFolder()}
               >
                 {selectingProject ? <LoadingOutlined spin /> : <FolderOpenOutlined />}
                 <span>{selectedProject?.name ?? "选择项目"}</span>
-                <DownOutlined />
+                {conversationStarted ? <LockOutlined /> : <DownOutlined />}
               </button>
             </Tooltip>
             <Sender.Header
