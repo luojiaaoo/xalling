@@ -86,7 +86,7 @@ class ClaudeChatClient:
             plugins=discover_skill_plugins(project=config.project),
             resume=config.resume,
             setting_sources=["user", "project", "local"],
-            system_prompt={"type": "preset", "preset": "claude_code"},
+            system_prompt={"type": "preset", "preset": "claude_code", "append": "Your Name is Xalling. You are a helpful assistant."},
             thinking={"type": "adaptive", "display": "summarized"},
             tools={"type": "preset", "preset": "claude_code"},
         )
