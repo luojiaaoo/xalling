@@ -15,7 +15,7 @@ class ApplicationBridge(WindowRouter, FileRouter, ModelRouter, ThemeRouter, Chat
 def main() -> None:
     """Launch the desktop shell."""
     # 禁用GPU渲染
-    os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu")
+    # os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu")
 
     index_file = Path(__file__).parent / "frontend" / "dist" / "index.html"
     if not index_file.is_file():
