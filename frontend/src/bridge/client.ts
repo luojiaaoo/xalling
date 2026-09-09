@@ -5,6 +5,11 @@ type PyWebviewApi = {
   resize_window: (width: number, height: number, edge: string) => Promise<void>;
   select_project_folder: () => Promise<ProjectFolder | null>;
   get_home_folder: () => Promise<ProjectFolder>;
+  search_project_files: (
+    projectPath: string,
+    query: string,
+    limit?: number,
+  ) => Promise<ProjectFileMatch[]>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
   save_model_site: (
@@ -59,6 +64,13 @@ export type ModelSelection = {
 export type ProjectFolder = {
   name: string;
   path: string;
+};
+
+export type ProjectFileMatch = {
+  name: string;
+  path: string;
+  relative: string;
+  is_dir: boolean;
 };
 
 export type ChatEffort = "low" | "medium" | "high" | "max";
@@ -237,6 +249,15 @@ export async function selectProjectFolder(): Promise<ProjectFolder | null> {
 export async function getHomeFolder(): Promise<ProjectFolder | null> {
   const api = await getBridgeApi();
   return (await api?.get_home_folder()) ?? null;
+}
+
+export async function searchProjectFiles(
+  projectPath: string,
+  query: string,
+  limit = 30,
+): Promise<ProjectFileMatch[]> {
+  const api = await getBridgeApi();
+  return (await api?.search_project_files(projectPath, query, limit)) ?? [];
 }
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {

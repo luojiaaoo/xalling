@@ -2,8 +2,10 @@ import {
   ArrowUpOutlined,
   CodeOutlined,
   DownOutlined,
+  FileOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  FolderOutlined,
   GlobalOutlined,
   LoadingOutlined,
   PictureOutlined,
@@ -15,6 +17,7 @@ import {
 import { Attachments, Sender } from "@ant-design/x";
 import type { AttachmentsRef } from "@ant-design/x/es/attachments";
 import type { SenderRef } from "@ant-design/x/es/sender";
+import type { SlotConfigType } from "@ant-design/x/es/sender/interface";
 import type { CascaderProps, MenuProps } from "antd";
 import {
   Badge,
@@ -34,11 +37,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   getCurrentModel,
   getModelGroups,
+  searchProjectFiles,
   selectProjectFolder,
   setCurrentModel,
   type ChatPermissionRequestEvent,
   type ChatPermissionMode,
   type ModelGroup,
+  type ProjectFileMatch,
   type ProjectFolder,
 } from "../bridge/client";
 
@@ -115,6 +120,16 @@ const permissionModeItems: MenuProps["items"] = (
 }));
 const MAX_ATTACHMENTS = 10;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
+// Stable reference: a new array identity each render would reset the slot editor.
+const EMPTY_SLOT_CONFIG: SlotConfigType[] = [];
+const MENTION_TRIGGER_PATTERN = /(?:^|\s)@([^\s@]{0,64})$/u;
+
+type MentionState = {
+  activeIndex: number;
+  loading: boolean;
+  query: string;
+  results: ProjectFileMatch[];
+};
 
 export function TaskComposer({
   busy = false,
@@ -135,8 +150,11 @@ export function TaskComposer({
   const [attachmentItems, setAttachmentItems] = useState<UploadFile[]>([]);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [selectingProject, setSelectingProject] = useState(false);
+  const [mention, setMention] = useState<MentionState | null>(null);
   const attachmentsRef = useRef<AttachmentsRef>(null);
   const senderRef = useRef<SenderRef>(null);
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  const mentionSequenceRef = useRef(0);
   const [messageApi, contextHolder] = message.useMessage();
 
   useEffect(() => {
@@ -174,6 +192,105 @@ export function TaskComposer({
   useEffect(() => {
     setPermissionDecision(null);
   }, [permissionRequest?.permission_id]);
+
+  const mentionQuery = mention?.query ?? null;
+  const mentionProjectPath = selectedProject?.path ?? null;
+
+  useEffect(() => {
+    if (mentionQuery === null || mentionProjectPath === null) {
+      return undefined;
+    }
+    let cancelled = false;
+    setMention((current) => (current ? { ...current, loading: true } : current));
+    const timer = window.setTimeout(() => {
+      searchProjectFiles(mentionProjectPath, mentionQuery)
+        .then((results) => {
+          if (cancelled) {
+            return;
+          }
+          setMention((current) => (
+            current && current.query === mentionQuery
+              ? { ...current, results, activeIndex: 0, loading: false }
+              : current
+          ));
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setMention((current) => (current ? { ...current, results: [], loading: false } : current));
+          }
+        });
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mentionQuery, mentionProjectPath]);
+
+  useEffect(() => {
+    mentionListRef.current
+      ?.querySelector(".mention-item-active")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [mention?.activeIndex]);
+
+  const updateMentionFromSelection = () => {
+    const selection = window.getSelection();
+    const editorRoot = senderRef.current?.nativeElement;
+    if (!selection || selection.rangeCount === 0 || !editorRoot) {
+      setMention(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const node = range.startContainer;
+    if (!range.collapsed || !editorRoot.contains(node) || node.nodeType !== Node.TEXT_NODE) {
+      setMention(null);
+      return;
+    }
+    const textBeforeCursor = node.textContent?.slice(0, range.startOffset) ?? "";
+    const match = MENTION_TRIGGER_PATTERN.exec(textBeforeCursor);
+    if (!match) {
+      setMention(null);
+      return;
+    }
+    const query = match[1];
+    setMention((current) => (
+      current?.query === query
+        ? current
+        : {
+          query,
+          results: current?.results ?? [],
+          activeIndex: 0,
+          loading: true,
+        }
+    ));
+  };
+
+  const insertMention = (item: ProjectFileMatch) => {
+    const query = mention?.query ?? "";
+    mentionSequenceRef.current += 1;
+    senderRef.current?.insert(
+      [
+        {
+          type: "tag",
+          key: `mention-${mentionSequenceRef.current}`,
+          props: {
+            label: (
+              <span className="mention-chip">
+                {item.is_dir ? <FolderOutlined /> : <FileOutlined />}
+                <span>{item.name}</span>
+              </span>
+            ),
+            value: item.path,
+          },
+          formatResult: (value: string) => `[${item.name}](${value})`,
+        },
+        { type: "text", value: " " },
+      ],
+      "cursor",
+      `@${query}`,
+    );
+    setMention(null);
+    senderRef.current?.focus();
+  };
 
   const modelOptions: ModelOption[] = modelGroups
     .filter((group) => group.models.length > 0)
@@ -221,6 +338,8 @@ export function TaskComposer({
       })),
     });
     setPrompt("");
+    setMention(null);
+    senderRef.current?.clear();
     setAttachmentItems([]);
     setAttachmentsOpen(false);
   };
@@ -352,14 +471,88 @@ export function TaskComposer({
           </div>
         </section>
       )}
+      {mention && (
+        <div
+          className="mention-panel"
+          role="listbox"
+          aria-label="选择要引用的文件或文件夹"
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <div className="mention-panel-title">引用文件或文件夹</div>
+          <div className="mention-panel-list" ref={mentionListRef}>
+            {!selectedProject ? (
+              <div className="mention-empty">请先选择项目文件夹。</div>
+            ) : mention.results.length === 0 ? (
+              <div className="mention-empty">
+                {mention.loading ? "搜索中…" : "没有匹配的文件或文件夹。"}
+              </div>
+            ) : (
+              mention.results.map((item, index) => (
+                <button
+                  key={item.path}
+                  type="button"
+                  role="option"
+                  aria-selected={index === mention.activeIndex}
+                  className={`mention-item${index === mention.activeIndex ? " mention-item-active" : ""}`}
+                  onMouseEnter={() => setMention((current) => (
+                    current ? { ...current, activeIndex: index } : current
+                  ))}
+                  onClick={() => insertMention(item)}
+                >
+                  {item.is_dir ? <FolderOutlined /> : <FileOutlined />}
+                  <span className="mention-item-name">{item.name}</span>
+                  <span className="mention-item-path">{item.relative}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       <Sender
         ref={senderRef}
         className="task-sender"
         autoSize={{ minRows: conversationStarted ? 2 : 3, maxRows: 7 }}
         value={prompt}
-        onChange={setPrompt}
+        slotConfig={EMPTY_SLOT_CONFIG}
+        onChange={(value) => {
+          setPrompt(value);
+          updateMentionFromSelection();
+        }}
+        onKeyUp={updateMentionFromSelection}
+        onBlur={() => setMention(null)}
         onKeyDown={(event) => {
-          if (event.key !== "Enter" || event.nativeEvent.isComposing) {
+          if (event.nativeEvent.isComposing) {
+            return undefined;
+          }
+          if (mention) {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const delta = event.key === "ArrowDown" ? 1 : -1;
+              setMention((current) => {
+                if (!current || current.results.length === 0) {
+                  return current;
+                }
+                const count = current.results.length;
+                return { ...current, activeIndex: (current.activeIndex + delta + count) % count };
+              });
+              return false;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              const item = mention.results[mention.activeIndex];
+              if (item) {
+                insertMention(item);
+              } else {
+                setMention(null);
+              }
+              return false;
+            }
+            if (event.key === "Escape") {
+              setMention(null);
+              return false;
+            }
+          }
+          if (event.key !== "Enter") {
             return undefined;
           }
           if (event.ctrlKey) {

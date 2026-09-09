@@ -131,6 +131,13 @@ html[data-theme="dark"] .markdown-inline-code { color: rgba(255, 255, 255, .82);
 html[data-theme="dark"] .markdown-code-highlighter { border-color: #414141; }
 html[data-theme="dark"] .composer-project { color: rgba(255, 255, 255, 0.62); }
 html[data-theme="dark"] .composer-project:hover { color: #a99cff; background: rgba(109, 93, 252, 0.14); }
+html[data-theme="dark"] .mention-panel { border-color: #26262e; background: #16161a; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
+html[data-theme="dark"] .mention-panel-title, html[data-theme="dark"] .mention-item-path { color: rgba(255, 255, 255, .38); }
+html[data-theme="dark"] .mention-item { color: rgba(255, 255, 255, .78); }
+html[data-theme="dark"] .mention-item .anticon { color: rgba(255, 255, 255, .45); }
+html[data-theme="dark"] .mention-item:hover, html[data-theme="dark"] .mention-item-active { background: rgba(109, 93, 252, .16); }
+html[data-theme="dark"] .mention-item-active .anticon, html[data-theme="dark"] .mention-item:hover .anticon { color: #a99cff; }
+html[data-theme="dark"] .mention-empty { color: rgba(255, 255, 255, .4); }
 html[data-theme="dark"] .settings-error { color: #e57373; }
 html[data-theme="dark"] .settings-success { color: #66bb8a; }
 
@@ -367,6 +374,17 @@ html[data-theme="cartoon"] .tool-permission-dialog { color: #51463B; border: 2px
 html[data-theme="cartoon"] .tool-permission-icon { color: #225555; background: #E8D29A; }
 html[data-theme="cartoon"] .tool-permission-copy span { color: #7a6e5d; }
 html[data-theme="cartoon"] .tool-permission-input { color: #51463B; border-color: #CBC4AF; background: #FAFAEE; }
+.mention-panel { position: absolute; z-index: 30; bottom: calc(100% + 8px); left: 0; display: flex; width: min(520px, 100%); max-height: 300px; flex-direction: column; overflow: hidden; border: 1px solid #ececf3; border-radius: 14px; background: #fff; box-shadow: 0 14px 40px rgba(45, 42, 70, .16), 0 2px 8px rgba(45, 42, 70, .06); }
+.mention-panel-title { padding: 9px 12px 6px; color: #9a9bac; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.mention-panel-list { flex: 1; padding: 0 6px 6px; overflow-y: auto; }
+.mention-item { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 10px; color: #3d3d4d; font-size: 13px; text-align: left; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.mention-item .anticon { flex: none; color: #8a8b9d; }
+.mention-item:hover, .mention-item-active { background: #f1efff; }
+.mention-item-active .anticon, .mention-item:hover .anticon { color: #5d4cf0; }
+.mention-item-name { flex: none; max-width: 45%; overflow: hidden; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.mention-item-path { flex: 1; min-width: 0; overflow: hidden; color: #9a9bac; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.mention-empty { padding: 10px 12px 12px; color: #8a8b9d; font-size: 13px; }
+.mention-chip { display: inline-flex; align-items: center; gap: 4px; }
 .composer-project { display: flex; max-width: calc(100% - 28px); align-items: center; gap: 6px; margin: 7px 10px 1px; padding: 4px 5px; overflow: hidden; color: #707180; font-size: 13px; font-weight: 500; text-align: left; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
 .composer-project:hover { color: #5d4cf0; background: #f1efff; }
 .composer-project span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
