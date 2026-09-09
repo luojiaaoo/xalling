@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Agent SDK Python"
+  short_description: "Build and debug Claude Agent SDK Python apps"
+  default_prompt: "Use $claude-agent-sdk-python to build a robust Claude Agent SDK Python integration."
