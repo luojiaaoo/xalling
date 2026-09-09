@@ -178,6 +178,11 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert isinstance(options, ClaudeAgentOptions)
     assert options.cwd == tmp_path.resolve()
     assert options.model == "claude-sonnet"
+    assert options.tools == {"type": "preset", "preset": "claude_code"}
+    assert options.allowed_tools == []
+    assert options.disallowed_tools == []
+    assert options.permission_mode == "default"
+    assert options.setting_sources == ["user", "project", "local"]
     assert options.include_partial_messages is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
     assert options.env["ANTHROPIC_BASE_URL"] == "https://api.example.com"

@@ -43,7 +43,6 @@ class ClaudeChatClient:
     def _build_options(self) -> ClaudeAgentOptions:
         config = self._config
         return ClaudeAgentOptions(
-            allowed_tools=["Read", "Glob", "Grep"],
             cwd=config.project,
             effort=config.effort,
             env={
