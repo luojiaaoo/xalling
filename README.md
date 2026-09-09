@@ -85,6 +85,17 @@ name = "glm-5.3-flash"
 
 `current.toml` 按功能分组，后续当前状态可以增加新的顶级分组。应用启动时会优先恢复 `[model]` 中的选择；文件不存在或所选模型已从 `setting.toml` 移除时，会自动选中并保存第一个可用模型。
 
+### Skill 目录
+
+Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK 本地插件加载：
+
+- Xalling：`~/.xalling/skills/`
+- OpenCode：`~/.config/opencode/skills/`
+- Agent Skills / Codex：`~/.agents/skills/`
+- 当前项目：`<project>/.agents/skills/`
+
+每个 Skill 使用 `<目录>/<skill-name>/SKILL.md` 结构。不存在的目录会被忽略；目录内容的增删会在下一次 Agent 会话启动时重新发现。
+
 ## 通信契约
 
 ### 前端调用 Python

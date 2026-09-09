@@ -3,10 +3,35 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from claude_agent_sdk import CanUseTool, ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk import (
+    CanUseTool,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    SdkPluginConfig,
+)
 
 from .trace import ChatTrace
 from .types import ChatEffort, ChatEventHandler, ChatPermissionMode, ChatReply
+
+
+def discover_skill_plugins(
+    home: Path | None = None,
+    project: Path | None = None,
+) -> list[SdkPluginConfig]:
+    """Return installed user and project skill directories as SDK plugins."""
+    user_home = (home or Path.home()).resolve()
+    plugin_roots = [
+        user_home / ".xalling",
+        user_home / ".config" / "opencode",
+        user_home / ".agents",
+    ]
+    if project is not None:
+        plugin_roots.append(project.resolve() / ".agents")
+    return [
+        {"type": "local", "path": str(root)}
+        for root in plugin_roots
+        if (root / "skills").is_dir()
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +83,7 @@ class ClaudeChatClient:
             max_turns=30,
             model=config.model,
             permission_mode=config.permission_mode,
+            plugins=discover_skill_plugins(project=config.project),
             resume=config.resume,
             setting_sources=["user", "project", "local"],
             system_prompt={"type": "preset", "preset": "claude_code"},
