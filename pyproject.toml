@@ -5,6 +5,7 @@ description = "Xalling desktop application built with pywebview"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiofiles>=25.1.0",
     "claude-agent-sdk>=0.2.152",
     "loguru>=0.7.3",
     "pydantic-settings>=2.15.0",

@@ -54,8 +54,15 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     class FakeClaudeSDKClient:
         def __init__(self, options: ClaudeAgentOptions) -> None:
             captured["options"] = options
+            self._options = options
 
         async def __aenter__(self) -> Self:
+            assert self._options.settings is not None
+            settings_path = Path(self._options.settings)
+            captured["settings_path"] = settings_path
+            captured["flag_settings"] = json.loads(
+                settings_path.read_text(encoding="utf-8")
+            )
             return self
 
         async def __aexit__(self, *args: object) -> None:
@@ -191,8 +198,16 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert options.setting_sources == ["user", "project", "local"]
     assert options.include_partial_messages is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
-    assert options.env["ANTHROPIC_BASE_URL"] == "https://api.example.com"
-    assert options.env["ANTHROPIC_AUTH_TOKEN"] == "secret"
+    assert captured["flag_settings"] == {
+        "env": {
+            "ANTHROPIC_AUTH_TOKEN": "secret",
+            "ANTHROPIC_BASE_URL": "https://api.example.com",
+        }
+    }
+    assert not Path(captured["settings_path"]).exists()
+    assert "ANTHROPIC_BASE_URL" not in options.env
+    assert "ANTHROPIC_AUTH_TOKEN" not in options.env
+    assert "ANTHROPIC_MODEL" not in options.env
     assert len(scripts) == 9
     assert '"request_id":"request-1"' in scripts[0]
     assert '"type":"thinking_start"' in scripts[0]
