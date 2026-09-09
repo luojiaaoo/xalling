@@ -6,6 +6,8 @@ from typing import Any
 from webview import FileDialog
 from webview.window import FixPoint
 
+from backend.config.setting import default_project_folder
+
 MIN_WINDOW_WIDTH = 400
 MIN_WINDOW_HEIGHT = 600
 MAX_WINDOW_SIZE = 32768
@@ -71,8 +73,8 @@ class WindowRouter:
 
     @staticmethod
     def get_home_folder() -> dict[str, str]:
-        """Return the user's home folder as the default project directory."""
-        folder = Path.home().resolve()
+        """Return the default project folder (Desktop when available, else home)."""
+        folder = default_project_folder()
         return {"name": folder.name or str(folder), "path": str(folder)}
 
     def resize_window(self, width: int, height: int, edge: str) -> None:

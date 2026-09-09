@@ -23,7 +23,7 @@ from claude_agent_sdk import (
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router.chat import ChatRouter
+from backend.router.chat import ChatMessageRequest, ChatRouter
 
 
 def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -309,7 +309,7 @@ def test_chat_router_waits_for_tool_permission_from_ui(
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])
 def test_chat_router_rejects_invalid_effort(effort: str) -> None:
     with pytest.raises(ValueError, match="推理强度无效"):
-        ChatRouter._validate_effort(effort)
+        ChatRouter().send_chat_message("检查项目", effort=effort)
 
 
 @pytest.mark.parametrize(
@@ -318,18 +318,65 @@ def test_chat_router_rejects_invalid_effort(effort: str) -> None:
 )
 def test_chat_router_rejects_invalid_permission_mode(permission_mode: str) -> None:
     with pytest.raises(ValueError, match="权限模式无效"):
-        ChatRouter._validate_permission_mode(permission_mode)
+        ChatRouter().send_chat_message("检查项目", permission_mode=permission_mode)
 
 
 @pytest.mark.parametrize(
     "permission_mode",
     ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
 )
-def test_chat_router_accepts_sdk_permission_modes(permission_mode: str) -> None:
-    assert ChatRouter._validate_permission_mode(permission_mode) == permission_mode
+def test_chat_message_request_accepts_sdk_permission_modes(permission_mode: str) -> None:
+    request = ChatMessageRequest.model_validate({"prompt": "检查项目", "permission_mode": permission_mode})
+
+    assert request.permission_mode == permission_mode
 
 
-def test_chat_router_defaults_to_home_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_chat_message_request_defaults_to_home_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-    assert ChatRouter._validate_project_path(None) == tmp_path.resolve()
+    request = ChatMessageRequest.model_validate({"prompt": "检查项目"})
+
+    assert request.project_path == tmp_path.resolve()
+
+
+def test_chat_message_request_defaults_to_desktop_when_available(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    request = ChatMessageRequest.model_validate({"prompt": "检查项目"})
+
+    assert request.project_path == desktop.resolve()
+
+
+def test_chat_message_request_normalizes_prompt_and_ids() -> None:
+    session_id = uuid4()
+
+    request = ChatMessageRequest.model_validate(
+        {
+            "prompt": "  检查项目  ",
+            "session_id": str(session_id).upper(),
+            "request_id": "  request-1  ",
+        }
+    )
+
+    assert request.prompt == "检查项目"
+    assert request.session_id == str(session_id)
+    assert request.request_id == "request-1"
+
+
+def test_chat_router_rejects_invalid_session_id() -> None:
+    with pytest.raises(ValueError, match="会话标识无效"):
+        ChatRouter().send_chat_message("检查项目", session_id="not-a-uuid")
+
+
+def test_chat_router_rejects_permission_response_without_request_id() -> None:
+    with pytest.raises(ValueError, match="请求标识无效"):
+        ChatRouter().respond_chat_permission("", str(uuid4()), True)
+
+
+def test_chat_router_rejects_non_boolean_permission_decision() -> None:
+    with pytest.raises(TypeError, match="权限决定必须是布尔值"):
+        ChatRouter().respond_chat_permission("request-1", str(uuid4()), "yes")

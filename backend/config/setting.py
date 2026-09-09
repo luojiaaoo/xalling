@@ -15,6 +15,15 @@ USER_CONF_DIRPATH = Path.home() / ".xalling"
 CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
 
 
+def default_project_folder() -> Path:
+    """Return the default project folder: Desktop if it exists, else home."""
+    home = Path.home().resolve()
+    desktop = home / "Desktop"
+    if desktop.exists() and desktop.is_dir():
+        return desktop
+    return home
+
+
 class ModelConfig(BaseModel):
     """One model and its capabilities."""
 

@@ -203,6 +203,19 @@ def test_window_router_returns_home_as_default_project(
     }
 
 
+def test_window_router_returns_desktop_as_default_project_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    assert WindowRouter.get_home_folder() == {
+        "name": desktop.name,
+        "path": str(desktop.resolve()),
+    }
+
+
 def test_theme_router_persists_selection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

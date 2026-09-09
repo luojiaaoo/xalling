@@ -6,7 +6,7 @@ from concurrent.futures import Future
 from functools import partial
 from pathlib import Path
 from threading import Lock
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid4
 
 from claude_agent_sdk import (
@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ToolPermissionContext,
 )
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from webview.errors import JavascriptException, WebViewException
 
 from backend.chat import (
@@ -26,7 +27,138 @@ from backend.chat import (
     ClaudeChatConfig,
 )
 from backend.config.current import CurrentConfig
-from backend.config.setting import ModelSiteConfig, Settings
+from backend.config.setting import ModelSiteConfig, Settings, default_project_folder
+
+
+def _normalize_request_id(value: object) -> str | None:
+    """Normalize the optional request tag; empty values mean the call is untagged."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise TypeError("请求标识必须是字符串")
+    normalized = value.strip()
+    if not normalized or len(normalized) > 128:
+        raise ValueError("请求标识无效")
+    return normalized
+
+
+def _user_facing_error(error: ValidationError) -> ValueError:
+    """Translate the first pydantic error into the message shown by the Web UI."""
+    first = error.errors()[0]
+    message = str(first["msg"])
+    if message.startswith("Value error, "):
+        message = message.removeprefix("Value error, ")
+    else:
+        message = f"参数 {first['loc'][0]} 无效"
+    return ValueError(message)
+
+
+class ChatMessageRequest(BaseModel):
+    """Validate and normalize one send_chat_message payload from the Web UI."""
+
+    model_config = ConfigDict(validate_default=True)
+
+    prompt: str
+    project_path: Path | None = None
+    session_id: str | None = None
+    effort: ChatEffort = "high"
+    request_id: str | None = None
+    permission_mode: ChatPermissionMode = "default"
+
+    @field_validator("prompt", mode="before")
+    @classmethod
+    def _validate_prompt(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise TypeError("消息内容必须是字符串")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("消息内容不能为空")
+        if len(normalized) > 500_000:
+            raise ValueError("消息内容过长")
+        return normalized
+
+    @field_validator("project_path", mode="before")
+    @classmethod
+    def _validate_project_path(cls, value: object) -> Path:
+        if value is None or value == "":
+            return default_project_folder()
+        if not isinstance(value, str):
+            raise TypeError("项目路径必须是字符串")
+        project = Path(value).resolve()
+        if not project.is_dir():
+            raise ValueError("选择的项目文件夹已不存在")
+        return project
+
+    @field_validator("session_id", mode="before")
+    @classmethod
+    def _validate_session_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise TypeError("会话标识必须是字符串")
+        try:
+            return str(UUID(value))
+        except ValueError as error:
+            raise ValueError("会话标识无效") from error
+
+    @field_validator("effort", mode="before")
+    @classmethod
+    def _validate_effort(cls, value: object) -> object:
+        if not isinstance(value, str) or value not in {"low", "medium", "high", "max"}:
+            raise ValueError("推理强度无效")
+        return value
+
+    @field_validator("request_id", mode="before")
+    @classmethod
+    def _validate_request_id(cls, value: object) -> str | None:
+        return _normalize_request_id(value)
+
+    @field_validator("permission_mode", mode="before")
+    @classmethod
+    def _validate_permission_mode(cls, value: object) -> object:
+        permission_modes = {
+            "default",
+            "acceptEdits",
+            "plan",
+            "auto",
+            "bypassPermissions",
+        }
+        if not isinstance(value, str) or value not in permission_modes:
+            raise ValueError("权限模式无效")
+        return value
+
+
+class ChatPermissionDecision(BaseModel):
+    """Validate and normalize one respond_chat_permission payload from the Web UI."""
+
+    request_id: str
+    permission_id: str
+    allowed: bool
+
+    @field_validator("request_id", mode="before")
+    @classmethod
+    def _validate_request_id(cls, value: object) -> str:
+        normalized = _normalize_request_id(value)
+        if normalized is None:
+            raise ValueError("请求标识无效")
+        return normalized
+
+    @field_validator("permission_id", mode="before")
+    @classmethod
+    def _validate_permission_id(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise TypeError("权限请求标识必须是字符串")
+        try:
+            return str(UUID(value))
+        except ValueError as error:
+            raise ValueError("权限请求标识无效") from error
+
+    @field_validator("allowed", mode="before")
+    @classmethod
+    def _validate_allowed(cls, value: object) -> bool:
+        if type(value) is not bool:
+            raise TypeError("权限决定必须是布尔值")
+        return value
 
 
 class ChatRouter:
@@ -49,16 +181,24 @@ class ChatRouter:
         permission_mode: str = "default",
     ) -> ChatReply:
         """Run one turn, stream text events, and return the final response."""
-        normalized_prompt = self._validate_prompt(prompt)
-        project = self._validate_project_path(project_path)
-        resume = self._validate_session_id(session_id)
-        normalized_effort = self._validate_effort(effort)
-        normalized_permission_mode = self._validate_permission_mode(permission_mode)
-        stream_request_id = self._validate_request_id(request_id)
+        try:
+            request = ChatMessageRequest.model_validate(
+                {
+                    "prompt": prompt,
+                    "project_path": project_path,
+                    "session_id": session_id,
+                    "effort": effort,
+                    "request_id": request_id,
+                    "permission_mode": permission_mode,
+                }
+            )
+        except ValidationError as error:
+            raise _user_facing_error(error) from error
+
         site, model_name = self._get_current_provider()
         can_use_tool = (
-            partial(self._request_tool_permission, stream_request_id)
-            if stream_request_id is not None
+            partial(self._request_tool_permission, request.request_id)
+            if request.permission_mode != "bypassPermissions"
             else None
         )
         client = ClaudeChatClient(
@@ -66,22 +206,20 @@ class ChatRouter:
                 api_key=site.api_key,
                 api_url=site.api_url,
                 can_use_tool=can_use_tool,
-                effort=normalized_effort,
+                effort=request.effort,
                 model=model_name,
-                permission_mode=normalized_permission_mode,
-                project=project,
-                resume=resume,
+                permission_mode=request.permission_mode,
+                project=request.project_path,
+                resume=request.session_id,
             )
         )
 
         try:
             return asyncio.run(
                 client.send(
-                    normalized_prompt,
-                    on_event=(
-                        lambda event: self._emit_chat_event(stream_request_id, event)
-                    )
-                    if stream_request_id is not None
+                    request.prompt,
+                    on_event=(lambda event: self._emit_chat_event(request.request_id, event))
+                    if request.request_id is not None
                     else None,
                 )
             )
@@ -95,21 +233,25 @@ class ChatRouter:
         allowed: bool,
     ) -> bool:
         """Resolve a pending SDK tool permission request from the Web UI."""
-        normalized_request_id = self._validate_request_id(request_id)
-        normalized_permission_id = self._validate_permission_id(permission_id)
-        if normalized_request_id is None:
-            raise ValueError("请求标识无效")
-        if type(allowed) is not bool:
-            raise TypeError("权限决定必须是布尔值")
+        try:
+            decision = ChatPermissionDecision.model_validate(
+                {
+                    "request_id": request_id,
+                    "permission_id": permission_id,
+                    "allowed": allowed,
+                }
+            )
+        except ValidationError as error:
+            raise _user_facing_error(error) from error
 
         with self._permission_lock:
-            pending = self._pending_permissions.get(normalized_permission_id)
-            if pending is None or pending[0] != normalized_request_id:
+            pending = self._pending_permissions.get(decision.permission_id)
+            if pending is None or pending[0] != decision.request_id:
                 return False
-            decision = pending[1]
-            if decision.done():
+            future = pending[1]
+            if future.done():
                 return False
-            decision.set_result(allowed)
+            future.set_result(decision.allowed)
         return True
 
     async def _request_tool_permission(
@@ -132,11 +274,7 @@ class ChatRouter:
             "input": input_data,
             "title": context.title or f"Claude 请求使用 {tool_name}",
             "display_name": context.display_name or tool_name,
-            "description": (
-                context.description
-                or context.decision_reason
-                or "此操作需要你的确认后才能继续。"
-            ),
+            "description": (context.description or context.decision_reason or "此操作需要你的确认后才能继续。"),
             "blocked_path": context.blocked_path or "",
         }
         if not self._emit_chat_event(request_id, event):
@@ -165,10 +303,7 @@ class ChatRouter:
             ensure_ascii=True,
             separators=(",", ":"),
         )
-        script = (
-            "window.dispatchEvent(new CustomEvent('xalling:chat-event',"
-            f"{{detail:{detail}}}));"
-        )
+        script = f"window.dispatchEvent(new CustomEvent('xalling:chat-event',{{detail:{detail}}}));"
         try:
             self._window.evaluate_js(script)
         except (JavascriptException, WebViewException):
@@ -190,75 +325,3 @@ class ChatRouter:
         if not site.api_key.strip():
             raise ValueError("当前供应商尚未填写 API Key")
         return site, current.name
-
-    @staticmethod
-    def _validate_prompt(value: object) -> str:
-        if not isinstance(value, str):
-            raise TypeError("消息内容必须是字符串")
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("消息内容不能为空")
-        if len(normalized) > 500_000:
-            raise ValueError("消息内容过长")
-        return normalized
-
-    @staticmethod
-    def _validate_project_path(value: object) -> Path:
-        if value is None or value == "":
-            return Path.home().resolve()
-        if not isinstance(value, str):
-            raise TypeError("项目路径必须是字符串")
-        project = Path(value).resolve()
-        if not project.is_dir():
-            raise ValueError("选择的项目文件夹已不存在")
-        return project
-
-    @staticmethod
-    def _validate_session_id(value: object) -> str | None:
-        if value is None or value == "":
-            return None
-        if not isinstance(value, str):
-            raise TypeError("会话标识必须是字符串")
-        try:
-            return str(UUID(value))
-        except ValueError as error:
-            raise ValueError("会话标识无效") from error
-
-    @staticmethod
-    def _validate_effort(value: object) -> ChatEffort:
-        if not isinstance(value, str) or value not in {"low", "medium", "high", "max"}:
-            raise ValueError("推理强度无效")
-        return cast(ChatEffort, value)
-
-    @staticmethod
-    def _validate_permission_mode(value: object) -> ChatPermissionMode:
-        permission_modes = {
-            "default",
-            "acceptEdits",
-            "plan",
-            "auto",
-            "bypassPermissions",
-        }
-        if not isinstance(value, str) or value not in permission_modes:
-            raise ValueError("权限模式无效")
-        return cast(ChatPermissionMode, value)
-
-    @staticmethod
-    def _validate_permission_id(value: object) -> str:
-        if not isinstance(value, str):
-            raise TypeError("权限请求标识必须是字符串")
-        try:
-            return str(UUID(value))
-        except ValueError as error:
-            raise ValueError("权限请求标识无效") from error
-
-    @staticmethod
-    def _validate_request_id(value: object) -> str | None:
-        if value is None or value == "":
-            return None
-        if not isinstance(value, str):
-            raise TypeError("请求标识必须是字符串")
-        normalized = value.strip()
-        if not normalized or len(normalized) > 128:
-            raise ValueError("请求标识无效")
-        return normalized
