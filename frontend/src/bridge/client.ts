@@ -34,6 +34,7 @@ type PyWebviewApi = {
     requestId: string,
     permissionId: string,
     allowed: boolean,
+    answers: ChatPermissionAnswers | null,
   ) => Promise<boolean>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
@@ -133,6 +134,31 @@ export type ChatPermissionRequestEvent = {
   type: "permission_request";
 };
 
+export type ChatUserQuestionOption = {
+  description: string;
+  label: string;
+};
+
+export type ChatUserQuestion = {
+  header: string;
+  multiSelect: boolean;
+  options: ChatUserQuestionOption[];
+  question: string;
+};
+
+export type ChatPermissionAnswers = Record<string, string | string[]>;
+
+export type ChatAskUserQuestionRequestEvent = Omit<
+  ChatPermissionRequestEvent,
+  "input" | "tool_name"
+> & {
+  input: {
+    answers?: ChatPermissionAnswers | null;
+    questions: ChatUserQuestion[];
+  };
+  tool_name: "AskUserQuestion";
+};
+
 export type ChatStreamEvent =
   | ChatContentEvent
   | ChatContentDeltaEvent
@@ -211,6 +237,40 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     || value.type === "output_start"
     || value.type === "output_complete"
   ) && "block_id" in value && typeof value.block_id === "string";
+}
+
+function isUserQuestionOption(value: unknown): value is ChatUserQuestionOption {
+  return typeof value === "object"
+    && value !== null
+    && "label" in value
+    && typeof value.label === "string"
+    && "description" in value
+    && typeof value.description === "string";
+}
+
+function isUserQuestion(value: unknown): value is ChatUserQuestion {
+  return typeof value === "object"
+    && value !== null
+    && "question" in value
+    && typeof value.question === "string"
+    && "header" in value
+    && typeof value.header === "string"
+    && "multiSelect" in value
+    && typeof value.multiSelect === "boolean"
+    && "options" in value
+    && Array.isArray(value.options)
+    && value.options.every(isUserQuestionOption);
+}
+
+export function isAskUserQuestionRequest(
+  request: ChatPermissionRequestEvent,
+): request is ChatAskUserQuestionRequestEvent {
+  const questions = request.input.questions;
+  return request.tool_name === "AskUserQuestion"
+    && Array.isArray(questions)
+    && questions.length > 0
+    && questions.length <= 4
+    && questions.every(isUserQuestion);
 }
 
 function createChatRequestId(): string {
@@ -355,12 +415,13 @@ export async function respondChatPermission(
   requestId: string,
   permissionId: string,
   allowed: boolean,
+  answers?: ChatPermissionAnswers,
 ): Promise<boolean> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.respond_chat_permission(requestId, permissionId, allowed);
+  return api.respond_chat_permission(requestId, permissionId, allowed, answers ?? null);
 }
 
 export async function getCurrentTheme(): Promise<string> {

@@ -3,6 +3,7 @@
 import asyncio
 import json
 from concurrent.futures import Future
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from threading import Lock
@@ -134,6 +135,7 @@ class ChatPermissionDecision(BaseModel):
     request_id: str
     permission_id: str
     allowed: bool
+    answers: dict[str, str | list[str]] | None = None
 
     @field_validator("request_id", mode="before")
     @classmethod
@@ -160,6 +162,49 @@ class ChatPermissionDecision(BaseModel):
             raise TypeError("权限决定必须是布尔值")
         return value
 
+    @field_validator("answers", mode="before")
+    @classmethod
+    def _validate_answers(cls, value: object) -> dict[str, str | list[str]] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise TypeError("用户回答必须是对象")
+
+        normalized: dict[str, str | list[str]] = {}
+        for question, answer in value.items():
+            if not isinstance(question, str) or not question.strip():
+                raise ValueError("问题文本无效")
+            if isinstance(answer, str):
+                clean_answer = answer.strip()
+                if not clean_answer:
+                    raise ValueError("用户回答不能为空")
+                normalized[question] = clean_answer
+                continue
+            if not isinstance(answer, list) or not answer:
+                raise TypeError("用户回答必须是字符串或非空字符串列表")
+            if any(not isinstance(item, str) or not item.strip() for item in answer):
+                raise ValueError("多选回答不能包含空值")
+            normalized[question] = [item.strip() for item in answer]
+        return normalized
+
+
+@dataclass(frozen=True)
+class _PermissionDecision:
+    """One user decision returned to the waiting SDK callback."""
+
+    allowed: bool
+    answers: dict[str, str | list[str]] | None = None
+
+
+@dataclass
+class _PendingPermission:
+    """Context required to validate and resume one pending tool call."""
+
+    request_id: str
+    tool_name: str
+    input_data: dict[str, Any]
+    future: Future[_PermissionDecision]
+
 
 class ChatRouter:
     """Validate UI input and delegate agent turns to the chat library."""
@@ -169,7 +214,7 @@ class ChatRouter:
     def __init__(self) -> None:
         super().__init__()
         self._permission_lock = Lock()
-        self._pending_permissions: dict[str, tuple[str, Future[bool]]] = {}
+        self._pending_permissions: dict[str, _PendingPermission] = {}
 
     def send_chat_message(
         self,
@@ -198,7 +243,7 @@ class ChatRouter:
         site, model_name = self._get_current_provider()
         can_use_tool = (
             partial(self._request_tool_permission, request.request_id)
-            if request.permission_mode != "bypassPermissions"
+            if request.request_id is not None
             else None
         )
         client = ClaudeChatClient(
@@ -231,6 +276,7 @@ class ChatRouter:
         request_id: str,
         permission_id: str,
         allowed: bool,
+        answers: dict[str, str | list[str]] | None = None,
     ) -> bool:
         """Resolve a pending SDK tool permission request from the Web UI."""
         try:
@@ -239,6 +285,7 @@ class ChatRouter:
                     "request_id": request_id,
                     "permission_id": permission_id,
                     "allowed": allowed,
+                    "answers": answers,
                 }
             )
         except ValidationError as error:
@@ -246,12 +293,18 @@ class ChatRouter:
 
         with self._permission_lock:
             pending = self._pending_permissions.get(decision.permission_id)
-            if pending is None or pending[0] != decision.request_id:
+            if pending is None or pending.request_id != decision.request_id:
                 return False
-            future = pending[1]
+            normalized_answers = self._validate_tool_answers(pending, decision)
+            future = pending.future
             if future.done():
                 return False
-            future.set_result(decision.allowed)
+            future.set_result(
+                _PermissionDecision(
+                    allowed=decision.allowed,
+                    answers=normalized_answers,
+                )
+            )
         return True
 
     async def _request_tool_permission(
@@ -263,9 +316,14 @@ class ChatRouter:
     ) -> PermissionResultAllow | PermissionResultDeny:
         """Pause a tool call until the matching Web UI request is answered."""
         permission_id = str(uuid4())
-        decision: Future[bool] = Future()
+        decision: Future[_PermissionDecision] = Future()
         with self._permission_lock:
-            self._pending_permissions[permission_id] = (request_id, decision)
+            self._pending_permissions[permission_id] = _PendingPermission(
+                request_id=request_id,
+                tool_name=tool_name,
+                input_data=input_data,
+                future=decision,
+            )
 
         event: ChatEvent = {
             "type": "permission_request",
@@ -283,14 +341,52 @@ class ChatRouter:
             return PermissionResultDeny(message="无法显示工具权限确认，已拒绝本次调用")
 
         try:
-            allowed = await asyncio.wrap_future(decision)
+            response = await asyncio.wrap_future(decision)
         finally:
             with self._permission_lock:
                 self._pending_permissions.pop(permission_id, None)
 
-        if allowed:
+        if response.allowed:
+            if tool_name == "AskUserQuestion":
+                return PermissionResultAllow(
+                    updated_input={**input_data, "answers": response.answers}
+                )
             return PermissionResultAllow()
         return PermissionResultDeny(message="用户已拒绝本次工具调用")
+
+    @staticmethod
+    def _validate_tool_answers(
+        pending: _PendingPermission,
+        decision: ChatPermissionDecision,
+    ) -> dict[str, str | list[str]] | None:
+        """Require one non-empty answer for every AskUserQuestion item."""
+        if pending.tool_name != "AskUserQuestion":
+            if decision.answers is not None:
+                raise ValueError("普通工具权限确认不能包含用户回答")
+            return None
+        if not decision.allowed:
+            return None
+        if decision.answers is None:
+            raise ValueError("请回答全部问题后再提交")
+
+        raw_questions = pending.input_data.get("questions")
+        if not isinstance(raw_questions, list) or not raw_questions:
+            raise ValueError("AskUserQuestion 问题数据无效")
+
+        question_texts: list[str] = []
+        for raw_question in raw_questions:
+            if not isinstance(raw_question, dict):
+                raise TypeError("AskUserQuestion 问题数据无效")
+            question = raw_question.get("question")
+            if not isinstance(question, str) or not question.strip():
+                raise ValueError("AskUserQuestion 问题数据无效")
+            question_texts.append(question)
+
+        if len(question_texts) != len(set(question_texts)):
+            raise ValueError("AskUserQuestion 包含重复问题")
+        if set(decision.answers) != set(question_texts):
+            raise ValueError("请回答全部问题后再提交")
+        return decision.answers
 
     def _emit_chat_event(self, request_id: str, event: ChatEvent) -> bool:
         """Dispatch one structured progress event to the matching Web UI request."""

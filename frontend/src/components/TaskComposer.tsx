@@ -37,15 +37,18 @@ import { useEffect, useRef, useState } from "react";
 import {
   getCurrentModel,
   getModelGroups,
+  isAskUserQuestionRequest,
   searchProjectFiles,
   selectProjectFolder,
   setCurrentModel,
+  type ChatPermissionAnswers,
   type ChatPermissionRequestEvent,
   type ChatPermissionMode,
   type ModelGroup,
   type ProjectFileMatch,
   type ProjectFolder,
 } from "../bridge/client";
+import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
 
 type TaskComposerProps = {
   busy?: boolean;
@@ -53,6 +56,7 @@ type TaskComposerProps = {
   onPermissionDecision?: (
     request: ChatPermissionRequestEvent,
     allowed: boolean,
+    answers?: ChatPermissionAnswers,
   ) => Promise<void>;
   onProjectChange: (project: ProjectFolder | null) => void;
   onSend: (draft: ComposerDraft) => void;
@@ -348,13 +352,16 @@ export function TaskComposer({
     setPermissionMode(key as ChatPermissionMode);
   };
 
-  const handleToolPermissionDecision = async (allowed: boolean) => {
+  const handleToolPermissionDecision = async (
+    allowed: boolean,
+    answers?: ChatPermissionAnswers,
+  ) => {
     if (!permissionRequest || !onPermissionDecision || permissionDecision) {
       return;
     }
     setPermissionDecision(allowed ? "allow" : "deny");
     try {
-      await onPermissionDecision(permissionRequest, allowed);
+      await onPermissionDecision(permissionRequest, allowed, answers);
     } catch (error) {
       const text = error instanceof Error && error.message.trim()
         ? error.message
@@ -433,7 +440,14 @@ export function TaskComposer({
       aria-label="发送消息"
     >
       {contextHolder}
-      {permissionRequest && (
+      {permissionRequest && isAskUserQuestionRequest(permissionRequest) ? (
+        <AskUserQuestionDialog
+          key={permissionRequest.permission_id}
+          decision={permissionDecision}
+          onDecision={handleToolPermissionDecision}
+          request={permissionRequest}
+        />
+      ) : permissionRequest && (
         <section
           aria-labelledby="tool-permission-title"
           aria-modal="true"

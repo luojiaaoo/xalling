@@ -306,6 +306,60 @@ def test_chat_router_waits_for_tool_permission_from_ui(
     )
 
 
+def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
+    router = ChatRouter()
+    question_input = {
+        "questions": [
+            {
+                "question": "要使用哪种主题？",
+                "header": "主题",
+                "options": [
+                    {"label": "浅色", "description": "使用明亮配色"},
+                    {"label": "深色", "description": "使用暗色配色"},
+                ],
+                "multiSelect": False,
+            },
+            {
+                "question": "需要哪些功能？",
+                "header": "功能",
+                "options": [
+                    {"label": "搜索", "description": "增加全文搜索"},
+                    {"label": "导出", "description": "增加结果导出"},
+                ],
+                "multiSelect": True,
+            },
+        ]
+    }
+    answers = {
+        "要使用哪种主题？": "深色",
+        "需要哪些功能？": ["搜索", "键盘快捷键"],
+    }
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
+            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
+            assert router.respond_chat_permission(
+                event["request_id"],
+                event["permission_id"],
+                True,
+                answers,
+            )
+
+    router._window = WindowStub()
+    result = asyncio.run(
+        router._request_tool_permission(
+            "request-1",
+            "AskUserQuestion",
+            question_input,
+            ToolPermissionContext(),
+        )
+    )
+
+    assert isinstance(result, PermissionResultAllow)
+    assert result.updated_input == {**question_input, "answers": answers}
+
+
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])
 def test_chat_router_rejects_invalid_effort(effort: str) -> None:
     with pytest.raises(ValueError, match="推理强度无效"):

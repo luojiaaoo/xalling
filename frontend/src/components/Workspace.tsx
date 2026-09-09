@@ -6,6 +6,7 @@ import {
   getHomeFolder,
   respondChatPermission,
   sendChatMessage,
+  type ChatPermissionAnswers,
   type ChatPermissionRequestEvent,
   type ProjectFolder,
 } from "../bridge/client";
@@ -113,11 +114,13 @@ export function Workspace() {
   const handlePermissionDecision = async (
     request: ChatPermissionRequestEvent,
     allowed: boolean,
+    answers?: ChatPermissionAnswers,
   ) => {
     const resolved = await respondChatPermission(
       request.request_id,
       request.permission_id,
       allowed,
+      answers,
     );
     if (!resolved) {
       throw new Error("权限请求已失效，请等待当前任务更新。");
