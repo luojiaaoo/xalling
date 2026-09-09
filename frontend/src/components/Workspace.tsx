@@ -115,9 +115,12 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
   }, [busy]);
 
   useEffect(() => {
+    if (!busy) {
+      return;
+    }
     const scrollBox = chatScrollRef.current;
     scrollBox?.scrollTo({ top: scrollBox.scrollHeight, behavior: "smooth" });
-  }, [messages, elapsedSeconds]);
+  }, [busy, messages, elapsedSeconds]);
 
   const handlePermissionDecision = async (
     request: ChatPermissionRequestEvent,
