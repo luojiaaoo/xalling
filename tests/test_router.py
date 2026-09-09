@@ -8,6 +8,7 @@ from webview.window import FixPoint
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
 from backend.router import ChatRouter, ModelRouter, ThemeRouter, WindowRouter
+from backend.router.window import WindowBounds
 from main import ApplicationBridge
 
 
@@ -116,6 +117,70 @@ def test_application_bridge_composes_window_and_model_routers() -> None:
     assert isinstance(bridge, ModelRouter)
     assert isinstance(bridge, ThemeRouter)
     assert isinstance(bridge, ChatRouter)
+
+
+def test_window_router_maximizes_to_current_windows_work_area(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WindowStub:
+        x = 2100
+        y = 120
+        width = 1000
+        height = 700
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, ...]] = []
+
+        def resize(self, width: int, height: int) -> None:
+            self.calls.append(("resize", width, height))
+
+        def move(self, x: int, y: int) -> None:
+            self.calls.append(("move", x, y))
+
+    monkeypatch.setattr("backend.router.window.IS_WINDOWS", True)
+    monkeypatch.setattr(
+        "backend.router.window._windows_work_areas",
+        lambda: [
+            WindowBounds(0, 0, 1920, 1040),
+            WindowBounds(1920, 0, 2560, 1400),
+        ],
+    )
+    window = WindowStub()
+    router = WindowRouter()
+    router.bind_window(window)
+
+    result = router.toggle_maximize_window()
+
+    assert result == {"maximized": True}
+    assert window.calls == [("resize", 2560, 1400), ("move", 1920, 0)]
+
+    result = router.toggle_maximize_window()
+
+    assert result == {"maximized": False}
+    assert window.calls[-2:] == [("resize", 1000, 700), ("move", 2100, 120)]
+
+
+def test_window_router_uses_native_maximize_outside_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WindowStub:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def maximize(self) -> None:
+            self.calls.append("maximize")
+
+        def restore(self) -> None:
+            self.calls.append("restore")
+
+    monkeypatch.setattr("backend.router.window.IS_WINDOWS", False)
+    window = WindowStub()
+    router = WindowRouter()
+    router.bind_window(window)
+
+    assert router.toggle_maximize_window() == {"maximized": True}
+    assert router.toggle_maximize_window() == {"maximized": False}
+    assert window.calls == ["maximize", "restore"]
 
 
 @pytest.mark.parametrize(

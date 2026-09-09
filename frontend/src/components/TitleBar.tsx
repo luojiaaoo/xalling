@@ -9,7 +9,6 @@ type TitleBarProps = {
 };
 
 export function TitleBar({ maximized, onMaximizedChange }: TitleBarProps) {
-
   const handleMaximize = async () => {
     onMaximizedChange(await toggleMaximizeWindow());
   };
@@ -17,7 +16,7 @@ export function TitleBar({ maximized, onMaximizedChange }: TitleBarProps) {
   return (
     <header className="title-bar">
       <div
-        className="title-bar-drag pywebview-drag-region"
+        className={`title-bar-drag${maximized ? "" : " pywebview-drag-region"}`}
         onDoubleClick={() => void handleMaximize()}
       />
       <div className="window-controls" aria-label="窗口控制">
