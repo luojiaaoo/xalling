@@ -159,6 +159,33 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     return wrapper
 
 
+FRONTEND_ERROR_KINDS = ("error", "unhandledrejection", "console.error", "console.warn")
+
+
+class LogRouter:
+    """Receive error reports from the Web UI and write them to the error log."""
+
+    def report_frontend_error(
+        self,
+        kind: str,
+        message: str,
+        stack: str | None = None,
+    ) -> None:
+        """Record a frontend console error, uncaught exception, or rejection."""
+        if not isinstance(kind, str) or not isinstance(message, str):
+            raise TypeError("错误类型与信息必须是字符串")
+        if stack is not None and not isinstance(stack, str):
+            raise TypeError("错误堆栈必须是字符串或 null")
+        if kind not in FRONTEND_ERROR_KINDS:
+            raise ValueError("不支持的前端错误类型")
+
+        _ensure_logging_configured()
+        text = f"Frontend {kind}: {message}"
+        if stack:
+            text += f"\n{stack}"
+        _error_logger.error(text)
+
+
 def capture_bridge_api_errors[T: type[Any]](cls: T) -> T:
     """Apply bridge logging to every public method on an API class."""
     for name in dir(cls):

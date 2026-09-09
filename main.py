@@ -3,12 +3,21 @@ from pathlib import Path
 
 import webview
 
-from backend.router import ChatRouter, FileRouter, ModelRouter, ThemeRouter, WindowRouter
+from backend.router import (
+    ChatRouter,
+    FileRouter,
+    LogRouter,
+    ModelRouter,
+    ThemeRouter,
+    WindowRouter,
+)
 from backend.router.log import capture_bridge_api_errors
+
+DEBUG = os.environ.get("XALLING_DEBUG", "0") == "1"
 
 
 @capture_bridge_api_errors
-class ApplicationBridge(WindowRouter, FileRouter, ModelRouter, ThemeRouter, ChatRouter):
+class ApplicationBridge(WindowRouter, FileRouter, ModelRouter, ThemeRouter, ChatRouter, LogRouter):
     """Compose the JSON-only routers exposed to the local Web UI."""
 
 
@@ -40,7 +49,7 @@ def main() -> None:
         background_color="#f7f7fb",
     )
     bridge.bind_window(window)
-    webview.start(debug=True)
+    webview.start(debug=DEBUG)
 
 
 if __name__ == "__main__":

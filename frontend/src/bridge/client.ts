@@ -38,6 +38,11 @@ type PyWebviewApi = {
   ) => Promise<boolean>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
+  report_frontend_error: (
+    kind: string,
+    message: string,
+    stack: string | null,
+  ) => Promise<void>;
 };
 
 export type ModelGroup = {
@@ -435,4 +440,14 @@ export async function setCurrentTheme(name: string): Promise<void> {
     throw new Error("桌面应用桥接尚未准备好");
   }
   await api.set_current_theme(name);
+}
+
+export async function reportFrontendError(
+  kind: string,
+  message: string,
+  stack: string | null,
+): Promise<void> {
+  // 静默上报：桥接不可用（如纯浏览器调试）时直接丢弃，不能再产生新错误
+  const api = await getBridgeApi();
+  await api?.report_frontend_error(kind, message, stack);
 }
