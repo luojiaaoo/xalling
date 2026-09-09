@@ -160,7 +160,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
         def evaluate_js(self, script: str) -> None:
             scripts.append(script)
 
-    monkeypatch.setattr("backend.router.chat.ClaudeSDKClient", FakeClaudeSDKClient)
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
     router = ChatRouter()
     router._window = WindowStub()
@@ -228,7 +228,7 @@ def test_chat_router_passes_resume_session_to_sdk(
                 result=str(captured["prompt"]),
             )
 
-    monkeypatch.setattr("backend.router.chat.ClaudeSDKClient", FakeClaudeSDKClient)
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
     ChatRouter().send_chat_message("继续", str(tmp_path), session_id, "medium")
 
