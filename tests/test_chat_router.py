@@ -1,3 +1,5 @@
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Self
@@ -7,10 +9,13 @@ import pytest
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
     StreamEvent,
     TextBlock,
     ThinkingBlock,
+    ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -165,7 +170,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     router = ChatRouter()
     router._window = WindowStub()
     reply = router.send_chat_message(
-        "检查项目", str(tmp_path), None, "high", "request-1"
+        "检查项目", str(tmp_path), None, "high", "request-1", "acceptEdits"
     )
 
     assert reply == {
@@ -181,7 +186,8 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert options.tools == {"type": "preset", "preset": "claude_code"}
     assert options.allowed_tools == []
     assert options.disallowed_tools == []
-    assert options.permission_mode == "default"
+    assert options.permission_mode == "acceptEdits"
+    assert options.can_use_tool is not None
     assert options.setting_sources == ["user", "project", "local"]
     assert options.include_partial_messages is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
@@ -212,6 +218,7 @@ def test_chat_router_passes_resume_session_to_sdk(
     class FakeClaudeSDKClient:
         def __init__(self, options: ClaudeAgentOptions) -> None:
             captured["resume"] = options.resume
+            captured["permission_mode"] = options.permission_mode
 
         async def __aenter__(self) -> Self:
             return self
@@ -238,12 +245,88 @@ def test_chat_router_passes_resume_session_to_sdk(
     ChatRouter().send_chat_message("继续", str(tmp_path), session_id, "medium")
 
     assert captured["resume"] == session_id
+    assert captured["permission_mode"] == "default"
+
+
+@pytest.mark.parametrize(
+    ("allowed", "result_type"),
+    [(True, PermissionResultAllow), (False, PermissionResultDeny)],
+)
+def test_chat_router_waits_for_tool_permission_from_ui(
+    allowed: bool,
+    result_type: type[PermissionResultAllow] | type[PermissionResultDeny],
+) -> None:
+    router = ChatRouter()
+    events: list[dict[str, object]] = []
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
+            assert script.startswith(prefix)
+            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
+            events.append(event)
+            assert router.respond_chat_permission(
+                event["request_id"],
+                event["permission_id"],
+                allowed,
+            )
+
+    router._window = WindowStub()
+    result = asyncio.run(
+        router._request_tool_permission(
+            "request-1",
+            "Write",
+            {"file_path": "README.md", "content": "updated"},
+            ToolPermissionContext(
+                title="Claude 请求写入 README.md",
+                display_name="写入文件",
+                description="将更新项目说明",
+            ),
+        )
+    )
+
+    assert isinstance(result, result_type)
+    assert events == [
+        {
+            "request_id": "request-1",
+            "type": "permission_request",
+            "permission_id": events[0]["permission_id"],
+            "tool_name": "Write",
+            "input": {"file_path": "README.md", "content": "updated"},
+            "title": "Claude 请求写入 README.md",
+            "display_name": "写入文件",
+            "description": "将更新项目说明",
+            "blocked_path": "",
+        }
+    ]
+    assert not router.respond_chat_permission(
+        "request-1",
+        str(uuid4()),
+        allowed,
+    )
 
 
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])
 def test_chat_router_rejects_invalid_effort(effort: str) -> None:
     with pytest.raises(ValueError, match="推理强度无效"):
         ChatRouter._validate_effort(effort)
+
+
+@pytest.mark.parametrize(
+    "permission_mode",
+    ["", "ask", "fullAccess", "dontAsk"],
+)
+def test_chat_router_rejects_invalid_permission_mode(permission_mode: str) -> None:
+    with pytest.raises(ValueError, match="权限模式无效"):
+        ChatRouter._validate_permission_mode(permission_mode)
+
+
+@pytest.mark.parametrize(
+    "permission_mode",
+    ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
+)
+def test_chat_router_accepts_sdk_permission_modes(permission_mode: str) -> None:
+    assert ChatRouter._validate_permission_mode(permission_mode) == permission_mode
 
 
 def test_chat_router_defaults_to_home_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

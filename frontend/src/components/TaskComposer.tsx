@@ -1,21 +1,26 @@
 import {
   ArrowUpOutlined,
+  CodeOutlined,
   DownOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
   LoadingOutlined,
   PictureOutlined,
   PlusOutlined,
+  SafetyCertificateOutlined,
   ThunderboltOutlined,
+  UnlockOutlined,
 } from "@ant-design/icons";
 import { Attachments, Sender } from "@ant-design/x";
 import type { AttachmentsRef } from "@ant-design/x/es/attachments";
 import type { SenderRef } from "@ant-design/x/es/sender";
-import type { CascaderProps } from "antd";
+import type { CascaderProps, MenuProps } from "antd";
 import {
   Badge,
   Button,
   Cascader,
+  Dropdown,
   message,
   Popover,
   Slider,
@@ -31,6 +36,8 @@ import {
   getModelGroups,
   selectProjectFolder,
   setCurrentModel,
+  type ChatPermissionRequestEvent,
+  type ChatPermissionMode,
   type ModelGroup,
   type ProjectFolder,
 } from "../bridge/client";
@@ -38,8 +45,13 @@ import {
 type TaskComposerProps = {
   busy?: boolean;
   conversationStarted?: boolean;
+  onPermissionDecision?: (
+    request: ChatPermissionRequestEvent,
+    allowed: boolean,
+  ) => Promise<void>;
   onProjectChange: (project: ProjectFolder | null) => void;
   onSend: (draft: ComposerDraft) => void;
+  permissionRequest?: ChatPermissionRequestEvent | null;
   selectedProject: ProjectFolder | null;
 };
 
@@ -52,6 +64,7 @@ export type ComposerAttachment = {
 export type ComposerDraft = {
   attachments: ComposerAttachment[];
   effort: "low" | "medium" | "high" | "max";
+  permissionMode: ChatPermissionMode;
   project: ProjectFolder | null;
   text: string;
 };
@@ -65,14 +78,51 @@ type ModelOption = {
 
 const effortLevels = ["低", "中", "高", "最高"] as const;
 const effortValues = ["low", "medium", "high", "max"] as const;
+const permissionModeLabels: Record<ChatPermissionMode, string> = {
+  default: "变更前确认",
+  acceptEdits: "自动编辑",
+  plan: "计划模型",
+  auto: "帮我批准",
+  bypassPermissions: "完全访问",
+};
+const permissionModeDescriptions: Record<ChatPermissionMode, string> = {
+  default: "改文件前先问我。",
+  acceptEdits: "自动编辑文件。",
+  plan: "编辑前先出计划。",
+  auto: "帮你自动同意低风险操作（仅支持部分API）。",
+  bypassPermissions: "减少确认次数，但可能会执行危险操作。",
+};
+const permissionModeIcons: Record<ChatPermissionMode, React.ReactNode> = {
+  default: <SafetyCertificateOutlined />,
+  acceptEdits: <CodeOutlined />,
+  plan: <FileTextOutlined />,
+  auto: <ThunderboltOutlined />,
+  bypassPermissions: <UnlockOutlined />,
+};
+const permissionModeItems: MenuProps["items"] = (
+  Object.keys(permissionModeLabels) as ChatPermissionMode[]
+).map((mode) => ({
+  key: mode,
+  icon: permissionModeIcons[mode],
+  label: (
+    <div className="permission-mode-option">
+      <div className="permission-mode-option-title">{permissionModeLabels[mode]}</div>
+      <div className="permission-mode-option-description">
+        {permissionModeDescriptions[mode]}
+      </div>
+    </div>
+  ),
+}));
 const MAX_ATTACHMENTS = 10;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 export function TaskComposer({
   busy = false,
   conversationStarted = false,
+  onPermissionDecision,
   onProjectChange,
   onSend,
+  permissionRequest = null,
   selectedProject,
 }: TaskComposerProps) {
   const [prompt, setPrompt] = useState("");
@@ -80,6 +130,8 @@ export function TaskComposer({
   const [selectedModel, setSelectedModel] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [effort, setEffort] = useState(2);
+  const [permissionMode, setPermissionMode] = useState<ChatPermissionMode>("default");
+  const [permissionDecision, setPermissionDecision] = useState<"allow" | "deny" | null>(null);
   const [attachmentItems, setAttachmentItems] = useState<UploadFile[]>([]);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [selectingProject, setSelectingProject] = useState(false);
@@ -119,6 +171,10 @@ export function TaskComposer({
     };
   }, [messageApi]);
 
+  useEffect(() => {
+    setPermissionDecision(null);
+  }, [permissionRequest?.permission_id]);
+
   const modelOptions: ModelOption[] = modelGroups
     .filter((group) => group.models.length > 0)
     .map((group) => ({
@@ -157,6 +213,7 @@ export function TaskComposer({
       text: content,
       project: selectedProject,
       effort: effortValues[effort],
+      permissionMode,
       attachments: attachmentItems.map((file) => ({
         name: file.name,
         size: file.size,
@@ -166,6 +223,26 @@ export function TaskComposer({
     setPrompt("");
     setAttachmentItems([]);
     setAttachmentsOpen(false);
+  };
+
+  const handlePermissionModeChange: MenuProps["onClick"] = ({ key }) => {
+    setPermissionMode(key as ChatPermissionMode);
+  };
+
+  const handleToolPermissionDecision = async (allowed: boolean) => {
+    if (!permissionRequest || !onPermissionDecision || permissionDecision) {
+      return;
+    }
+    setPermissionDecision(allowed ? "allow" : "deny");
+    try {
+      await onPermissionDecision(permissionRequest, allowed);
+    } catch (error) {
+      const text = error instanceof Error && error.message.trim()
+        ? error.message
+        : "权限决定提交失败，请重试。";
+      messageApi.error(text);
+      setPermissionDecision(null);
+    }
   };
 
   const beforeAttach = (file: RcFile) => {
@@ -230,8 +307,51 @@ export function TaskComposer({
   };
 
   return (
-    <section className={`composer${conversationStarted ? " composer-chat" : ""}`} aria-label="发送消息">
+    <section
+      className={`composer${conversationStarted ? " composer-chat" : ""}${
+        permissionRequest ? " composer-permission-active" : ""
+      }`}
+      aria-label="发送消息"
+    >
       {contextHolder}
+      {permissionRequest && (
+        <section
+          aria-labelledby="tool-permission-title"
+          aria-modal="true"
+          className="tool-permission-dialog"
+          role="alertdialog"
+        >
+          <div className="tool-permission-heading">
+            <span className="tool-permission-icon"><SafetyCertificateOutlined /></span>
+            <div className="tool-permission-copy">
+              <strong id="tool-permission-title">{permissionRequest.title}</strong>
+              <span>{permissionRequest.description}</span>
+            </div>
+            <code>{permissionRequest.display_name || permissionRequest.tool_name}</code>
+          </div>
+          <pre className="tool-permission-input">
+            {JSON.stringify(permissionRequest.input, null, 2)}
+          </pre>
+          <div className="tool-permission-actions">
+            <Button
+              danger
+              disabled={permissionDecision !== null}
+              loading={permissionDecision === "deny"}
+              onClick={() => void handleToolPermissionDecision(false)}
+            >
+              拒绝
+            </Button>
+            <Button
+              disabled={permissionDecision !== null}
+              loading={permissionDecision === "allow"}
+              onClick={() => void handleToolPermissionDecision(true)}
+              type="primary"
+            >
+              允许
+            </Button>
+          </div>
+        </section>
+      )}
       <Sender
         ref={senderRef}
         className="task-sender"
@@ -315,9 +435,25 @@ export function TaskComposer({
                   />
                 </Badge>
               </Tooltip>
-              <Button type="text" icon={<ThunderboltOutlined />}>
-                变更前确认 <DownOutlined />
-              </Button>
+              <Dropdown
+                menu={{
+                  items: permissionModeItems,
+                  onClick: handlePermissionModeChange,
+                  selectedKeys: [permissionMode],
+                }}
+                classNames={{ root: "permission-mode-dropdown" }}
+                placement="topLeft"
+                trigger={["click"]}
+              >
+                <Button
+                  aria-label="选择 Claude 权限模式"
+                  disabled={busy}
+                  type="text"
+                  icon={<ThunderboltOutlined />}
+                >
+                  {permissionModeLabels[permissionMode]} <DownOutlined />
+                </Button>
+              </Dropdown>
             </Space>
             <Space size={6}>
               <Cascader<ModelOption>

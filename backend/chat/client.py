@@ -3,10 +3,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk import CanUseTool, ClaudeAgentOptions, ClaudeSDKClient
 
 from .trace import ChatTrace
-from .types import ChatEffort, ChatEventHandler, ChatReply
+from .types import ChatEffort, ChatEventHandler, ChatPermissionMode, ChatReply
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +18,8 @@ class ClaudeChatConfig:
     effort: ChatEffort
     model: str
     project: Path
+    can_use_tool: CanUseTool | None = None
+    permission_mode: ChatPermissionMode = "default"
     resume: str | None = None
 
 
@@ -43,6 +45,7 @@ class ClaudeChatClient:
     def _build_options(self) -> ClaudeAgentOptions:
         config = self._config
         return ClaudeAgentOptions(
+            can_use_tool=config.can_use_tool,
             cwd=config.project,
             effort=config.effort,
             env={
@@ -54,7 +57,7 @@ class ClaudeChatClient:
             include_partial_messages=True,
             max_turns=30,
             model=config.model,
-            permission_mode="default",
+            permission_mode=config.permission_mode,
             resume=config.resume,
             setting_sources=["user", "project", "local"],
             system_prompt={"type": "preset", "preset": "claude_code"},

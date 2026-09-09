@@ -4,6 +4,13 @@ from collections.abc import Callable
 from typing import Literal, TypedDict
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
+type ChatPermissionMode = Literal[
+    "default",
+    "acceptEdits",
+    "plan",
+    "auto",
+    "bypassPermissions",
+]
 type ChatEvent = dict[str, object]
 type ChatEventHandler = Callable[[ChatEvent], None]
 

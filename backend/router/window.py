@@ -26,6 +26,7 @@ class WindowRouter:
     """Manage the pywebview window attached to the application bridge."""
 
     def __init__(self) -> None:
+        super().__init__()
         self._window: Any | None = None
         self._is_maximized = False
 

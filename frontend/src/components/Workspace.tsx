@@ -2,7 +2,13 @@ import { PaperClipOutlined } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
 import { useEffect, useRef, useState } from "react";
 
-import { getHomeFolder, sendChatMessage, type ProjectFolder } from "../bridge/client";
+import {
+  getHomeFolder,
+  respondChatPermission,
+  sendChatMessage,
+  type ChatPermissionRequestEvent,
+  type ProjectFolder,
+} from "../bridge/client";
 import { pickQuote } from "../quotes";
 import {
   AgentTrace,
@@ -66,6 +72,7 @@ export function Workspace() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [permissionRequests, setPermissionRequests] = useState<ChatPermissionRequestEvent[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [quote] = useState(pickQuote);
   const [greeting] = useState(() => getGreeting(new Date().getHours()));
@@ -103,6 +110,23 @@ export function Workspace() {
     scrollBox?.scrollTo({ top: scrollBox.scrollHeight, behavior: "smooth" });
   }, [messages, elapsedSeconds]);
 
+  const handlePermissionDecision = async (
+    request: ChatPermissionRequestEvent,
+    allowed: boolean,
+  ) => {
+    const resolved = await respondChatPermission(
+      request.request_id,
+      request.permission_id,
+      allowed,
+    );
+    if (!resolved) {
+      throw new Error("权限请求已失效，请等待当前任务更新。");
+    }
+    setPermissionRequests((current) => current.filter(
+      (item) => item.permission_id !== request.permission_id,
+    ));
+  };
+
   const handleSend = (draft: ComposerDraft) => {
     if (busy) {
       return;
@@ -138,7 +162,16 @@ export function Workspace() {
       draft.project?.path ?? null,
       sessionIdRef.current,
       draft.effort,
+      draft.permissionMode,
       (event) => {
+        if (event.type === "permission_request") {
+          setPermissionRequests((current) => (
+            current.some((item) => item.permission_id === event.permission_id)
+              ? current
+              : [...current, event]
+          ));
+          return;
+        }
         setMessages((current) => current.map((item) => {
           if (item.key !== assistantKey) {
             return item;
@@ -191,7 +224,10 @@ export function Workspace() {
             : item
         )));
       })
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        setPermissionRequests([]);
+      });
   };
 
   const setTraceExpanded = (messageKey: string, expanded: boolean) => {
@@ -308,8 +344,10 @@ export function Workspace() {
             <TaskComposer
               busy={busy}
               conversationStarted
+              onPermissionDecision={handlePermissionDecision}
               onProjectChange={setSelectedProject}
               onSend={handleSend}
+              permissionRequest={permissionRequests[0] ?? null}
               selectedProject={selectedProject}
             />
           </div>

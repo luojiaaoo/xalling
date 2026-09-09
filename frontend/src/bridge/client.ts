@@ -23,7 +23,13 @@ type PyWebviewApi = {
     sessionId: string | null,
     effort: ChatEffort,
     requestId: string,
+    permissionMode: ChatPermissionMode,
   ) => Promise<ChatReply>;
+  respond_chat_permission: (
+    requestId: string,
+    permissionId: string,
+    allowed: boolean,
+  ) => Promise<boolean>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
 };
@@ -56,6 +62,13 @@ export type ProjectFolder = {
 };
 
 export type ChatEffort = "low" | "medium" | "high" | "max";
+
+export type ChatPermissionMode =
+  | "default"
+  | "acceptEdits"
+  | "plan"
+  | "auto"
+  | "bypassPermissions";
 
 export type ChatReply = {
   content: string;
@@ -96,11 +109,24 @@ type ChatToolCompleteEvent = {
   type: "tool_complete";
 };
 
+export type ChatPermissionRequestEvent = {
+  blocked_path: string;
+  description: string;
+  display_name: string;
+  input: Record<string, unknown>;
+  permission_id: string;
+  request_id: string;
+  title: string;
+  tool_name: string;
+  type: "permission_request";
+};
+
 export type ChatStreamEvent =
   | ChatContentEvent
   | ChatContentDeltaEvent
   | ChatToolStartEvent
-  | ChatToolCompleteEvent;
+  | ChatToolCompleteEvent
+  | ChatPermissionRequestEvent;
 
 const CHAT_STREAM_EVENT = "xalling:chat-event";
 let chatRequestSequence = 0;
@@ -126,6 +152,26 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
       && typeof value.name === "string"
       && "summary" in value
       && typeof value.summary === "string"
+    );
+  }
+  if (value.type === "permission_request") {
+    return (
+      "permission_id" in value
+      && typeof value.permission_id === "string"
+      && "tool_name" in value
+      && typeof value.tool_name === "string"
+      && "title" in value
+      && typeof value.title === "string"
+      && "display_name" in value
+      && typeof value.display_name === "string"
+      && "description" in value
+      && typeof value.description === "string"
+      && "blocked_path" in value
+      && typeof value.blocked_path === "string"
+      && "input" in value
+      && typeof value.input === "object"
+      && value.input !== null
+      && !Array.isArray(value.input)
     );
   }
   if (value.type === "tool_complete") {
@@ -254,6 +300,7 @@ export async function sendChatMessage(
   projectPath: string | null,
   sessionId: string | null,
   effort: ChatEffort,
+  permissionMode: ChatPermissionMode,
   onEvent?: (event: ChatStreamEvent) => void,
 ): Promise<ChatReply> {
   const api = await getBridgeApi();
@@ -270,10 +317,29 @@ export async function sendChatMessage(
   };
   window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
   try {
-    return await api.send_chat_message(prompt, projectPath, sessionId, effort, requestId);
+    return await api.send_chat_message(
+      prompt,
+      projectPath,
+      sessionId,
+      effort,
+      requestId,
+      permissionMode,
+    );
   } finally {
     window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
   }
+}
+
+export async function respondChatPermission(
+  requestId: string,
+  permissionId: string,
+  allowed: boolean,
+): Promise<boolean> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.respond_chat_permission(requestId, permissionId, allowed);
 }
 
 export async function getCurrentTheme(): Promise<string> {
