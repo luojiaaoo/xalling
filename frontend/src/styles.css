@@ -119,7 +119,7 @@ html[data-theme="dark"] .workspace { background: radial-gradient(circle at 50% 2
 html[data-theme="dark"] .workspace-chat { background: #151515; }
 html[data-theme="dark"] .chat-composer-column { border-top-color: rgba(255, 255, 255, .08); }
 html[data-theme="dark"] .chat-message-files span { color: rgba(255, 255, 255, .62); background: rgba(255, 255, 255, .07); }
-html[data-theme="dark"] .agent-trace-header { color: rgba(255, 255, 255, .48); border-bottom-color: rgba(255, 255, 255, .08); }
+html[data-theme="dark"] .agent-trace-header { color: rgba(255, 255, 255, .48) !important; border-bottom-color: rgba(255, 255, 255, .08); }
 html[data-theme="dark"] .agent-trace-content, html[data-theme="dark"] .agent-trace-thinking .ant-think-content, html[data-theme="dark"] .agent-trace-tools .ant-think-content { border-left-color: rgba(255, 255, 255, .1); }
 html[data-theme="dark"] .agent-trace-output-title, html[data-theme="dark"] .agent-trace-empty { color: rgba(255, 255, 255, .44); }
 html[data-theme="dark"] .agent-tool-description code { color: rgba(255, 255, 255, .72); background: rgba(255, 255, 255, .07); }
@@ -128,9 +128,13 @@ html[data-theme="dark"] .chat-markdown { color: rgba(255, 255, 255, .84); }
 html[data-theme="dark"] .chat-markdown h1, html[data-theme="dark"] .chat-markdown h2, html[data-theme="dark"] .chat-markdown h3, html[data-theme="dark"] .chat-markdown h4 { color: rgba(255, 255, 255, .92); }
 html[data-theme="dark"] .chat-markdown blockquote { color: rgba(255, 255, 255, .58); background: rgba(255, 255, 255, .035); }
 html[data-theme="dark"] .markdown-inline-code { color: rgba(255, 255, 255, .82); background: #303030; }
-html[data-theme="dark"] .markdown-code-highlighter { border-color: #414141; }
+html[data-theme="dark"] .markdown-code-highlighter, html[data-theme="dark"] .chat-markdown th, html[data-theme="dark"] .chat-markdown td { border-color: #414141; }
+html[data-theme="dark"] .composer-chat .task-sender { box-shadow: none; }
 html[data-theme="dark"] .composer-project { color: rgba(255, 255, 255, 0.62); }
 html[data-theme="dark"] .composer-project:hover { color: #a99cff; background: rgba(109, 93, 252, 0.14); }
+html[data-theme="dark"] .composer-footer .ant-btn { color: rgba(255, 255, 255, .62); }
+html[data-theme="dark"] .composer-footer .ant-btn:hover,
+html[data-theme="dark"] .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #a99cff !important; background: rgba(109, 93, 252, .14) !important; }
 html[data-theme="dark"] .mention-panel { border-color: #26262e; background: #16161a; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
 html[data-theme="dark"] .mention-panel-title, html[data-theme="dark"] .mention-item-path { color: rgba(255, 255, 255, .38); }
 html[data-theme="dark"] .mention-item { color: rgba(255, 255, 255, .78); }
@@ -179,8 +183,51 @@ html[data-theme="cartoon"] .theme-option strong { color: #51463B; }
 html[data-theme="cartoon"] .theme-option small { color: #7a6e5d; }
 html[data-theme="cartoon"] .theme-option-check { color: #225555; }
 html[data-theme="cartoon"] .theme-option-swatch { border: 2px solid #225555; }
+html[data-theme="cartoon"] .workspace { background: radial-gradient(circle at 50% 24%, #fffdf3 0, #FAFAEE 38%, #f3edda 100%); }
+html[data-theme="cartoon"] .watermark { -webkit-text-stroke: 2px rgba(34, 85, 85, .12); }
+html[data-theme="cartoon"] .eyebrow { color: #397474; }
+html[data-theme="cartoon"] .workspace h1 { color: #51463B; }
+html[data-theme="cartoon"] .subtitle { color: #7a6e5d; }
+html[data-theme="cartoon"] .workspace-chat { background: #FAFAEE; }
+html[data-theme="cartoon"] .chat-composer-column { border-top: 2px solid #225555; }
+html[data-theme="cartoon"] .composer-chat .task-sender,
+html[data-theme="cartoon"] .task-sender { border: 2px solid #225555; box-shadow: none; }
+html[data-theme="cartoon"] .user-bubble .ant-bubble-content { color: #51463B; border: 2px solid #225555; background: #fff; }
+html[data-theme="cartoon"] .chat-message-files span { color: #51463B; background: #E8D29A; }
+html[data-theme="cartoon"] .agent-trace-header { color: #7a6e5d !important; border-bottom: 2px solid #88BBBB; }
+html[data-theme="cartoon"] .agent-trace-content,
+html[data-theme="cartoon"] .agent-trace-thinking .ant-think-content,
+html[data-theme="cartoon"] .agent-trace-tools .ant-think-content { border-left: 2px solid #88BBBB !important; }
+html[data-theme="cartoon"] .agent-trace-thinking .chat-markdown,
+html[data-theme="cartoon"] .agent-trace-output-title,
+html[data-theme="cartoon"] .agent-trace-empty { color: #7a6e5d; }
+html[data-theme="cartoon"] .agent-tool-description code { color: #51463B; background: #E8D29A; }
+html[data-theme="cartoon"] .chat-markdown { color: #51463B; }
+html[data-theme="cartoon"] .chat-markdown h1,
+html[data-theme="cartoon"] .chat-markdown h2,
+html[data-theme="cartoon"] .chat-markdown h3,
+html[data-theme="cartoon"] .chat-markdown h4 { color: #51463B; }
+html[data-theme="cartoon"] .chat-markdown blockquote { color: #6f6353; border-left-color: #225555; background: #F5E8C0; }
+html[data-theme="cartoon"] .chat-markdown a { color: #225555; font-weight: 600; }
+html[data-theme="cartoon"] .markdown-inline-code { color: #51463B; background: #E8D29A; }
+html[data-theme="cartoon"] .markdown-code-highlighter,
+html[data-theme="cartoon"] .chat-markdown th,
+html[data-theme="cartoon"] .chat-markdown td { border-color: #225555; }
 html[data-theme="cartoon"] .composer-project { color: #51463B; }
 html[data-theme="cartoon"] .composer-project:hover { color: #225555; background: #E8D29A; }
+html[data-theme="cartoon"] .composer-footer .ant-btn { color: #51463B; }
+html[data-theme="cartoon"] .composer-footer .ant-btn:hover,
+html[data-theme="cartoon"] .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #225555 !important; background: #E8D29A !important; }
+html[data-theme="cartoon"] .mention-panel { border: 2px solid #225555; background: #fffdf3; box-shadow: none; }
+html[data-theme="cartoon"] .mention-panel-title,
+html[data-theme="cartoon"] .mention-item-path,
+html[data-theme="cartoon"] .mention-empty { color: #7a6e5d; }
+html[data-theme="cartoon"] .mention-item { color: #51463B; }
+html[data-theme="cartoon"] .mention-item .anticon { color: #397474; }
+html[data-theme="cartoon"] .mention-item:hover,
+html[data-theme="cartoon"] .mention-item-active { background: #E8D29A; }
+html[data-theme="cartoon"] .mention-item-active .anticon,
+html[data-theme="cartoon"] .mention-item:hover .anticon { color: #225555; }
 
 body { margin: 0; min-width: 400px; min-height: 600px; }
 

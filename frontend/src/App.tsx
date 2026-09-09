@@ -39,6 +39,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeName;
+    document.documentElement.style.colorScheme = themeName === "dark" ? "dark" : "light";
   }, [themeName]);
 
   useEffect(() => {
