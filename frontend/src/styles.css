@@ -801,7 +801,7 @@ html[data-theme="serene"] .composer-project-locked:hover { color: #c4bab0; backg
 .permission-mode-option-description { color: var(--ant-color-text-tertiary, rgba(0, 0, 0, .45)); font-size: 11px; line-height: 16px; }
 .sender-send-button { color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
 .sender-send-button:disabled { color: rgba(255, 255, 255, .72) !important; background: #bbb5f5 !important; }
-.model-select { min-width: 220px; max-width: 280px; }
+.model-select { min-width: 260px; max-width: 320px; }
 .model-select .ant-select-selector { padding-inline: 7px !important; color: #6d6e7e; font-size: 12px; }
 .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #5d4cf0; background: #f1efff; }
 .model-select .ant-select-selection-item { overflow: hidden; text-overflow: ellipsis; }
