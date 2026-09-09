@@ -64,9 +64,16 @@ def _is_sensitive_key(key: object) -> bool:
     return any(part in normalized for part in SENSITIVE_KEY_PARTS)
 
 
+def _mask(value: Any) -> Any:
+    """Mask a sensitive value with asterisks, preserving its length."""
+    if value is None:
+        return None
+    return "*" * len(str(value))
+
+
 def _redact(value: Any, key: object = None) -> Any:
     if _is_sensitive_key(key):
-        return "<redacted>"
+        return _mask(value)
     if isinstance(value, dict):
         return {
             item_key: _redact(item_value, item_key)

@@ -69,8 +69,8 @@ def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
     console_output = capsys.readouterr().err
     file_output = access_log.read_text(encoding="utf-8")
     for output in (console_output, file_output):
-        assert "input={'prompt': 'hello', 'api_key': '<redacted>'}" in output
-        assert "output={'answer': 'HELLO', 'api_key': '<redacted>'}" in output
+        assert "input={'prompt': 'hello', 'api_key': '**********'}" in output
+        assert "output={'answer': 'HELLO', 'api_key': '**********'}" in output
         assert "top-secret" not in output
 
 
