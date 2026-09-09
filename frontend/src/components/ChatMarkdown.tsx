@@ -1,7 +1,7 @@
 import { CodeHighlighter } from "@ant-design/x";
 import { XMarkdown, type ComponentProps } from "@ant-design/x-markdown";
 import { theme } from "antd";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 function MarkdownPre({ children }: ComponentProps) {
@@ -42,17 +42,20 @@ type ChatMarkdownProps = {
 };
 
 export function ChatMarkdown({ content, streaming = false }: ChatMarkdownProps) {
+  // x-markdown 2.9.0 的 enableAnimation 会触发无限重渲染导致 React #185 白屏
+  // （ant-design/x#1958，官方已修复但未发布），修复版本发布后恢复 enableAnimation: true。
+  // 配置对象用 useMemo 保持引用稳定，避免 XMarkdown 内部 memo 失效。
+  const streamingConfig = useMemo(
+    () => ({ hasNextChunk: streaming, tail: streaming }),
+    [streaming],
+  );
   return (
     <XMarkdown
       className="chat-markdown"
       components={markdownComponents}
       content={content}
       openLinksInNewTab
-      streaming={{
-        enableAnimation: true,
-        hasNextChunk: streaming,
-        tail: streaming,
-      }}
+      streaming={streamingConfig}
     />
   );
 }
