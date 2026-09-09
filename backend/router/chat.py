@@ -4,7 +4,6 @@ import asyncio
 import json
 from concurrent.futures import Future
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -31,18 +30,6 @@ from backend.config.current import CurrentConfig
 from backend.config.setting import ModelSiteConfig, Settings, default_project_folder
 
 
-def _normalize_request_id(value: object) -> str | None:
-    """Normalize the optional request tag; empty values mean the call is untagged."""
-    if value is None or value == "":
-        return None
-    if not isinstance(value, str):
-        raise TypeError("请求标识必须是字符串")
-    normalized = value.strip()
-    if not normalized or len(normalized) > 128:
-        raise ValueError("请求标识无效")
-    return normalized
-
-
 def _user_facing_error(error: ValidationError) -> ValueError:
     """Translate the first pydantic error into the message shown by the Web UI."""
     first = error.errors()[0]
@@ -63,7 +50,6 @@ class ChatMessageRequest(BaseModel):
     project_path: Path | None = None
     session_id: str | None = None
     effort: ChatEffort = "high"
-    request_id: str | None = None
     permission_mode: ChatPermissionMode = "default"
 
     @field_validator("prompt", mode="before")
@@ -109,11 +95,6 @@ class ChatMessageRequest(BaseModel):
             raise ValueError("推理强度无效")
         return value
 
-    @field_validator("request_id", mode="before")
-    @classmethod
-    def _validate_request_id(cls, value: object) -> str | None:
-        return _normalize_request_id(value)
-
     @field_validator("permission_mode", mode="before")
     @classmethod
     def _validate_permission_mode(cls, value: object) -> object:
@@ -132,18 +113,9 @@ class ChatMessageRequest(BaseModel):
 class ChatPermissionDecision(BaseModel):
     """Validate and normalize one respond_chat_permission payload from the Web UI."""
 
-    request_id: str
     permission_id: str
     allowed: bool
     answers: dict[str, str | list[str]] | None = None
-
-    @field_validator("request_id", mode="before")
-    @classmethod
-    def _validate_request_id(cls, value: object) -> str:
-        normalized = _normalize_request_id(value)
-        if normalized is None:
-            raise ValueError("请求标识无效")
-        return normalized
 
     @field_validator("permission_id", mode="before")
     @classmethod
@@ -200,7 +172,6 @@ class _PermissionDecision:
 class _PendingPermission:
     """Context required to validate and resume one pending tool call."""
 
-    request_id: str
     tool_name: str
     input_data: dict[str, Any]
     future: Future[_PermissionDecision]
@@ -213,6 +184,7 @@ class ChatRouter:
 
     def __init__(self) -> None:
         super().__init__()
+        self._active_chat_client: ClaudeChatClient | None = None
         self._permission_lock = Lock()
         self._pending_permissions: dict[str, _PendingPermission] = {}
 
@@ -222,7 +194,6 @@ class ChatRouter:
         project_path: str | None = None,
         session_id: str | None = None,
         effort: str = "high",
-        request_id: str | None = None,
         permission_mode: str = "default",
     ) -> ChatReply:
         """Run one turn, stream text events, and return the final response."""
@@ -233,7 +204,6 @@ class ChatRouter:
                     "project_path": project_path,
                     "session_id": session_id,
                     "effort": effort,
-                    "request_id": request_id,
                     "permission_mode": permission_mode,
                 }
             )
@@ -241,16 +211,11 @@ class ChatRouter:
             raise _user_facing_error(error) from error
 
         site, model_name = self._get_current_provider()
-        can_use_tool = (
-            partial(self._request_tool_permission, request.request_id)
-            if request.request_id is not None
-            else None
-        )
         client = ClaudeChatClient(
             ClaudeChatConfig(
                 api_key=site.api_key,
                 api_url=site.api_url,
-                can_use_tool=can_use_tool,
+                can_use_tool=self._request_tool_permission,
                 effort=request.effort,
                 model=model_name,
                 permission_mode=request.permission_mode,
@@ -259,21 +224,45 @@ class ChatRouter:
             )
         )
 
+        if self._active_chat_client is not None:
+            raise RuntimeError("当前会话正在生成，请先停止后再发送")
+        self._active_chat_client = client
+
         try:
             return asyncio.run(
                 client.send(
                     request.prompt,
-                    on_event=(lambda event: self._emit_chat_event(request.request_id, event))
-                    if request.request_id is not None
-                    else None,
+                    on_event=self._emit_chat_event,
                 )
             )
         except ClaudeSDKError as error:
             raise RuntimeError(f"Claude SDK 请求失败：{error}") from error
+        finally:
+            if self._active_chat_client is client:
+                self._active_chat_client = None
+
+    def stop_chat_message(self) -> bool:
+        """Interrupt the active single-chat turn and release permission prompts."""
+        client = self._active_chat_client
+        if client is None:
+            return False
+
+        with self._permission_lock:
+            pending_decisions = [
+                pending.future
+                for pending in self._pending_permissions.values()
+                if not pending.future.done()
+            ]
+            for decision in pending_decisions:
+                decision.set_result(_PermissionDecision(allowed=False))
+
+        interrupt = client.request_stop()
+        if interrupt is not None:
+            interrupt.result(timeout=5)
+        return True
 
     def respond_chat_permission(
         self,
-        request_id: str,
         permission_id: str,
         allowed: bool,
         answers: dict[str, str | list[str]] | None = None,
@@ -282,7 +271,6 @@ class ChatRouter:
         try:
             decision = ChatPermissionDecision.model_validate(
                 {
-                    "request_id": request_id,
                     "permission_id": permission_id,
                     "allowed": allowed,
                     "answers": answers,
@@ -293,7 +281,7 @@ class ChatRouter:
 
         with self._permission_lock:
             pending = self._pending_permissions.get(decision.permission_id)
-            if pending is None or pending.request_id != decision.request_id:
+            if pending is None:
                 return False
             normalized_answers = self._validate_tool_answers(pending, decision)
             future = pending.future
@@ -309,7 +297,6 @@ class ChatRouter:
 
     async def _request_tool_permission(
         self,
-        request_id: str,
         tool_name: str,
         input_data: dict[str, Any],
         context: ToolPermissionContext,
@@ -319,7 +306,6 @@ class ChatRouter:
         decision: Future[_PermissionDecision] = Future()
         with self._permission_lock:
             self._pending_permissions[permission_id] = _PendingPermission(
-                request_id=request_id,
                 tool_name=tool_name,
                 input_data=input_data,
                 future=decision,
@@ -335,7 +321,7 @@ class ChatRouter:
             "description": (context.description or context.decision_reason or "此操作需要你的确认后才能继续。"),
             "blocked_path": context.blocked_path or "",
         }
-        if not self._emit_chat_event(request_id, event):
+        if not self._emit_chat_event(event):
             with self._permission_lock:
                 self._pending_permissions.pop(permission_id, None)
             return PermissionResultDeny(message="无法显示工具权限确认，已拒绝本次调用")
@@ -388,14 +374,13 @@ class ChatRouter:
             raise ValueError("请回答全部问题后再提交")
         return decision.answers
 
-    def _emit_chat_event(self, request_id: str, event: ChatEvent) -> bool:
-        """Dispatch one structured progress event to the matching Web UI request."""
+    def _emit_chat_event(self, event: ChatEvent) -> bool:
+        """Dispatch one structured progress event to the Web UI."""
         if self._window is None:
             return False
 
-        event_detail = {"request_id": request_id, **event}
         detail = json.dumps(
-            event_detail,
+            event,
             ensure_ascii=True,
             separators=(",", ":"),
         )

@@ -44,7 +44,7 @@ class ChatTrace:
         elif isinstance(message, ResultMessage):
             self._result = message
 
-    def finish(self) -> ChatReply:
+    def finish(self, interrupted: bool = False) -> ChatReply:
         """Complete open trace blocks and build the final chat reply."""
         for block_id, kind in self._block_kinds.items():
             self._complete_block(block_id, kind)
@@ -52,12 +52,22 @@ class ChatTrace:
         result = self._result
         if result is None:
             raise RuntimeError("Claude SDK 未返回任务结果")
-        if result.is_error:
+        if result.is_error and not interrupted:
             details = result.result or "；".join(result.errors or []) or result.subtype
             raise RuntimeError(f"Claude 执行失败：{details}")
 
-        content = (result.result or "\n\n".join(self._assistant_text_parts)).strip()
-        if not content:
+        streamed_output = "\n\n".join(
+            self._block_contents[block_id]
+            for block_id, kind in self._block_kinds.items()
+            if kind == "output" and self._block_contents[block_id].strip()
+        )
+        assistant_output = "\n\n".join(self._assistant_text_parts)
+        if interrupted:
+            content_source = streamed_output or assistant_output
+        else:
+            content_source = result.result or assistant_output or streamed_output
+        content = content_source.strip()
+        if not content and not interrupted:
             raise RuntimeError("Claude 没有返回文字内容")
         final_output_block_id = (
             self._latest_output_block_id
@@ -65,11 +75,14 @@ class ChatTrace:
             and self._block_contents[self._latest_output_block_id].strip() == content
             else None
         )
-        return {
+        reply: ChatReply = {
             "content": content,
             "final_output_block_id": final_output_block_id,
             "session_id": result.session_id,
         }
+        if interrupted:
+            reply["stopped"] = True
+        return reply
 
     def _consume_stream_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")

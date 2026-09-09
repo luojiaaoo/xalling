@@ -7,6 +7,7 @@ import {
   getHomeFolder,
   respondChatPermission,
   sendChatMessage,
+  stopChatMessage,
   type ChatPermissionAnswers,
   type ChatPermissionRequestEvent,
   type ProjectFolder,
@@ -42,7 +43,7 @@ type ConversationMessage = {
   key: string;
   loading?: boolean;
   role: "ai" | "user";
-  status?: "error" | "success";
+  status?: "abort" | "error" | "success";
   trace?: AgentTraceItem[];
   traceExpanded?: boolean;
   workingSeconds?: number;
@@ -77,6 +78,7 @@ type WorkspaceProps = {
 export function Workspace({ hidden = false }: WorkspaceProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [permissionRequests, setPermissionRequests] = useState<ChatPermissionRequestEvent[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
@@ -85,6 +87,7 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
   const sessionIdRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const messageNumberRef = useRef(0);
+  const stopRequestedRef = useRef(false);
   const conversationStarted = messages.length > 0;
 
   useEffect(() => {
@@ -122,7 +125,6 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
     answers?: ChatPermissionAnswers,
   ) => {
     const resolved = await respondChatPermission(
-      request.request_id,
       request.permission_id,
       allowed,
       answers,
@@ -144,6 +146,7 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
     const userKey = `user-${turnId}`;
     const assistantKey = `assistant-${turnId}`;
     const startedAt = Date.now();
+    stopRequestedRef.current = false;
     const startConversation = () => {
       setMessages((current) => [
         ...current,
@@ -191,6 +194,9 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
         draft.effort,
         draft.permissionMode,
         (event) => {
+          if (stopRequestedRef.current) {
+            return;
+          }
           if (event.type === "permission_request") {
             setPermissionRequests((current) => (
               current.some((item) => item.permission_id === event.permission_id)
@@ -220,15 +226,18 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
         },
       ))
       .then((reply) => {
-        sessionIdRef.current = reply.session_id;
+        if (reply.session_id) {
+          sessionIdRef.current = reply.session_id;
+        }
+        const stopped = Boolean(reply.stopped || stopRequestedRef.current);
         setMessages((current) => current.map((item) => (
           item.key === assistantKey
             ? {
                 ...item,
-                content: reply.content,
+                content: stopped ? (reply.content || item.content) : reply.content,
                 finalOutputKey: reply.final_output_block_id ?? undefined,
                 loading: false,
-                status: "success",
+                status: stopped ? "abort" : "success",
                 trace: finishAgentTrace(item.trace ?? [], "success"),
                 traceExpanded: false,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
@@ -237,14 +246,15 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
         )));
       })
       .catch((error: unknown) => {
+        const stopped = stopRequestedRef.current;
         setMessages((current) => current.map((item) => (
           item.key === assistantKey
             ? {
                 ...item,
-                content: errorText(error),
+                content: stopped ? item.content : errorText(error),
                 loading: false,
-                status: "error",
-                trace: finishAgentTrace(item.trace ?? [], "error"),
+                status: stopped ? "abort" : "error",
+                trace: finishAgentTrace(item.trace ?? [], stopped ? "success" : "error"),
                 traceExpanded: false,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
@@ -253,8 +263,24 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
       })
       .finally(() => {
         setBusy(false);
+        setStopping(false);
         setPermissionRequests([]);
       });
+  };
+
+  const handleStop = async () => {
+    if (!busy || stopping || stopRequestedRef.current) {
+      return;
+    }
+    stopRequestedRef.current = true;
+    setStopping(true);
+    try {
+      await stopChatMessage();
+      setPermissionRequests([]);
+    } catch {
+      stopRequestedRef.current = false;
+      setStopping(false);
+    }
   };
 
   const setTraceExpanded = (messageKey: string, expanded: boolean) => {
@@ -316,11 +342,18 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
           />
           {item.status === "error"
             ? <div className="chat-message-error">{item.content}</div>
-            : responseContent && (
-                <ChatMarkdown
-                  content={responseContent}
-                  streaming={Boolean(item.loading && streamingOutput?.status === "running")}
-                />
+            : (
+                <>
+                  {responseContent && (
+                    <ChatMarkdown
+                      content={responseContent}
+                      streaming={Boolean(item.loading && streamingOutput?.status === "running")}
+                    />
+                  )}
+                  {item.status === "abort" && (
+                    <div className="chat-message-stopped">已停止生成</div>
+                  )}
+                </>
               )}
         </article>
       ) : (
@@ -377,8 +410,10 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
             onPermissionDecision={handlePermissionDecision}
             onProjectChange={setSelectedProject}
             onSend={handleSend}
+            onStop={() => void handleStop()}
             permissionRequest={permissionRequests[0] ?? null}
             selectedProject={selectedProject}
+            stopping={stopping}
           />
         </div>
       </div>

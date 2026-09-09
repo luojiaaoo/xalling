@@ -1,7 +1,7 @@
 """Public types shared by the chat library and its UI adapters."""
 
 from collections.abc import Callable
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ChatPermissionMode = Literal[
@@ -21,3 +21,4 @@ class ChatReply(TypedDict):
     content: str
     final_output_block_id: str | None
     session_id: str
+    stopped: NotRequired[bool]

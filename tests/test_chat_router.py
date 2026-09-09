@@ -1,7 +1,9 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from typing import Self
 from uuid import uuid4
 
@@ -177,7 +179,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     router = ChatRouter()
     router._window = WindowStub()
     reply = router.send_chat_message(
-        "检查项目", str(tmp_path), None, "high", "request-1", "acceptEdits"
+        "检查项目", str(tmp_path), None, "high", "acceptEdits"
     )
 
     assert reply == {
@@ -202,14 +204,16 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
         "env": {
             "ANTHROPIC_AUTH_TOKEN": "secret",
             "ANTHROPIC_BASE_URL": "https://api.example.com",
-        }
+        },
+        "alwaysThinkingEnabled": True,
+        "cleanupPeriodDays": 600,
+        "includeCoAuthoredBy": False,
     }
     assert not Path(captured["settings_path"]).exists()
     assert "ANTHROPIC_BASE_URL" not in options.env
     assert "ANTHROPIC_AUTH_TOKEN" not in options.env
     assert "ANTHROPIC_MODEL" not in options.env
     assert len(scripts) == 9
-    assert '"request_id":"request-1"' in scripts[0]
     assert '"type":"thinking_start"' in scripts[0]
     assert '"type":"thinking_delta"' in scripts[1]
     assert '"type":"output_delta"' in scripts[4]
@@ -263,6 +267,158 @@ def test_chat_router_passes_resume_session_to_sdk(
     assert captured["permission_mode"] == "default"
 
 
+def test_chat_router_stops_active_turn_and_returns_partial_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_model(tmp_path, monkeypatch)
+    session_id = str(uuid4())
+    query_started = Event()
+    interrupt_called = Event()
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            self._interrupted: asyncio.Event | None = None
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def query(self, prompt: str) -> None:
+            self._interrupted = asyncio.Event()
+            query_started.set()
+
+        async def interrupt(self) -> None:
+            assert self._interrupted is not None
+            interrupt_called.set()
+            self._interrupted.set()
+
+        async def receive_response(
+            self,
+        ) -> AsyncIterator[StreamEvent | ResultMessage]:
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={"type": "message_start", "message": {"id": "message-1"}},
+            )
+            yield StreamEvent(
+                uuid="message-1",
+                session_id=session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "已完成一部分"},
+                },
+            )
+            assert self._interrupted is not None
+            await self._interrupted.wait()
+            yield ResultMessage(
+                subtype="error_during_execution",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=True,
+                num_turns=1,
+                session_id=session_id,
+                errors=["Interrupted by user"],
+            )
+
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+
+    router = ChatRouter()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        result_future = executor.submit(
+            router.send_chat_message,
+                "执行耗时任务",
+                str(tmp_path),
+                None,
+                "high",
+            )
+        assert query_started.wait(timeout=2)
+        assert router.stop_chat_message()
+        reply = result_future.result(timeout=2)
+
+    assert interrupt_called.is_set()
+    assert reply == {
+        "content": "已完成一部分",
+        "final_output_block_id": "message-1-block-0",
+        "session_id": session_id,
+        "stopped": True,
+    }
+    assert not router.stop_chat_message()
+
+
+def test_chat_router_stop_releases_pending_tool_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_model(tmp_path, monkeypatch)
+    session_id = str(uuid4())
+    permission_visible = Event()
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            self._options = options
+            self._interrupted: asyncio.Event | None = None
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def query(self, prompt: str) -> None:
+            self._interrupted = asyncio.Event()
+
+        async def interrupt(self) -> None:
+            assert self._interrupted is not None
+            self._interrupted.set()
+
+        async def receive_response(self) -> AsyncIterator[ResultMessage]:
+            assert self._options.can_use_tool is not None
+            decision = await self._options.can_use_tool(
+                "Write",
+                {"file_path": "README.md", "content": "updated"},
+                ToolPermissionContext(),
+            )
+            assert isinstance(decision, PermissionResultDeny)
+            assert self._interrupted is not None
+            await self._interrupted.wait()
+            yield ResultMessage(
+                subtype="error_during_execution",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=True,
+                num_turns=1,
+                session_id=session_id,
+                errors=["Interrupted by user"],
+            )
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            assert '"type":"permission_request"' in script
+            permission_visible.set()
+
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+
+    router = ChatRouter()
+    router._window = WindowStub()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        result_future = executor.submit(
+            router.send_chat_message,
+                "修改文件",
+                str(tmp_path),
+                None,
+                "high",
+            )
+        assert permission_visible.wait(timeout=2)
+        assert router.stop_chat_message()
+        reply = result_future.result(timeout=2)
+
+    assert reply["stopped"] is True
+    assert reply["session_id"] == session_id
+    assert not router._pending_permissions
+
+
 @pytest.mark.parametrize(
     ("allowed", "result_type"),
     [(True, PermissionResultAllow), (False, PermissionResultDeny)],
@@ -281,7 +437,6 @@ def test_chat_router_waits_for_tool_permission_from_ui(
             event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
             events.append(event)
             assert router.respond_chat_permission(
-                event["request_id"],
                 event["permission_id"],
                 allowed,
             )
@@ -289,7 +444,6 @@ def test_chat_router_waits_for_tool_permission_from_ui(
     router._window = WindowStub()
     result = asyncio.run(
         router._request_tool_permission(
-            "request-1",
             "Write",
             {"file_path": "README.md", "content": "updated"},
             ToolPermissionContext(
@@ -303,7 +457,6 @@ def test_chat_router_waits_for_tool_permission_from_ui(
     assert isinstance(result, result_type)
     assert events == [
         {
-            "request_id": "request-1",
             "type": "permission_request",
             "permission_id": events[0]["permission_id"],
             "tool_name": "Write",
@@ -315,7 +468,6 @@ def test_chat_router_waits_for_tool_permission_from_ui(
         }
     ]
     assert not router.respond_chat_permission(
-        "request-1",
         str(uuid4()),
         allowed,
     )
@@ -355,7 +507,6 @@ def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
             prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
             event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
             assert router.respond_chat_permission(
-                event["request_id"],
                 event["permission_id"],
                 True,
                 answers,
@@ -364,7 +515,6 @@ def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
     router._window = WindowStub()
     result = asyncio.run(
         router._request_tool_permission(
-            "request-1",
             "AskUserQuestion",
             question_input,
             ToolPermissionContext(),
@@ -420,20 +570,18 @@ def test_chat_message_request_defaults_to_desktop_when_available(
     assert request.project_path == desktop.resolve()
 
 
-def test_chat_message_request_normalizes_prompt_and_ids() -> None:
+def test_chat_message_request_normalizes_prompt_and_session_id() -> None:
     session_id = uuid4()
 
     request = ChatMessageRequest.model_validate(
         {
             "prompt": "  检查项目  ",
             "session_id": str(session_id).upper(),
-            "request_id": "  request-1  ",
         }
     )
 
     assert request.prompt == "检查项目"
     assert request.session_id == str(session_id)
-    assert request.request_id == "request-1"
 
 
 def test_chat_router_rejects_invalid_session_id() -> None:
@@ -441,11 +589,6 @@ def test_chat_router_rejects_invalid_session_id() -> None:
         ChatRouter().send_chat_message("检查项目", session_id="not-a-uuid")
 
 
-def test_chat_router_rejects_permission_response_without_request_id() -> None:
-    with pytest.raises(ValueError, match="请求标识无效"):
-        ChatRouter().respond_chat_permission("", str(uuid4()), True)
-
-
 def test_chat_router_rejects_non_boolean_permission_decision() -> None:
     with pytest.raises(TypeError, match="权限决定必须是布尔值"):
-        ChatRouter().respond_chat_permission("request-1", str(uuid4()), "yes")
+        ChatRouter().respond_chat_permission(str(uuid4()), "yes")

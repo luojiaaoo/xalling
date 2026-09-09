@@ -1,11 +1,14 @@
 """Claude Agent SDK client lifecycle for one chat turn."""
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
+from concurrent.futures import Future
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event, Lock
 
 import aiofiles
 from claude_agent_sdk import (
@@ -76,6 +79,25 @@ class ClaudeChatClient:
 
     def __init__(self, config: ClaudeChatConfig) -> None:
         self._config = config
+        self._stop_requested = Event()
+        self._runtime_lock = Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._client: ClaudeSDKClient | None = None
+
+    def request_stop(self) -> Future[None] | None:
+        """Request interruption from the bridge thread running the stop call."""
+        self._stop_requested.set()
+        with self._runtime_lock:
+            if (
+                self._client is None
+                or self._loop is None
+            ):
+                return None
+            future = asyncio.run_coroutine_threadsafe(
+                self._client.interrupt(),
+                self._loop,
+            )
+        return future
 
     async def send(
         self,
@@ -89,9 +111,20 @@ class ClaudeChatClient:
             ClaudeSDKClient(options=self._build_options(settings_path)) as client,
         ):
             await client.query(prompt)
-            async for message in client.receive_response():
-                trace.consume(message)
-        return trace.finish()
+            with self._runtime_lock:
+                self._loop = asyncio.get_running_loop()
+                self._client = client
+                should_interrupt = self._stop_requested.is_set()
+            if should_interrupt:
+                await client.interrupt()
+            try:
+                async for message in client.receive_response():
+                    trace.consume(message)
+            finally:
+                with self._runtime_lock:
+                    self._client = None
+                    self._loop = None
+        return trace.finish(interrupted=self._stop_requested.is_set())
 
     def _build_options(self, settings_path: Path) -> ClaudeAgentOptions:
         config = self._config

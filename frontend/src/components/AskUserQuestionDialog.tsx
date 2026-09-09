@@ -1,8 +1,10 @@
 import {
+  BorderOutlined,
   CheckCircleFilled,
+  LoadingOutlined,
   QuestionCircleOutlined,
 } from "@ant-design/icons";
-import { Button, Checkbox, Input, Radio, Tabs } from "antd";
+import { Button, Checkbox, Input, Radio, Tabs, Tooltip } from "antd";
 import { useState } from "react";
 
 import type {
@@ -16,7 +18,9 @@ type AskUserQuestionDialogProps = {
     allowed: boolean,
     answers?: ChatPermissionAnswers,
   ) => Promise<void>;
+  onStop?: () => void;
   request: ChatAskUserQuestionRequestEvent;
+  stopping?: boolean;
 };
 
 type AnswerDraft = {
@@ -31,7 +35,9 @@ function isAnswered(draft: AnswerDraft): boolean {
 export function AskUserQuestionDialog({
   decision,
   onDecision,
+  onStop,
   request,
+  stopping = false,
 }: AskUserQuestionDialogProps) {
   const questions = request.input.questions;
   const [activeKey, setActiveKey] = useState("0");
@@ -88,7 +94,7 @@ export function AskUserQuestionDialog({
           {question.multiSelect ? (
             <Checkbox.Group
               className="ask-question-options"
-              disabled={decision !== null}
+              disabled={decision !== null || stopping}
               onChange={(values) => updateDraft(index, {
                 selected: values.map(String),
               })}
@@ -110,7 +116,7 @@ export function AskUserQuestionDialog({
           ) : (
             <Radio.Group
               className="ask-question-options"
-              disabled={decision !== null}
+              disabled={decision !== null || stopping}
               onChange={(event) => updateDraft(index, {
                 custom: "",
                 selected: [String(event.target.value)],
@@ -134,7 +140,7 @@ export function AskUserQuestionDialog({
           <Input.TextArea
             aria-label={`自定义回答：${question.question}`}
             autoSize={{ minRows: 1, maxRows: 3 }}
-            disabled={decision !== null}
+            disabled={decision !== null || stopping}
             onChange={(event) => updateDraft(index, {
               custom: event.target.value,
               ...(!question.multiSelect && event.target.value.trim()
@@ -197,18 +203,30 @@ export function AskUserQuestionDialog({
           {validationError}
         </span>
         <div className="tool-permission-actions">
+          {onStop && (
+            <Tooltip title={stopping ? "正在停止…" : "停止生成"}>
+              <Button
+                aria-label="停止生成"
+                className="permission-stop-button"
+                disabled={stopping}
+                icon={stopping ? <LoadingOutlined spin /> : <BorderOutlined />}
+                onClick={onStop}
+                shape="circle"
+              />
+            </Tooltip>
+          )}
           {isLastQuestion ? (
             <>
               <Button
                 danger
-                disabled={decision !== null}
+                disabled={decision !== null || stopping}
                 loading={decision === "deny"}
                 onClick={() => void onDecision(false)}
               >
                 取消
               </Button>
               <Button
-                disabled={decision !== null}
+                disabled={decision !== null || stopping}
                 loading={decision === "allow"}
                 onClick={() => void submitAnswers()}
                 type="primary"
@@ -218,7 +236,7 @@ export function AskUserQuestionDialog({
             </>
           ) : (
             <Button
-              disabled={decision !== null}
+              disabled={decision !== null || stopping}
               onClick={goToNextQuestion}
               type="primary"
             >

@@ -1,5 +1,6 @@
 import {
   ArrowUpOutlined,
+  BorderOutlined,
   CodeOutlined,
   DownOutlined,
   FileOutlined,
@@ -61,8 +62,10 @@ type TaskComposerProps = {
   ) => Promise<void>;
   onProjectChange: (project: ProjectFolder | null) => void;
   onSend: (draft: ComposerDraft) => void;
+  onStop?: () => void;
   permissionRequest?: ChatPermissionRequestEvent | null;
   selectedProject: ProjectFolder | null;
+  stopping?: boolean;
 };
 
 export type ComposerAttachment = {
@@ -142,8 +145,10 @@ export function TaskComposer({
   onPermissionDecision,
   onProjectChange,
   onSend,
+  onStop,
   permissionRequest = null,
   selectedProject,
+  stopping = false,
 }: TaskComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
@@ -359,7 +364,7 @@ export function TaskComposer({
     allowed: boolean,
     answers?: ChatPermissionAnswers,
   ) => {
-    if (!permissionRequest || !onPermissionDecision || permissionDecision) {
+    if (!permissionRequest || !onPermissionDecision || permissionDecision || stopping) {
       return;
     }
     setPermissionDecision(allowed ? "allow" : "deny");
@@ -451,7 +456,9 @@ export function TaskComposer({
           key={permissionRequest.permission_id}
           decision={permissionDecision}
           onDecision={handleToolPermissionDecision}
+          onStop={onStop}
           request={permissionRequest}
+          stopping={stopping}
         />
       ) : permissionRequest && (
         <section
@@ -472,16 +479,28 @@ export function TaskComposer({
             {JSON.stringify(permissionRequest.input, null, 2)}
           </pre>
           <div className="tool-permission-actions">
+            {busy && onStop && (
+              <Tooltip title={stopping ? "正在停止…" : "停止生成"}>
+                <Button
+                  aria-label="停止生成"
+                  className="permission-stop-button"
+                  disabled={stopping}
+                  icon={stopping ? <LoadingOutlined spin /> : <BorderOutlined />}
+                  onClick={onStop}
+                  shape="circle"
+                />
+              </Tooltip>
+            )}
             <Button
               danger
-              disabled={permissionDecision !== null}
+              disabled={permissionDecision !== null || stopping}
               loading={permissionDecision === "deny"}
               onClick={() => void handleToolPermissionDecision(false)}
             >
               拒绝
             </Button>
             <Button
-              disabled={permissionDecision !== null}
+              disabled={permissionDecision !== null || stopping}
               loading={permissionDecision === "allow"}
               onClick={() => void handleToolPermissionDecision(true)}
               type="primary"
@@ -727,16 +746,29 @@ export function TaskComposer({
                   {effortLevels[effort]} <DownOutlined />
                 </Button>
               </Popover>
-              <Button
-                aria-label="发送消息"
-                className="sender-send-button"
-                disabled={busy || (!prompt.trim() && !attachmentItems.length)}
-                icon={<ArrowUpOutlined />}
-                loading={busy}
-                onClick={() => handleSubmit(prompt)}
-                shape="circle"
-                type="primary"
-              />
+              {busy ? (
+                <Tooltip title={stopping ? "正在停止…" : "停止生成"}>
+                  <Button
+                    aria-label="停止生成"
+                    className="sender-stop-button"
+                    disabled={stopping}
+                    icon={stopping ? <LoadingOutlined spin /> : <BorderOutlined />}
+                    onClick={onStop}
+                    shape="circle"
+                    type="primary"
+                  />
+                </Tooltip>
+              ) : (
+                <Button
+                  aria-label="发送消息"
+                  className="sender-send-button"
+                  disabled={!prompt.trim() && !attachmentItems.length}
+                  icon={<ArrowUpOutlined />}
+                  onClick={() => handleSubmit(prompt)}
+                  shape="circle"
+                  type="primary"
+                />
+              )}
             </Space>
           </div>
         )}

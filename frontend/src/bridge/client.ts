@@ -27,11 +27,10 @@ type PyWebviewApi = {
     projectPath: string | null,
     sessionId: string | null,
     effort: ChatEffort,
-    requestId: string,
     permissionMode: ChatPermissionMode,
   ) => Promise<ChatReply>;
+  stop_chat_message: () => Promise<boolean>;
   respond_chat_permission: (
-    requestId: string,
     permissionId: string,
     allowed: boolean,
     answers: ChatPermissionAnswers | null,
@@ -92,11 +91,11 @@ export type ChatReply = {
   content: string;
   final_output_block_id: string | null;
   session_id: string;
+  stopped?: boolean;
 };
 
 type ChatContentEvent = {
   block_id: string;
-  request_id: string;
   type:
     | "thinking_start"
     | "thinking_complete"
@@ -106,7 +105,6 @@ type ChatContentEvent = {
 
 type ChatContentDeltaEvent = {
   block_id: string;
-  request_id: string;
   text: string;
   type: "thinking_delta" | "output_delta";
 };
@@ -114,14 +112,12 @@ type ChatContentDeltaEvent = {
 type ChatToolStartEvent = {
   group_id: string;
   name: string;
-  request_id: string;
   summary: string;
   tool_id: string;
   type: "tool_start";
 };
 
 type ChatToolCompleteEvent = {
-  request_id: string;
   status: "error" | "success";
   tool_id: string;
   type: "tool_complete";
@@ -133,7 +129,6 @@ export type ChatPermissionRequestEvent = {
   display_name: string;
   input: Record<string, unknown>;
   permission_id: string;
-  request_id: string;
   title: string;
   tool_name: string;
   type: "permission_request";
@@ -172,14 +167,11 @@ export type ChatStreamEvent =
   | ChatPermissionRequestEvent;
 
 const CHAT_STREAM_EVENT = "xalling:chat-event";
-let chatRequestSequence = 0;
 
 function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
   if (
     typeof value !== "object"
     || value === null
-    || !("request_id" in value)
-    || typeof value.request_id !== "string"
     || !("type" in value)
     || typeof value.type !== "string"
   ) {
@@ -276,11 +268,6 @@ export function isAskUserQuestionRequest(
     && questions.length > 0
     && questions.length <= 4
     && questions.every(isUserQuestion);
-}
-
-function createChatRequestId(): string {
-  chatRequestSequence += 1;
-  return `chat-${Date.now()}-${chatRequestSequence}`;
 }
 
 declare global {
@@ -394,10 +381,9 @@ export async function sendChatMessage(
     throw new Error("桌面应用桥接尚未准备好");
   }
 
-  const requestId = createChatRequestId();
   const handleStreamEvent: EventListener = (event) => {
     const detail = (event as CustomEvent<unknown>).detail;
-    if (isChatStreamEvent(detail) && detail.request_id === requestId) {
+    if (isChatStreamEvent(detail)) {
       onEvent?.(detail);
     }
   };
@@ -408,7 +394,6 @@ export async function sendChatMessage(
       projectPath,
       sessionId,
       effort,
-      requestId,
       permissionMode,
     );
   } finally {
@@ -416,8 +401,15 @@ export async function sendChatMessage(
   }
 }
 
+export async function stopChatMessage(): Promise<boolean> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.stop_chat_message();
+}
+
 export async function respondChatPermission(
-  requestId: string,
   permissionId: string,
   allowed: boolean,
   answers?: ChatPermissionAnswers,
@@ -426,7 +418,7 @@ export async function respondChatPermission(
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.respond_chat_permission(requestId, permissionId, allowed, answers ?? null);
+  return api.respond_chat_permission(permissionId, allowed, answers ?? null);
 }
 
 export async function getCurrentTheme(): Promise<string> {

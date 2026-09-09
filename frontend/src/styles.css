@@ -608,6 +608,7 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .chat-message-files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .chat-message-files span { display: inline-flex; max-width: 210px; align-items: center; gap: 4px; padding: 3px 7px; overflow: hidden; color: #696a78; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; background: rgba(116, 105, 198, .09); }
 .chat-message-error { color: #c74747; }
+.chat-message-stopped { margin-top: 8px; color: #8a8b96; font-size: 12px; }
 .chat-markdown { color: #30313b; font-size: 14px; line-height: 1.78; overflow-wrap: anywhere; }
 .chat-markdown > :first-child { margin-top: 0; }
 .chat-markdown > :last-child { margin-bottom: 0; }
@@ -801,6 +802,9 @@ html[data-theme="serene"] .composer-project-locked:hover { color: #c4bab0; backg
 .permission-mode-option-description { color: var(--ant-color-text-tertiary, rgba(0, 0, 0, .45)); font-size: 11px; line-height: 16px; }
 .sender-send-button { color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
 .sender-send-button:disabled { color: rgba(255, 255, 255, .72) !important; background: #bbb5f5 !important; }
+.sender-stop-button { color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
+.sender-stop-button .anticon, .permission-stop-button .anticon { font-size: 12px; }
+.tool-permission-actions .permission-stop-button { min-width: 32px; }
 .model-select { min-width: 260px; max-width: 320px; }
 .model-select .ant-select-selector { padding-inline: 7px !important; color: #6d6e7e; font-size: 12px; }
 .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #5d4cf0; background: #f1efff; }
