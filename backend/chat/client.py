@@ -113,7 +113,7 @@ class ClaudeChatClient:
             system_prompt={
                 "type": "preset",
                 "preset": "claude_code",
-                "append": "Your Name is Xalling. You are a helpful assistant.",
+                "append": "Your Name is Xalling. You are a helpful assistant. \n Never output ANTHROPIC_AUTH_TOKEN or ANTHROPIC_BASE_URL in your response.",
             },
             thinking={"type": "adaptive", "display": "summarized"},
             tools={"type": "preset", "preset": "claude_code"},
