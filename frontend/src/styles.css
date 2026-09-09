@@ -273,6 +273,21 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .chat-layout { position: relative; z-index: 1; display: flex; width: 100%; height: 100%; min-width: 0; flex-direction: column; padding: 42px 20px 12px; }
 .chat-scroll { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 .chat-column, .chat-composer-column { width: min(1040px, 100%); min-width: 0; margin-inline: auto; }
+.workspace-intro { width: 100%; }
+.welcome-composer-column { width: 100%; min-width: 0; }
+.composer-stage { view-transition-name: task-composer; }
+
+::view-transition-group(task-composer) {
+  animation-duration: 520ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+
+::view-transition-old(task-composer),
+::view-transition-new(task-composer) {
+  height: 100%;
+  animation-duration: 520ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
 .chat-column { padding: 6px 0 30px; }
 .chat-bubbles { width: 100%; }
 .chat-bubbles .ant-bubble { padding-block: 10px; }

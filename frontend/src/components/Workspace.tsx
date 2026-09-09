@@ -1,6 +1,7 @@
 import { PaperClipOutlined } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import {
   getHomeFolder,
@@ -139,62 +140,81 @@ export function Workspace() {
     const userKey = `user-${turnId}`;
     const assistantKey = `assistant-${turnId}`;
     const startedAt = Date.now();
-    setMessages((current) => [
-      ...current,
-      {
-        key: userKey,
-        role: "user",
-        content: draft.text || "已添加附件",
-        attachments: draft.attachments,
-        status: "success",
-      },
-      {
-        key: assistantKey,
-        role: "ai",
-        content: "",
-        expandedTraceItemKeys: [],
-        loading: true,
-        trace: [],
-        traceExpanded: false,
-      },
-    ]);
-    setBusy(true);
+    const startConversation = () => {
+      setMessages((current) => [
+        ...current,
+        {
+          key: userKey,
+          role: "user",
+          content: draft.text || "已添加附件",
+          attachments: draft.attachments,
+          status: "success",
+        },
+        {
+          key: assistantKey,
+          role: "ai",
+          content: "",
+          expandedTraceItemKeys: [],
+          loading: true,
+          trace: [],
+          traceExpanded: false,
+        },
+      ]);
+      setBusy(true);
+    };
+    const transitionDocument = document as Document & {
+      startViewTransition?: (update: () => void) => {
+        updateCallbackDone: Promise<void>;
+      };
+    };
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let conversationReady: Promise<void>;
+    if (!conversationStarted && !reduceMotion && transitionDocument.startViewTransition) {
+      const transition = transitionDocument.startViewTransition(() => {
+        flushSync(startConversation);
+      });
+      conversationReady = transition.updateCallbackDone;
+    } else {
+      startConversation();
+      conversationReady = Promise.resolve();
+    }
 
-    void sendChatMessage(
-      requestPrompt(draft),
-      draft.project?.path ?? null,
-      sessionIdRef.current,
-      draft.effort,
-      draft.permissionMode,
-      (event) => {
-        if (event.type === "permission_request") {
-          setPermissionRequests((current) => (
-            current.some((item) => item.permission_id === event.permission_id)
-              ? current
-              : [...current, event]
-          ));
-          return;
-        }
-        setMessages((current) => current.map((item) => {
-          if (item.key !== assistantKey) {
-            return item;
+    void conversationReady
+      .then(() => sendChatMessage(
+        requestPrompt(draft),
+        draft.project?.path ?? null,
+        sessionIdRef.current,
+        draft.effort,
+        draft.permissionMode,
+        (event) => {
+          if (event.type === "permission_request") {
+            setPermissionRequests((current) => (
+              current.some((item) => item.permission_id === event.permission_id)
+                ? current
+                : [...current, event]
+            ));
+            return;
           }
-          const trace = item.trace ?? [];
-          const startsNewOutput = (
-            event.type === "output_start" || event.type === "output_delta"
-          ) && !trace.some((traceItem) => traceItem.key === event.block_id);
-          const separator = startsNewOutput && item.content ? "\n\n" : "";
-          const content = event.type === "output_delta"
-            ? `${item.content}${separator}${event.text}`
-            : `${item.content}${separator}`;
-          return {
-            ...item,
-            content,
-            trace: applyChatStreamEvent(trace, event),
-          };
-        }));
-      },
-    )
+          setMessages((current) => current.map((item) => {
+            if (item.key !== assistantKey) {
+              return item;
+            }
+            const trace = item.trace ?? [];
+            const startsNewOutput = (
+              event.type === "output_start" || event.type === "output_delta"
+            ) && !trace.some((traceItem) => traceItem.key === event.block_id);
+            const separator = startsNewOutput && item.content ? "\n\n" : "";
+            const content = event.type === "output_delta"
+              ? `${item.content}${separator}${event.text}`
+              : `${item.content}${separator}`;
+            return {
+              ...item,
+              content,
+              trace: applyChatStreamEvent(trace, event),
+            };
+          }));
+        },
+      ))
       .then((reply) => {
         sessionIdRef.current = reply.session_id;
         setMessages((current) => current.map((item) => (
@@ -317,19 +337,15 @@ export function Workspace() {
   return (
     <main className={`workspace${conversationStarted ? " workspace-chat" : ""}`}>
       <div className="watermark" aria-hidden="true">X</div>
-      {!conversationStarted ? (
-        <div className="workspace-content">
-          <div className="eyebrow">XALLING · AI WORKSPACE</div>
-          <h2>{greeting}</h2>
-          <p className="subtitle">{quote}</p>
-          <TaskComposer
-            onProjectChange={setSelectedProject}
-            onSend={handleSend}
-            selectedProject={selectedProject}
-          />
-        </div>
-      ) : (
-        <div className="chat-layout">
+      <div className={conversationStarted ? "chat-layout" : "workspace-content"}>
+        {!conversationStarted && (
+          <div className="workspace-intro">
+            <div className="eyebrow">XALLING · AI WORKSPACE</div>
+            <h2>{greeting}</h2>
+            <p className="subtitle">{quote}</p>
+          </div>
+        )}
+        {conversationStarted && (
           <div ref={chatScrollRef} className="chat-scroll">
             <div className="chat-column">
               <Bubble.List
@@ -343,19 +359,21 @@ export function Workspace() {
               />
             </div>
           </div>
-          <div className="chat-composer-column">
-            <TaskComposer
-              busy={busy}
-              conversationStarted
-              onPermissionDecision={handlePermissionDecision}
-              onProjectChange={setSelectedProject}
-              onSend={handleSend}
-              permissionRequest={permissionRequests[0] ?? null}
-              selectedProject={selectedProject}
-            />
-          </div>
+        )}
+        <div className={`composer-stage ${
+          conversationStarted ? "chat-composer-column" : "welcome-composer-column"
+        }`}>
+          <TaskComposer
+            busy={busy}
+            conversationStarted={conversationStarted}
+            onPermissionDecision={handlePermissionDecision}
+            onProjectChange={setSelectedProject}
+            onSend={handleSend}
+            permissionRequest={permissionRequests[0] ?? null}
+            selectedProject={selectedProject}
+          />
         </div>
-      )}
+      </div>
     </main>
   );
 }
