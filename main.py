@@ -3,8 +3,10 @@ from pathlib import Path
 import webview
 
 from backend.router import ChatRouter, FileRouter, ModelRouter, ThemeRouter, WindowRouter
+from backend.router.log import capture_bridge_api_errors
 
 
+@capture_bridge_api_errors
 class ApplicationBridge(WindowRouter, FileRouter, ModelRouter, ThemeRouter, ChatRouter):
     """Compose the JSON-only routers exposed to the local Web UI."""
 

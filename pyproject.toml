@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.2.152",
+    "loguru>=0.7.3",
     "pydantic-settings>=2.15.0",
     "pywebview>=6.2.1",
     "tomli-w>=1.2.0",
