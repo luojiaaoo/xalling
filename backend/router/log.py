@@ -1,4 +1,4 @@
-"""Access and error logging for the JavaScript-Python bridge."""
+"""Access, error, and browser logging for the JavaScript-Python bridge."""
 
 import inspect
 import sys
@@ -15,11 +15,12 @@ SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token"
 
 _logging_configured = False
 _access_logger = logger.bind(channel="access")
+_browser_logger = logger.bind(channel="browser")
 _error_logger = logger.bind(channel="error")
 
 
 def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
-    """Clear Loguru's defaults and add console, access, and error channels."""
+    """Clear Loguru's defaults and add console and file log channels."""
     global _logging_configured
 
     log_directory.mkdir(parents=True, exist_ok=True)
@@ -48,6 +49,15 @@ def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
         backtrace=True,
         diagnose=False,
         filter=lambda record: record["extra"].get("channel") == "error",
+    )
+    logger.add(
+        log_directory / "browser.log",
+        level="ERROR",
+        format=LOG_FORMAT,
+        encoding="utf-8",
+        backtrace=True,
+        diagnose=False,
+        filter=lambda record: record["extra"].get("channel") == "browser",
     )
     _logging_configured = True
 
@@ -163,7 +173,7 @@ FRONTEND_ERROR_KINDS = ("error", "unhandledrejection", "console.error", "console
 
 
 class LogRouter:
-    """Receive error reports from the Web UI and write them to the error log."""
+    """Receive error reports from the Web UI and write them to its own log."""
 
     def report_frontend_error(
         self,
@@ -183,7 +193,7 @@ class LogRouter:
         text = f"Frontend {kind}: {message}"
         if stack:
             text += f"\n{stack}"
-        _error_logger.error(text)
+        _browser_logger.error(text)
 
 
 def capture_bridge_api_errors[T: type[Any]](cls: T) -> T:

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from backend.router import log
-from backend.router.log import capture_bridge_api_errors, capture_bridge_errors
+from backend.router.log import LogRouter, capture_bridge_api_errors, capture_bridge_errors
 from main import ApplicationBridge
 
 
@@ -72,6 +72,23 @@ def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
         assert "input={'prompt': 'hello', 'api_key': '**********'}" in output
         assert "output={'answer': 'HELLO', 'api_key': '**********'}" in output
         assert "top-secret" not in output
+
+
+def test_frontend_errors_log_to_separate_browser_file(tmp_path: Path) -> None:
+    browser_log = tmp_path / "browser.log"
+    error_log = tmp_path / "error.log"
+    log.configure_logging(tmp_path)
+
+    LogRouter().report_frontend_error(
+        "unhandledrejection",
+        "frontend failed",
+        "Error: frontend failed\n    at app.js:1:1",
+    )
+
+    browser_output = browser_log.read_text(encoding="utf-8")
+    assert "Frontend unhandledrejection: frontend failed" in browser_output
+    assert "at app.js:1:1" in browser_output
+    assert "frontend failed" not in error_log.read_text(encoding="utf-8")
 
 
 def test_capture_bridge_api_errors_wraps_inherited_public_methods(
