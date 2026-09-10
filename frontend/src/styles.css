@@ -100,7 +100,7 @@ html[data-theme="dark"] .main-menu .ant-menu-item { color: rgba(255, 255, 255, 0
 html[data-theme="dark"] .main-menu .ant-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
 html[data-theme="dark"] .main-menu .ant-menu-item-selected { background: rgba(109, 93, 252, 0.22); }
 html[data-theme="dark"] .settings-menu .ant-menu-submenu-title { color: rgba(255, 255, 255, 0.85); }
-html[data-theme="dark"] .project-heading, html[data-theme="dark"] .profile-row { color: rgba(255, 255, 255, 0.7); border-top-color: #1e1e24; }
+html[data-theme="dark"] .profile-row { color: rgba(255, 255, 255, 0.7); border-top-color: #1e1e24; }
 html[data-theme="dark"] .project-row, html[data-theme="dark"] .task-row { color: rgba(255, 255, 255, 0.6); }
 html[data-theme="dark"] .project-row:hover, html[data-theme="dark"] .task-row:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.06); }
 html[data-theme="dark"] .window-controls .ant-btn { color: rgba(255, 255, 255, 0.6); }
@@ -166,7 +166,7 @@ html[data-theme="cartoon"] .new-task-button, html[data-theme="cartoon"] .back-wo
 html[data-theme="cartoon"] .main-menu .ant-menu-item { color: #51463B; }
 html[data-theme="cartoon"] .main-menu .ant-menu-item-selected { background: #E8D29A; }
 html[data-theme="cartoon"] .settings-menu .ant-menu-submenu-title { color: #51463B; }
-html[data-theme="cartoon"] .project-heading, html[data-theme="cartoon"] .profile-row { color: #51463B; border-top: 2px solid #225555; }
+html[data-theme="cartoon"] .profile-row { color: #51463B; border-top: 2px solid #225555; }
 html[data-theme="cartoon"] .project-row, html[data-theme="cartoon"] .task-row { color: #6f6353; }
 html[data-theme="cartoon"] .project-row:hover, html[data-theme="cartoon"] .task-row:hover { color: #51463B; background: #E8D29A; }
 html[data-theme="cartoon"] .window-controls .ant-btn { color: #51463B; }
@@ -260,7 +260,6 @@ html[data-theme="illustration"] .settings-menu .ant-menu-submenu-title { color: 
 html[data-theme="illustration"] .main-menu .ant-menu-item-selected,
 html[data-theme="illustration"] .project-row:hover,
 html[data-theme="illustration"] .task-row:hover { color: #2C2C2C; background: #FFE7BA; }
-html[data-theme="illustration"] .project-heading,
 html[data-theme="illustration"] .profile-row { color: #2C2C2C; border-top: 3px solid #2C2C2C; }
 html[data-theme="illustration"] .project-row,
 html[data-theme="illustration"] .task-row,
@@ -325,7 +324,6 @@ html[data-theme="geek"] .main-menu .ant-menu-item:hover,
 html[data-theme="geek"] .project-row:hover,
 html[data-theme="geek"] .task-row:hover { color: #39ff14; background: rgba(57, 255, 20, .12); }
 html[data-theme="geek"] .main-menu .ant-menu-item-selected { color: #030603; background: #39ff14; text-shadow: none; }
-html[data-theme="geek"] .project-heading,
 html[data-theme="geek"] .profile-row { color: rgba(57, 255, 20, .72); border-top: 2px solid rgba(57, 255, 20, .35); }
 html[data-theme="geek"] .project-row,
 html[data-theme="geek"] .task-row,
@@ -402,7 +400,6 @@ html[data-theme="serene"] .main-menu .ant-menu-item:hover,
 html[data-theme="serene"] .project-row:hover,
 html[data-theme="serene"] .task-row:hover { color: #e8e2d9; background: rgba(60, 51, 42, .8); }
 html[data-theme="serene"] .main-menu .ant-menu-item-selected { color: #ebe4d8; background: #3c332a; }
-html[data-theme="serene"] .project-heading,
 html[data-theme="serene"] .profile-row { color: #9a8f84; border-top-color: #4b4035; }
 html[data-theme="serene"] .project-row,
 html[data-theme="serene"] .task-row { color: rgba(232, 226, 217, .62); border-radius: 2px; }
@@ -535,11 +532,8 @@ button, textarea { font: inherit; }
 .settings-menu .ant-menu-sub .ant-menu-item { height: 36px; line-height: 36px; margin: 2px 0; padding-left: 26px !important; }
 
 .sidebar-top { display: flex; min-height: 0; flex: 1; flex-direction: column; }
-.sidebar-top .task-list { flex: 1; min-height: 0; max-height: none; align-content: start; }
+.sidebar-top .task-list { flex: 1; min-height: 0; max-height: none; margin-top: 6px; align-content: start; }
 .sidebar-bottom { display: flex; min-height: 0; flex-direction: column; gap: 4px; }
-.project-heading { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 2px; color: #aaaab5; font-size: 12px; }
-.project-heading svg { font-size: 13px; }
-.task-heading { margin-top: 4px; }
 .project-row, .task-row { width: 100%; padding: 8px; overflow: hidden; color: #6e7080; text-align: left; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
 .project-row:hover, .task-row:hover { color: #474856; background: #f4f3fa; }
 .project-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 3px; background: #d6d0ff; }

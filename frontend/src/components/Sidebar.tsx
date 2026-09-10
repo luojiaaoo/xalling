@@ -1,7 +1,7 @@
 import {
   ArrowLeftOutlined,
-  ClockCircleOutlined,
   FolderOpenOutlined,
+  HomeOutlined,
   MenuFoldOutlined,
   PlusCircleOutlined,
   SearchOutlined,
@@ -14,6 +14,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { ChatSessionSummary } from "../bridge/client";
+import { getHomeFolder } from "../bridge/client";
 import { BrandMark } from "./BrandMark";
 
 const navigation: MenuProps["items"] = [
@@ -110,6 +111,21 @@ export function Sidebar({
   const inSettings = mode === "settings";
   const [openKeys, setOpenKeys] = useState<string[]>(["basic"]);
   const [openProjectKeys, setOpenProjectKeys] = useState<Set<string>>(new Set());
+  const [defaultProjectPath, setDefaultProjectPath] = useState<string | null>(null);
+
+  // 读取默认项目路径，用于把它的分组固定在列表最顶上
+  useEffect(() => {
+    let active = true;
+    void getHomeFolder().then((folder) => {
+      if (active) {
+        setDefaultProjectPath(folder?.path ?? null);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const sessionGroups = useMemo(() => {
     const grouped = new Map<string, ChatSessionSummary[]>();
     for (const session of sessions) {
@@ -118,7 +134,7 @@ export function Sidebar({
       group.push(session);
       grouped.set(key, group);
     }
-    return [...grouped.entries()]
+    const groups = [...grouped.entries()]
       .map(([key, groupSessions]) => {
         const sortedSessions = [...groupSessions].sort(
           (left, right) => right.last_modified - left.last_modified,
@@ -132,7 +148,18 @@ export function Sidebar({
         };
       })
       .sort((left, right) => right.lastModified - left.lastModified);
-  }, [sessions]);
+    // 默认路径的分组永远固定在最顶上，其余仍按最近修改排序
+    // （路径已由后端统一归一化，直接比较字符串即可）
+    if (defaultProjectPath) {
+      const pinnedIndex = groups.findIndex(
+        (group) => group.key === defaultProjectPath,
+      );
+      if (pinnedIndex > 0) {
+        groups.unshift(...groups.splice(pinnedIndex, 1));
+      }
+    }
+    return groups;
+  }, [defaultProjectPath, sessions]);
 
   useEffect(() => {
     const activeProjectKey = sessions.find(
@@ -205,10 +232,6 @@ export function Sidebar({
               <kbd>Ctrl N</kbd>
             </Button>
             <Menu className="main-menu" mode="inline" selectedKeys={["automation"]} items={navigation} />
-            <div className="project-heading task-heading">
-              <span>历史会话</span>
-              <ClockCircleOutlined />
-            </div>
             <div className="task-list">
               {sessionsLoading && (
                 <div className="history-list-status">正在读取…</div>
@@ -238,7 +261,11 @@ export function Sidebar({
                     className="history-project-heading"
                     title={group.path || "未知工作区"}
                   >
-                    <FolderOpenOutlined />
+                    {group.key === defaultProjectPath ? (
+                      <HomeOutlined />
+                    ) : (
+                      <FolderOpenOutlined />
+                    )}
                     <span className="history-project-copy">
                       <AutoScrollText className="history-project-name" text={group.name} />
                       <AutoScrollText

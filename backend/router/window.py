@@ -10,6 +10,7 @@ from webview import FileDialog
 from webview.window import FixPoint
 
 from backend.config.setting import default_project_folder
+from backend.helper import normalize_project_path
 
 MIN_WINDOW_WIDTH = 400
 MIN_WINDOW_HEIGHT = 600
@@ -179,7 +180,10 @@ class WindowRouter:
     def get_home_folder() -> dict[str, str]:
         """Return the default project folder (Desktop when available, else home)."""
         folder = default_project_folder()
-        return {"name": folder.name or str(folder), "path": str(folder)}
+        return {
+            "name": folder.name or str(folder),
+            "path": normalize_project_path(str(folder)),
+        }
 
     def resize_window(self, width: int, height: int, edge: str) -> None:
         """Resize the frameless window while keeping the opposite edges fixed."""
