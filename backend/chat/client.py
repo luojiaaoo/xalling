@@ -65,7 +65,7 @@ async def _provider_settings_file(
             "ANTHROPIC_BASE_URL": config.api_url,
         },
         "alwaysThinkingEnabled": True,
-        "cleanupPeriodDays": 600,
+        "cleanupPeriodDays": 60,
         "includeCoAuthoredBy": False,
     }
     with TemporaryDirectory(prefix="xalling-claude-") as directory:
