@@ -25,13 +25,14 @@ type PyWebviewApi = {
   send_chat_message: (
     prompt: string,
     projectPath: string | null,
-    sessionId: string | null,
+    sessionId: string,
     effort: ChatEffort,
     permissionMode: ChatPermissionMode,
   ) => Promise<ChatReply>;
   list_chat_sessions: () => Promise<ChatSessionSummary[]>;
   get_chat_session: (sessionId: string) => Promise<ChatSessionHistory>;
-  stop_chat_message: () => Promise<boolean>;
+  get_active_chat: (sessionId: string) => Promise<ActiveChat | null>;
+  stop_chat_message: (sessionId: string | null) => Promise<boolean>;
   respond_chat_permission: (
     permissionId: string,
     allowed: boolean,
@@ -181,6 +182,21 @@ export type ChatUserQuestion = {
 
 export type ChatPermissionAnswers = Record<string, string | string[]>;
 
+type ChatCompleteEvent = {
+  reply: ChatReply;
+  type: "chat_complete";
+};
+
+type ChatErrorEvent = {
+  message: string;
+  type: "chat_error";
+};
+
+type ChatSessionStartedEvent = {
+  session_id: string;
+  type: "session_started";
+};
+
 export type ChatAskUserQuestionRequestEvent = Omit<
   ChatPermissionRequestEvent,
   "input" | "tool_name"
@@ -192,12 +208,25 @@ export type ChatAskUserQuestionRequestEvent = Omit<
   tool_name: "AskUserQuestion";
 };
 
-export type ChatStreamEvent =
+type ChatStreamEventPayload =
   | ChatContentEvent
   | ChatContentDeltaEvent
   | ChatToolStartEvent
   | ChatToolCompleteEvent
-  | ChatPermissionRequestEvent;
+  | ChatPermissionRequestEvent
+  | ChatCompleteEvent
+  | ChatErrorEvent
+  | ChatSessionStartedEvent;
+
+export type ChatStreamEvent = ChatStreamEventPayload & {
+  event_index?: number;
+  session_id?: string;
+};
+
+export type ActiveChat = {
+  events: ChatStreamEvent[];
+  session_id: string;
+};
 
 const CHAT_STREAM_EVENT = "xalling:chat-event";
 
@@ -249,6 +278,23 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
       && "status" in value
       && (value.status === "success" || value.status === "error")
     );
+  }
+  if (value.type === "chat_complete") {
+    return (
+      "reply" in value
+      && typeof value.reply === "object"
+      && value.reply !== null
+      && "content" in value.reply
+      && typeof value.reply.content === "string"
+      && "session_id" in value.reply
+      && typeof value.reply.session_id === "string"
+    );
+  }
+  if (value.type === "chat_error") {
+    return "message" in value && typeof value.message === "string";
+  }
+  if (value.type === "session_started") {
+    return "session_id" in value && typeof value.session_id === "string";
   }
   if (
     value.type === "thinking_delta"
@@ -404,34 +450,22 @@ export async function setCurrentModel(site: string, model: string): Promise<void
 export async function sendChatMessage(
   prompt: string,
   projectPath: string | null,
-  sessionId: string | null,
+  sessionId: string,
   effort: ChatEffort,
   permissionMode: ChatPermissionMode,
-  onEvent?: (event: ChatStreamEvent) => void,
 ): Promise<ChatReply> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
 
-  const handleStreamEvent: EventListener = (event) => {
-    const detail = (event as CustomEvent<unknown>).detail;
-    if (isChatStreamEvent(detail)) {
-      onEvent?.(detail);
-    }
-  };
-  window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
-  try {
-    return await api.send_chat_message(
-      prompt,
-      projectPath,
-      sessionId,
-      effort,
-      permissionMode,
-    );
-  } finally {
-    window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
-  }
+  return api.send_chat_message(
+    prompt,
+    projectPath,
+    sessionId,
+    effort,
+    permissionMode,
+  );
 }
 
 export async function listChatSessions(): Promise<ChatSessionSummary[]> {
@@ -447,12 +481,34 @@ export async function getChatSession(sessionId: string): Promise<ChatSessionHist
   return api.get_chat_session(sessionId);
 }
 
-export async function stopChatMessage(): Promise<boolean> {
+export async function getActiveChat(sessionId: string): Promise<ActiveChat | null> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.stop_chat_message();
+  return api.get_active_chat(sessionId);
+}
+
+export function subscribeChatEvents(
+  sessionId: string,
+  onEvent: (event: ChatStreamEvent) => void,
+): () => void {
+  const handleStreamEvent: EventListener = (event) => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (isChatStreamEvent(detail) && detail.session_id === sessionId) {
+      onEvent(detail);
+    }
+  };
+  window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
+  return () => window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
+}
+
+export async function stopChatMessage(sessionId: string | null): Promise<boolean> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.stop_chat_message(sessionId);
 }
 
 export async function respondChatPermission(

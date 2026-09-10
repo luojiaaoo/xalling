@@ -1,16 +1,19 @@
 import { PaperClipOutlined } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
+  getActiveChat,
   getChatSession,
   getHomeFolder,
   respondChatPermission,
   sendChatMessage,
   stopChatMessage,
+  subscribeChatEvents,
   type ChatPermissionAnswers,
   type ChatPermissionRequestEvent,
+  type ChatStreamEvent,
   type ProjectFolder,
 } from "../bridge/client";
 import { pickQuote } from "../quotes";
@@ -72,6 +75,26 @@ function errorText(error: unknown): string {
   return "发送失败，请检查模型配置后重试。";
 }
 
+function applyEventToAssistant(
+  message: ConversationMessage,
+  event: ChatStreamEvent,
+): ConversationMessage {
+  const trace = message.trace ?? [];
+  const startsNewOutput = (
+    event.type === "output_start" || event.type === "output_delta"
+  ) && !trace.some((traceItem) => traceItem.key === event.block_id);
+  const separator = startsNewOutput && message.content ? "\n\n" : "";
+  const content = event.type === "output_delta"
+    ? `${message.content}${separator}${event.text}`
+    : `${message.content}${separator}`;
+  return {
+    ...message,
+    content,
+    loading: true,
+    trace: applyChatStreamEvent(trace, event),
+  };
+}
+
 type WorkspaceProps = {
   hidden?: boolean;
   initialSessionId?: string | null;
@@ -92,11 +115,118 @@ export function Workspace({
   const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [quote] = useState(pickQuote);
   const [greeting] = useState(() => getGreeting(new Date().getHours()));
-  const sessionIdRef = useRef<string | null>(initialSessionId);
+  const sessionIdRef = useRef(initialSessionId ?? crypto.randomUUID());
+  const activeAssistantKeyRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const eventIndexRef = useRef(-1);
+  const historyLoadingRef = useRef(Boolean(initialSessionId));
   const messageNumberRef = useRef(0);
+  const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
+  const startedAtRef = useRef<number | null>(null);
   const stopRequestedRef = useRef(false);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
+
+  const applyLiveEvent = useCallback((event: ChatStreamEvent) => {
+    if (
+      event.event_index !== undefined
+      && event.event_index <= eventIndexRef.current
+    ) {
+      return;
+    }
+    if (event.event_index !== undefined) {
+      eventIndexRef.current = event.event_index;
+    }
+    if (event.type === "permission_request") {
+      setPermissionRequests((current) => (
+        current.some((item) => item.permission_id === event.permission_id)
+          ? current
+          : [...current, event]
+      ));
+      return;
+    }
+    if (event.type === "session_started") {
+      sessionIdRef.current = event.session_id;
+      onSessionsChanged?.();
+      return;
+    }
+    if (event.type === "chat_complete") {
+      const reply = event.reply;
+      sessionIdRef.current = reply.session_id;
+      const stopped = Boolean(reply.stopped || stopRequestedRef.current);
+      const workingSeconds = startedAtRef.current === null
+        ? undefined
+        : Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
+      setMessages((current) => current.map((item) => (
+        item.key === activeAssistantKeyRef.current
+          ? {
+              ...item,
+              content: stopped ? (reply.content || item.content) : reply.content,
+              finalOutputKey: reply.final_output_block_id ?? undefined,
+              loading: false,
+              status: stopped ? "abort" : "success",
+              trace: finishAgentTrace(item.trace ?? [], "success"),
+              traceExpanded: false,
+              workingSeconds,
+            }
+          : item
+      )));
+      setBusy(false);
+      setStopping(false);
+      setPermissionRequests([]);
+      onSessionsChanged?.();
+      return;
+    }
+    if (event.type === "chat_error") {
+      setMessages((current) => current.map((item) => (
+        item.key === activeAssistantKeyRef.current
+          ? {
+              ...item,
+              content: event.message || item.content,
+              loading: false,
+              status: "error",
+              trace: finishAgentTrace(item.trace ?? [], "error"),
+            }
+          : item
+      )));
+      setBusy(false);
+      setStopping(false);
+      setPermissionRequests([]);
+      return;
+    }
+
+    setBusy(true);
+    setMessages((current) => {
+      let assistantKey = activeAssistantKeyRef.current;
+      let next = current;
+      if (!assistantKey || !current.some((item) => item.key === assistantKey)) {
+        assistantKey = `active-${sessionIdRef.current}`;
+        activeAssistantKeyRef.current = assistantKey;
+        next = [
+          ...current,
+          {
+            content: "",
+            expandedTraceItemKeys: [],
+            key: assistantKey,
+            loading: true,
+            role: "ai",
+            trace: [],
+            traceExpanded: false,
+          },
+        ];
+      }
+      return next.map((item) => (
+        item.key === assistantKey ? applyEventToAssistant(item, event) : item
+      ));
+    });
+  }, [onSessionsChanged]);
+
+  useEffect(() => subscribeChatEvents(sessionIdRef.current, (event) => {
+    if (historyLoadingRef.current) {
+      queuedEventsRef.current.push(event);
+      return;
+    }
+    applyLiveEvent(event);
+  }), [applyLiveEvent]);
 
   useEffect(() => {
     let active = true;
@@ -116,9 +246,13 @@ export function Workspace({
     }
 
     let active = true;
+    historyLoadingRef.current = true;
     setHistoryLoading(true);
-    void getChatSession(initialSessionId)
-      .then((history) => {
+    void Promise.all([
+      getChatSession(initialSessionId),
+      getActiveChat(initialSessionId),
+    ])
+      .then(([history, activeChat]) => {
         if (!active) {
           return;
         }
@@ -126,7 +260,7 @@ export function Workspace({
         messageNumberRef.current = history.messages.filter(
           (message) => message.role === "user",
         ).length;
-        setMessages(history.messages.map((message) => {
+        let historyMessages: ConversationMessage[] = history.messages.map((message) => {
           if (message.role === "user") {
             return {
               content: message.content,
@@ -149,25 +283,97 @@ export function Workspace({
             trace: finishAgentTrace(trace, "success"),
             traceExpanded: false,
           };
-        }));
+        });
+        if (activeChat) {
+          const assistantKey = `active-${activeChat.session_id}`;
+          activeAssistantKeyRef.current = assistantKey;
+          let assistant: ConversationMessage = {
+            content: "",
+            expandedTraceItemKeys: [],
+            key: assistantKey,
+            loading: true,
+            role: "ai",
+            trace: [],
+            traceExpanded: false,
+          };
+          const permissions: ChatPermissionRequestEvent[] = [];
+          let running = true;
+          for (const event of activeChat.events) {
+            if (event.event_index !== undefined) {
+              eventIndexRef.current = Math.max(
+                eventIndexRef.current,
+                event.event_index,
+              );
+            }
+            if (event.type === "permission_request") {
+              permissions.push(event);
+            } else if (event.type === "session_started") {
+              sessionIdRef.current = event.session_id;
+            } else if (event.type === "chat_complete") {
+              const stopped = Boolean(event.reply.stopped);
+              assistant = {
+                ...assistant,
+                content: event.reply.content || assistant.content,
+                finalOutputKey: event.reply.final_output_block_id ?? undefined,
+                loading: false,
+                status: stopped ? "abort" : "success",
+                trace: finishAgentTrace(assistant.trace ?? [], "success"),
+              };
+              running = false;
+            } else if (event.type === "chat_error") {
+              assistant = {
+                ...assistant,
+                content: event.message || assistant.content,
+                loading: false,
+                status: "error",
+                trace: finishAgentTrace(assistant.trace ?? [], "error"),
+              };
+              running = false;
+            } else {
+              assistant = applyEventToAssistant(assistant, event);
+            }
+          }
+          let lastUserIndex = -1;
+          for (let index = historyMessages.length - 1; index >= 0; index -= 1) {
+            if (historyMessages[index].role === "user") {
+              lastUserIndex = index;
+              break;
+            }
+          }
+          historyMessages = [
+            ...historyMessages.slice(0, lastUserIndex + 1),
+            assistant,
+          ];
+          setPermissionRequests(permissions);
+          setBusy(running);
+          startedAtRef.current = running ? Date.now() : null;
+        }
+        setMessages(historyMessages);
         if (history.project_path) {
           setSelectedProject({
             name: history.project_name,
             path: history.project_path,
           });
         }
+        historyLoadingRef.current = false;
+        const queuedEvents = queuedEventsRef.current;
+        queuedEventsRef.current = [];
+        for (const event of queuedEvents) {
+          applyLiveEvent(event);
+        }
       })
       .catch((error: unknown) => {
         if (!active) {
           return;
         }
-        sessionIdRef.current = null;
         setMessages([{
           content: errorText(error),
           key: "history-load-error",
           role: "ai",
           status: "error",
         }]);
+        historyLoadingRef.current = false;
+        queuedEventsRef.current = [];
       })
       .finally(() => {
         if (active) {
@@ -178,7 +384,7 @@ export function Workspace({
     return () => {
       active = false;
     };
-  }, [initialSessionId]);
+  }, [applyLiveEvent, initialSessionId]);
 
   useEffect(() => {
     if (!busy) {
@@ -227,6 +433,8 @@ export function Workspace({
     const userKey = `user-${turnId}`;
     const assistantKey = `assistant-${turnId}`;
     const startedAt = Date.now();
+    activeAssistantKeyRef.current = assistantKey;
+    startedAtRef.current = startedAt;
     stopRequestedRef.current = false;
     const startConversation = () => {
       setMessages((current) => [
@@ -274,37 +482,6 @@ export function Workspace({
         sessionIdRef.current,
         draft.effort,
         draft.permissionMode,
-        (event) => {
-          if (stopRequestedRef.current) {
-            return;
-          }
-          if (event.type === "permission_request") {
-            setPermissionRequests((current) => (
-              current.some((item) => item.permission_id === event.permission_id)
-                ? current
-                : [...current, event]
-            ));
-            return;
-          }
-          setMessages((current) => current.map((item) => {
-            if (item.key !== assistantKey) {
-              return item;
-            }
-            const trace = item.trace ?? [];
-            const startsNewOutput = (
-              event.type === "output_start" || event.type === "output_delta"
-            ) && !trace.some((traceItem) => traceItem.key === event.block_id);
-            const separator = startsNewOutput && item.content ? "\n\n" : "";
-            const content = event.type === "output_delta"
-              ? `${item.content}${separator}${event.text}`
-              : `${item.content}${separator}`;
-            return {
-              ...item,
-              content,
-              trace: applyChatStreamEvent(trace, event),
-            };
-          }));
-        },
       ))
       .then((reply) => {
         if (reply.session_id) {
@@ -357,7 +534,7 @@ export function Workspace({
     stopRequestedRef.current = true;
     setStopping(true);
     try {
-      await stopChatMessage();
+      await stopChatMessage(sessionIdRef.current);
       setPermissionRequests([]);
     } catch {
       stopRequestedRef.current = false;

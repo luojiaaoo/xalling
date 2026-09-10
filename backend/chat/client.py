@@ -47,9 +47,10 @@ class ClaudeChatConfig:
     effort: ChatEffort
     model: str
     project: Path
+    session_id: str
+    is_new_session: bool
     can_use_tool: CanUseTool | None = None
     permission_mode: ChatPermissionMode = "default"
-    resume: str | None = None
 
 
 # SDK没有提供ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL高优先级覆盖参数
@@ -141,7 +142,8 @@ class ClaudeChatClient:
             model=config.model,
             permission_mode=config.permission_mode,
             plugins=discover_skill_plugins(project=config.project),
-            resume=config.resume,
+            resume=None if config.is_new_session else config.session_id,
+            session_id=config.session_id if config.is_new_session else None,
             settings=str(settings_path),
             setting_sources=["user", "project", "local"],
             system_prompt={

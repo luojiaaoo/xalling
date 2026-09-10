@@ -64,6 +64,11 @@ class ClaudeChatHistory:
             "created_at": session.created_at,
         }
 
+    def has_session(self, session_id: str) -> bool:
+        """Return whether Claude has persisted the given session UUID."""
+        normalized_session_id = self._normalize_session_id(session_id)
+        return get_session_info(normalized_session_id) is not None
+
     @classmethod
     def _rebuild_messages(
         cls,

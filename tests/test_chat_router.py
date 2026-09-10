@@ -179,7 +179,11 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     router = ChatRouter()
     router._window = WindowStub()
     reply = router.send_chat_message(
-        "检查项目", str(tmp_path), None, "high", "acceptEdits"
+        "检查项目",
+        str(tmp_path),
+        session_id,
+        "high",
+        "acceptEdits",
     )
 
     assert reply == {
@@ -197,6 +201,8 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert options.disallowed_tools == []
     assert options.permission_mode == "acceptEdits"
     assert options.can_use_tool is not None
+    assert options.resume is None
+    assert options.session_id == session_id
     assert options.setting_sources == ["user", "project", "local"]
     assert options.include_partial_messages is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
@@ -213,18 +219,22 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert "ANTHROPIC_BASE_URL" not in options.env
     assert "ANTHROPIC_AUTH_TOKEN" not in options.env
     assert "ANTHROPIC_MODEL" not in options.env
-    assert len(scripts) == 9
-    assert '"type":"thinking_start"' in scripts[0]
-    assert '"type":"thinking_delta"' in scripts[1]
-    assert '"type":"output_delta"' in scripts[4]
-    assert '"text":"\\u5b8c\\u6210"' in scripts[4]
-    assert sum('"type":"output_start"' in script for script in scripts) == 1
-    assert '"type":"tool_start"' in scripts[7]
-    assert '"name":"Read"' in scripts[7]
-    assert '"summary":"file_path: README.md"' in scripts[7]
-    assert '"type":"tool_complete"' in scripts[8]
-    assert '"status":"success"' in scripts[8]
-    assert all('"content":' not in script for script in scripts)
+    assert len(scripts) == 11
+    assert all(f'"session_id":"{session_id}"' in script for script in scripts)
+    assert '"type":"session_started"' in scripts[0]
+    trace_scripts = scripts[1:-1]
+    assert '"type":"thinking_start"' in trace_scripts[0]
+    assert '"type":"thinking_delta"' in trace_scripts[1]
+    assert '"type":"output_delta"' in trace_scripts[4]
+    assert '"text":"\\u5b8c\\u6210"' in trace_scripts[4]
+    assert sum('"type":"output_start"' in script for script in trace_scripts) == 1
+    assert '"type":"tool_start"' in trace_scripts[7]
+    assert '"name":"Read"' in trace_scripts[7]
+    assert '"summary":"file_path: README.md"' in trace_scripts[7]
+    assert '"type":"tool_complete"' in trace_scripts[8]
+    assert '"status":"success"' in trace_scripts[8]
+    assert all('"content":' not in script for script in trace_scripts)
+    assert '"type":"chat_complete"' in scripts[-1]
 
 
 def test_chat_router_passes_resume_session_to_sdk(
@@ -237,6 +247,7 @@ def test_chat_router_passes_resume_session_to_sdk(
     class FakeClaudeSDKClient:
         def __init__(self, options: ClaudeAgentOptions) -> None:
             captured["resume"] = options.resume
+            captured["session_id"] = options.session_id
             captured["permission_mode"] = options.permission_mode
 
         async def __aenter__(self) -> Self:
@@ -261,10 +272,104 @@ def test_chat_router_passes_resume_session_to_sdk(
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
-    ChatRouter().send_chat_message("继续", str(tmp_path), session_id, "medium")
+    router = ChatRouter()
+    monkeypatch.setattr(router._history, "has_session", lambda _session_id: True)
+    router.send_chat_message("继续", str(tmp_path), session_id, "medium")
 
     assert captured["resume"] == session_id
+    assert captured["session_id"] is None
     assert captured["permission_mode"] == "default"
+
+
+def test_chat_router_keeps_only_running_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_model(tmp_path, monkeypatch)
+    session_ids = {"first": str(uuid4()), "second": str(uuid4())}
+    started = {prompt: Event() for prompt in session_ids}
+    session_started = {prompt: Event() for prompt in session_ids}
+    release = {prompt: Event() for prompt in session_ids}
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            self._prompt = ""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def query(self, prompt: str) -> None:
+            self._prompt = prompt
+            started[prompt].set()
+
+        async def receive_response(
+            self,
+        ) -> AsyncIterator[StreamEvent | ResultMessage]:
+            yield StreamEvent(
+                uuid=f"message-{self._prompt}",
+                session_id=session_ids[self._prompt],
+                event={
+                    "type": "message_start",
+                    "message": {"id": f"message-{self._prompt}"},
+                },
+            )
+            session_started[self._prompt].set()
+            release[self._prompt].wait(timeout=2)
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=session_ids[self._prompt],
+                result=self._prompt,
+            )
+
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+
+    router = ChatRouter()
+    monkeypatch.setattr(router._history, "list_sessions", list)
+
+    def missing_history(_session_id: str) -> dict[str, object]:
+        raise ValueError("missing")
+
+    monkeypatch.setattr(router._history, "get_session", missing_history)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            prompt: executor.submit(
+                router.send_chat_message,
+                prompt,
+                str(tmp_path),
+                session_id,
+                "high",
+                "default",
+            )
+            for prompt, session_id in session_ids.items()
+        }
+        assert all(event.wait(timeout=2) for event in started.values())
+        assert all(event.wait(timeout=2) for event in session_started.values())
+        assert set(router._active_chat_clients) == set(session_ids.values())
+        active_first = router.get_active_chat(session_ids["first"])
+        assert active_first is not None
+        assert active_first["session_id"] == session_ids["first"]
+        assert active_first["events"][0]["type"] == "session_started"
+        assert {
+            session["session_id"] for session in router.list_chat_sessions()
+        } == set(session_ids.values())
+        active_history = router.get_chat_session(session_ids["first"])
+        assert active_history["messages"][0]["content"] == "first"
+
+        release["first"].set()
+        assert futures["first"].result(timeout=2)["content"] == "first"
+        assert set(router._active_chat_clients) == {session_ids["second"]}
+        assert router.get_active_chat(session_ids["first"]) is None
+
+        release["second"].set()
+        assert futures["second"].result(timeout=2)["content"] == "second"
+
+    assert not router._active_chat_clients
 
 
 def test_chat_router_stops_active_turn_and_returns_partial_output(
@@ -331,11 +436,12 @@ def test_chat_router_stops_active_turn_and_returns_partial_output(
             router.send_chat_message,
                 "执行耗时任务",
                 str(tmp_path),
-                None,
+                session_id,
                 "high",
+                "default",
             )
         assert query_started.wait(timeout=2)
-        assert router.stop_chat_message()
+        assert router.stop_chat_message(session_id)
         reply = result_future.result(timeout=2)
 
     assert interrupt_called.is_set()
@@ -345,7 +451,7 @@ def test_chat_router_stops_active_turn_and_returns_partial_output(
         "session_id": session_id,
         "stopped": True,
     }
-    assert not router.stop_chat_message()
+    assert not router.stop_chat_message(session_id)
 
 
 def test_chat_router_stop_releases_pending_tool_permission(
@@ -395,8 +501,8 @@ def test_chat_router_stop_releases_pending_tool_permission(
 
     class WindowStub:
         def evaluate_js(self, script: str) -> None:
-            assert '"type":"permission_request"' in script
-            permission_visible.set()
+            if '"type":"permission_request"' in script:
+                permission_visible.set()
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 

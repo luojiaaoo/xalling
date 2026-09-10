@@ -4,8 +4,10 @@ import asyncio
 import json
 from concurrent.futures import Future
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from threading import Lock
+from time import time
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -176,6 +178,7 @@ class _PendingPermission:
     tool_name: str
     input_data: dict[str, Any]
     future: Future[_PermissionDecision]
+    session_id: str | None = None
 
 
 class ChatRouter:
@@ -185,7 +188,10 @@ class ChatRouter:
 
     def __init__(self) -> None:
         super().__init__()
-        self._active_chat_client: ClaudeChatClient | None = None
+        self._active_chat_clients: dict[str, ClaudeChatClient] = {}
+        self._active_chat_events: dict[str, list[ChatEvent]] = {}
+        self._active_chat_metadata: dict[str, dict[str, object]] = {}
+        self._active_chat_lock = Lock()
         self._history = ClaudeChatHistory()
         self._permission_lock = Lock()
         self._pending_permissions: dict[str, _PendingPermission] = {}
@@ -212,56 +218,172 @@ class ChatRouter:
         except ValidationError as error:
             raise _user_facing_error(error) from error
 
+        active_session_id = request.session_id or str(uuid4())
+        is_new_session = not self._history.has_session(active_session_id)
         site, model_name = self._get_current_provider()
         client = ClaudeChatClient(
             ClaudeChatConfig(
                 api_key=site.api_key,
                 api_url=site.api_url,
-                can_use_tool=self._request_tool_permission,
+                can_use_tool=partial(
+                    self._request_tool_permission,
+                    session_id=active_session_id,
+                ),
                 effort=request.effort,
+                is_new_session=is_new_session,
                 model=model_name,
                 permission_mode=request.permission_mode,
                 project=request.project_path,
-                resume=request.session_id,
+                session_id=active_session_id,
             )
         )
 
-        if self._active_chat_client is not None:
-            raise RuntimeError("当前会话正在生成，请先停止后再发送")
-        self._active_chat_client = client
+        with self._active_chat_lock:
+            if active_session_id in self._active_chat_clients:
+                raise RuntimeError("当前会话正在生成，请先停止后再发送")
+            self._active_chat_clients[active_session_id] = client
+            self._active_chat_events[active_session_id] = []
+            now = int(time() * 1000)
+            title = " ".join(request.prompt.split()) or "未命名会话"
+            self._active_chat_metadata[active_session_id] = {
+                "session_id": active_session_id,
+                "title": title[:100],
+                "project_path": str(request.project_path),
+                "project_name": request.project_path.name,
+                "last_modified": now,
+                "created_at": now,
+                "prompt": request.prompt,
+            }
+        self._emit_chat_event(
+            {"type": "session_started", "session_id": active_session_id},
+            session_id=active_session_id,
+        )
 
         try:
-            return asyncio.run(
+            reply = asyncio.run(
                 client.send(
                     request.prompt,
-                    on_event=self._emit_chat_event,
+                    on_event=partial(
+                        self._emit_chat_event,
+                        session_id=active_session_id,
+                    ),
                 )
             )
+            self._emit_chat_event(
+                {"type": "chat_complete", "reply": reply},
+                session_id=active_session_id,
+            )
+            return reply
         except ClaudeSDKError as error:
+            self._emit_chat_event(
+                {"type": "chat_error", "message": str(error)},
+                session_id=active_session_id,
+            )
             raise RuntimeError(f"Claude SDK 请求失败：{error}") from error
+        except Exception as error:
+            self._emit_chat_event(
+                {"type": "chat_error", "message": str(error)},
+                session_id=active_session_id,
+            )
+            raise
         finally:
-            if self._active_chat_client is client:
-                self._active_chat_client = None
+            with self._active_chat_lock:
+                if self._active_chat_clients.get(active_session_id) is client:
+                    self._active_chat_clients.pop(active_session_id)
+                    self._active_chat_events.pop(active_session_id, None)
+                    self._active_chat_metadata.pop(active_session_id, None)
 
     def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
-        return self._history.list_sessions()
+        sessions = self._history.list_sessions()
+        known_session_ids = {session["session_id"] for session in sessions}
+        with self._active_chat_lock:
+            active_sessions = [
+                {
+                    key: value
+                    for key, value in metadata.items()
+                    if key != "prompt"
+                }
+                for session_id, metadata in self._active_chat_metadata.items()
+                if session_id not in known_session_ids
+            ]
+        return sorted(
+            [*sessions, *active_sessions],
+            key=lambda session: int(session["last_modified"]),
+            reverse=True,
+        )
 
     def get_chat_session(self, session_id: str) -> dict[str, object]:
         """Load one Claude session and its user-visible message text."""
-        return self._history.get_session(session_id)
+        normalized_session_id = self._normalize_optional_session_id(session_id)
+        if normalized_session_id is None:
+            raise ValueError("会话标识无效")
+        try:
+            return self._history.get_session(normalized_session_id)
+        except ValueError:
+            with self._active_chat_lock:
+                metadata = self._active_chat_metadata.get(normalized_session_id)
+                if metadata is None:
+                    raise
+                prompt = str(metadata["prompt"])
+                return {
+                    **{
+                        key: value
+                        for key, value in metadata.items()
+                        if key != "prompt"
+                    },
+                    "messages": [
+                        {
+                            "key": f"active-user-{normalized_session_id}",
+                            "role": "user",
+                            "content": prompt,
+                        }
+                    ],
+                }
 
-    def stop_chat_message(self) -> bool:
-        """Interrupt the active single-chat turn and release permission prompts."""
-        client = self._active_chat_client
-        if client is None:
-            return False
+    def get_active_chat(self, session_id: str) -> dict[str, object] | None:
+        """Return buffered events while a chat turn is still running."""
+        normalized_session_id = self._normalize_optional_session_id(session_id)
+        if normalized_session_id is None:
+            return None
+        with self._active_chat_lock:
+            if normalized_session_id not in self._active_chat_clients:
+                return None
+            return {
+                "session_id": normalized_session_id,
+                "events": [
+                    dict(event)
+                    for event in self._active_chat_events[normalized_session_id]
+                ],
+            }
+
+    def stop_chat_message(self, session_id: str | None = None) -> bool:
+        """Interrupt one active chat turn and release its permission prompts."""
+        normalized_session_id = self._normalize_optional_session_id(session_id)
+        with self._active_chat_lock:
+            if normalized_session_id is None:
+                if not self._active_chat_clients:
+                    return False
+                if len(self._active_chat_clients) > 1:
+                    raise ValueError(
+                        "存在多个正在生成的会话，请指定要停止的会话"
+                    )
+                normalized_session_id, client = next(
+                    iter(self._active_chat_clients.items())
+                )
+            else:
+                client = self._active_chat_clients.get(normalized_session_id)
+                if client is None:
+                    return False
 
         with self._permission_lock:
             pending_decisions = [
                 pending.future
                 for pending in self._pending_permissions.values()
-                if not pending.future.done()
+                if (
+                    pending.session_id == normalized_session_id
+                    and not pending.future.done()
+                )
             ]
             for decision in pending_decisions:
                 decision.set_result(_PermissionDecision(allowed=False))
@@ -310,6 +432,8 @@ class ChatRouter:
         tool_name: str,
         input_data: dict[str, Any],
         context: ToolPermissionContext,
+        *,
+        session_id: str | None = None,
     ) -> PermissionResultAllow | PermissionResultDeny:
         """Pause a tool call until the matching Web UI request is answered."""
         permission_id = str(uuid4())
@@ -319,6 +443,7 @@ class ChatRouter:
                 tool_name=tool_name,
                 input_data=input_data,
                 future=decision,
+                session_id=session_id,
             )
 
         event: ChatEvent = {
@@ -331,7 +456,7 @@ class ChatRouter:
             "description": (context.description or context.decision_reason or "此操作需要你的确认后才能继续。"),
             "blocked_path": context.blocked_path or "",
         }
-        if not self._emit_chat_event(event):
+        if not self._emit_chat_event(event, session_id=session_id):
             with self._permission_lock:
                 self._pending_permissions.pop(permission_id, None)
             return PermissionResultDeny(message="无法显示工具权限确认，已拒绝本次调用")
@@ -384,13 +509,28 @@ class ChatRouter:
             raise ValueError("请回答全部问题后再提交")
         return decision.answers
 
-    def _emit_chat_event(self, event: ChatEvent) -> bool:
+    def _emit_chat_event(
+        self,
+        event: ChatEvent,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
         """Dispatch one structured progress event to the Web UI."""
+        detail_event = {**event, "session_id": session_id} if session_id else event
+        if session_id is not None:
+            with self._active_chat_lock:
+                events = self._active_chat_events.get(session_id)
+                if events is not None:
+                    detail_event = {
+                        **detail_event,
+                        "event_index": len(events),
+                    }
+                    events.append(detail_event)
         if self._window is None:
             return False
 
         detail = json.dumps(
-            event,
+            detail_event,
             ensure_ascii=True,
             separators=(",", ":"),
         )
@@ -401,6 +541,18 @@ class ChatRouter:
             # The native window may be closing while the SDK finishes a turn.
             return False
         return True
+
+    @staticmethod
+    def _normalize_optional_session_id(value: object) -> str | None:
+        """Normalize an optional session UUID used to address a live client."""
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise TypeError("会话标识必须是字符串")
+        try:
+            return str(UUID(value))
+        except ValueError as error:
+            raise ValueError("会话标识无效") from error
 
     @staticmethod
     def _get_current_provider() -> tuple[ModelSiteConfig, str]:
