@@ -21,6 +21,7 @@ function MarkdownCode({ block, children, lang }: ComponentProps) {
       className="markdown-code-highlighter"
       classNames={{ header: "markdown-code-header", code: "markdown-code-body" }}
       lang={lang ?? "text"}
+      prismLightMode={false}
       highlightProps={{
         style: darkMode ? oneDark : oneLight,
         customStyle: { margin: 0, padding: 14, background: "transparent" },
