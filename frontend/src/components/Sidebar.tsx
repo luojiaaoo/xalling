@@ -120,12 +120,20 @@ export function Sidebar({
       group.push(session);
       grouped.set(key, group);
     }
-    return [...grouped.entries()].map(([key, groupSessions]) => ({
-      key,
-      name: groupSessions[0].project_name,
-      path: groupSessions[0].project_path,
-      sessions: groupSessions,
-    }));
+    return [...grouped.entries()]
+      .map(([key, groupSessions]) => {
+        const sortedSessions = [...groupSessions].sort(
+          (left, right) => right.last_modified - left.last_modified,
+        );
+        return {
+          key,
+          lastModified: sortedSessions[0].last_modified,
+          name: sortedSessions[0].project_name,
+          path: sortedSessions[0].project_path,
+          sessions: sortedSessions,
+        };
+      })
+      .sort((left, right) => right.lastModified - left.lastModified);
   }, [sessions]);
 
   useEffect(() => {

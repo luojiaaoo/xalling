@@ -304,19 +304,27 @@ class ChatRouter:
     def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
         sessions = self._history.list_sessions()
-        known_session_ids = {session["session_id"] for session in sessions}
+        sessions_by_id = {
+            str(session["session_id"]): session
+            for session in sessions
+        }
         with self._active_chats_lock:
-            active_sessions = [
-                {
+            for session_id, active_chat in self._active_chats.items():
+                active_summary = {
                     key: value
                     for key, value in active_chat.metadata.items()
                     if key != "prompt"
                 }
-                for session_id, active_chat in self._active_chats.items()
-                if session_id not in known_session_ids
-            ]
+                persisted_summary = sessions_by_id.get(session_id)
+                if persisted_summary is None:
+                    sessions_by_id[session_id] = active_summary
+                else:
+                    sessions_by_id[session_id] = {
+                        **persisted_summary,
+                        "last_modified": active_summary["last_modified"],
+                    }
         return sorted(
-            [*sessions, *active_sessions],
+            sessions_by_id.values(),
             key=lambda session: int(session["last_modified"]),
             reverse=True,
         )

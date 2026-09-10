@@ -372,6 +372,89 @@ def test_chat_router_keeps_only_running_clients(
     assert not router._active_chats
 
 
+def test_chat_router_promotes_an_active_existing_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_model(tmp_path, monkeypatch)
+    active_session_id = str(uuid4())
+    other_session_id = str(uuid4())
+    started = Event()
+    release = Event()
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            pass
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def query(self, prompt: str) -> None:
+            started.set()
+
+        async def receive_response(self) -> AsyncIterator[ResultMessage]:
+            release.wait(timeout=2)
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=active_session_id,
+                result="done",
+            )
+
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+    monkeypatch.setattr("backend.router.chat.time", lambda: 3.0)
+
+    router = ChatRouter()
+    monkeypatch.setattr(router._history, "has_session", lambda _session_id: True)
+    monkeypatch.setattr(
+        router._history,
+        "list_sessions",
+        lambda: [
+            {
+                "session_id": other_session_id,
+                "title": "newer workspace",
+                "project_path": r"C:\work\newer",
+                "project_name": "newer",
+                "last_modified": 2_000,
+                "created_at": 2_000,
+            },
+            {
+                "session_id": active_session_id,
+                "title": "existing title",
+                "project_path": str(tmp_path),
+                "project_name": tmp_path.name,
+                "last_modified": 1_000,
+                "created_at": 1_000,
+            },
+        ],
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            router.send_chat_message,
+            "continue",
+            str(tmp_path),
+            active_session_id,
+        )
+        assert started.wait(timeout=2)
+
+        sessions = router.list_chat_sessions()
+        assert [session["session_id"] for session in sessions] == [
+            active_session_id,
+            other_session_id,
+        ]
+        assert sessions[0]["last_modified"] == 3_000
+        assert sessions[0]["title"] == "existing title"
+
+        release.set()
+        assert future.result(timeout=2)["content"] == "done"
+
+
 def test_chat_router_stops_active_turn_and_returns_partial_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
