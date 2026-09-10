@@ -350,7 +350,7 @@ def test_chat_router_keeps_only_running_clients(
         }
         assert all(event.wait(timeout=2) for event in started.values())
         assert all(event.wait(timeout=2) for event in session_started.values())
-        assert set(router._active_chat_clients) == set(session_ids.values())
+        assert set(router._active_chats) == set(session_ids.values())
         active_first = router.get_active_chat(session_ids["first"])
         assert active_first is not None
         assert active_first["session_id"] == session_ids["first"]
@@ -363,13 +363,13 @@ def test_chat_router_keeps_only_running_clients(
 
         release["first"].set()
         assert futures["first"].result(timeout=2)["content"] == "first"
-        assert set(router._active_chat_clients) == {session_ids["second"]}
+        assert set(router._active_chats) == {session_ids["second"]}
         assert router.get_active_chat(session_ids["first"]) is None
 
         release["second"].set()
         assert futures["second"].result(timeout=2)["content"] == "second"
 
-    assert not router._active_chat_clients
+    assert not router._active_chats
 
 
 def test_chat_router_stops_active_turn_and_returns_partial_output(

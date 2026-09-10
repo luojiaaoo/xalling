@@ -181,6 +181,15 @@ class _PendingPermission:
     session_id: str | None = None
 
 
+@dataclass
+class _ActiveChat:
+    """Runtime state retained while one chat turn is running."""
+
+    client: ClaudeChatClient
+    events: list[ChatEvent]
+    metadata: dict[str, object]
+
+
 class ChatRouter:
     """Validate UI input and delegate agent turns to the chat library."""
 
@@ -188,10 +197,8 @@ class ChatRouter:
 
     def __init__(self) -> None:
         super().__init__()
-        self._active_chat_clients: dict[str, ClaudeChatClient] = {}
-        self._active_chat_events: dict[str, list[ChatEvent]] = {}
-        self._active_chat_metadata: dict[str, dict[str, object]] = {}
-        self._active_chat_lock = Lock()
+        self._active_chats: dict[str, _ActiveChat] = {}
+        self._active_chats_lock = Lock()
         self._history = ClaudeChatHistory()
         self._permission_lock = Lock()
         self._pending_permissions: dict[str, _PendingPermission] = {}
@@ -238,22 +245,24 @@ class ChatRouter:
             )
         )
 
-        with self._active_chat_lock:
-            if active_session_id in self._active_chat_clients:
+        with self._active_chats_lock:
+            if active_session_id in self._active_chats:
                 raise RuntimeError("当前会话正在生成，请先停止后再发送")
-            self._active_chat_clients[active_session_id] = client
-            self._active_chat_events[active_session_id] = []
             now = int(time() * 1000)
             title = " ".join(request.prompt.split()) or "未命名会话"
-            self._active_chat_metadata[active_session_id] = {
-                "session_id": active_session_id,
-                "title": title[:100],
-                "project_path": str(request.project_path),
-                "project_name": request.project_path.name,
-                "last_modified": now,
-                "created_at": now,
-                "prompt": request.prompt,
-            }
+            self._active_chats[active_session_id] = _ActiveChat(
+                client=client,
+                events=[],
+                metadata={
+                    "session_id": active_session_id,
+                    "title": title[:100],
+                    "project_path": str(request.project_path),
+                    "project_name": request.project_path.name,
+                    "last_modified": now,
+                    "created_at": now,
+                    "prompt": request.prompt,
+                },
+            )
         self._emit_chat_event(
             {"type": "session_started", "session_id": active_session_id},
             session_id=active_session_id,
@@ -287,24 +296,23 @@ class ChatRouter:
             )
             raise
         finally:
-            with self._active_chat_lock:
-                if self._active_chat_clients.get(active_session_id) is client:
-                    self._active_chat_clients.pop(active_session_id)
-                    self._active_chat_events.pop(active_session_id, None)
-                    self._active_chat_metadata.pop(active_session_id, None)
+            with self._active_chats_lock:
+                active_chat = self._active_chats.get(active_session_id)
+                if active_chat is not None and active_chat.client is client:
+                    self._active_chats.pop(active_session_id)
 
     def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
         sessions = self._history.list_sessions()
         known_session_ids = {session["session_id"] for session in sessions}
-        with self._active_chat_lock:
+        with self._active_chats_lock:
             active_sessions = [
                 {
                     key: value
-                    for key, value in metadata.items()
+                    for key, value in active_chat.metadata.items()
                     if key != "prompt"
                 }
-                for session_id, metadata in self._active_chat_metadata.items()
+                for session_id, active_chat in self._active_chats.items()
                 if session_id not in known_session_ids
             ]
         return sorted(
@@ -321,10 +329,11 @@ class ChatRouter:
         try:
             return self._history.get_session(normalized_session_id)
         except ValueError:
-            with self._active_chat_lock:
-                metadata = self._active_chat_metadata.get(normalized_session_id)
-                if metadata is None:
+            with self._active_chats_lock:
+                active_chat = self._active_chats.get(normalized_session_id)
+                if active_chat is None:
                     raise
+                metadata = active_chat.metadata
                 prompt = str(metadata["prompt"])
                 return {
                     **{
@@ -346,35 +355,34 @@ class ChatRouter:
         normalized_session_id = self._normalize_optional_session_id(session_id)
         if normalized_session_id is None:
             return None
-        with self._active_chat_lock:
-            if normalized_session_id not in self._active_chat_clients:
+        with self._active_chats_lock:
+            active_chat = self._active_chats.get(normalized_session_id)
+            if active_chat is None:
                 return None
             return {
                 "session_id": normalized_session_id,
-                "events": [
-                    dict(event)
-                    for event in self._active_chat_events[normalized_session_id]
-                ],
+                "events": [dict(event) for event in active_chat.events],
             }
 
     def stop_chat_message(self, session_id: str | None = None) -> bool:
         """Interrupt one active chat turn and release its permission prompts."""
         normalized_session_id = self._normalize_optional_session_id(session_id)
-        with self._active_chat_lock:
+        with self._active_chats_lock:
             if normalized_session_id is None:
-                if not self._active_chat_clients:
+                if not self._active_chats:
                     return False
-                if len(self._active_chat_clients) > 1:
+                if len(self._active_chats) > 1:
                     raise ValueError(
                         "存在多个正在生成的会话，请指定要停止的会话"
                     )
-                normalized_session_id, client = next(
-                    iter(self._active_chat_clients.items())
+                normalized_session_id, active_chat = next(
+                    iter(self._active_chats.items())
                 )
             else:
-                client = self._active_chat_clients.get(normalized_session_id)
-                if client is None:
+                active_chat = self._active_chats.get(normalized_session_id)
+                if active_chat is None:
                     return False
+            client = active_chat.client
 
         with self._permission_lock:
             pending_decisions = [
@@ -518,14 +526,14 @@ class ChatRouter:
         """Dispatch one structured progress event to the Web UI."""
         detail_event = {**event, "session_id": session_id} if session_id else event
         if session_id is not None:
-            with self._active_chat_lock:
-                events = self._active_chat_events.get(session_id)
-                if events is not None:
+            with self._active_chats_lock:
+                active_chat = self._active_chats.get(session_id)
+                if active_chat is not None:
                     detail_event = {
                         **detail_event,
-                        "event_index": len(events),
+                        "event_index": len(active_chat.events),
                     }
-                    events.append(detail_event)
+                    active_chat.events.append(detail_event)
         if self._window is None:
             return False
 
