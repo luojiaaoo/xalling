@@ -55,14 +55,18 @@ import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
 type TaskComposerProps = {
   busy?: boolean;
   conversationStarted?: boolean;
+  effort: number;
+  onEffortChange: (value: number) => void;
   onPermissionDecision?: (
     request: ChatPermissionRequestEvent,
     allowed: boolean,
     answers?: ChatPermissionAnswers,
   ) => Promise<void>;
+  onPermissionModeChange: (mode: ChatPermissionMode) => void;
   onProjectChange: (project: ProjectFolder | null) => void;
   onSend: (draft: ComposerDraft) => void;
   onStop?: () => void;
+  permissionMode: ChatPermissionMode;
   permissionRequest?: ChatPermissionRequestEvent | null;
   selectedProject: ProjectFolder | null;
   stopping?: boolean;
@@ -142,10 +146,14 @@ type MentionState = {
 export function TaskComposer({
   busy = false,
   conversationStarted = false,
+  effort,
+  onEffortChange,
   onPermissionDecision,
+  onPermissionModeChange,
   onProjectChange,
   onSend,
   onStop,
+  permissionMode,
   permissionRequest = null,
   selectedProject,
   stopping = false,
@@ -154,8 +162,6 @@ export function TaskComposer({
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
   const [selectedModel, setSelectedModel] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [effort, setEffort] = useState(2);
-  const [permissionMode, setPermissionMode] = useState<ChatPermissionMode>("default");
   const [permissionDecision, setPermissionDecision] = useState<"allow" | "deny" | null>(null);
   const [attachmentItems, setAttachmentItems] = useState<UploadFile[]>([]);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
@@ -357,7 +363,7 @@ export function TaskComposer({
   };
 
   const handlePermissionModeChange: MenuProps["onClick"] = ({ key }) => {
-    setPermissionMode(key as ChatPermissionMode);
+    onPermissionModeChange(key as ChatPermissionMode);
   };
 
   const handleToolPermissionDecision = async (
@@ -732,7 +738,7 @@ export function TaskComposer({
                       dots
                       max={effortLevels.length - 1}
                       min={0}
-                      onChange={setEffort}
+                      onChange={onEffortChange}
                       step={1}
                       tooltip={{ formatter: (value) => effortLevels[value ?? effort] }}
                       value={effort}

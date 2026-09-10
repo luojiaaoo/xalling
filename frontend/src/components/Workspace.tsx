@@ -1,6 +1,7 @@
 import { PaperClipOutlined } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -12,6 +13,7 @@ import {
   stopChatMessage,
   subscribeChatEvents,
   type ChatPermissionAnswers,
+  type ChatPermissionMode,
   type ChatPermissionRequestEvent,
   type ChatStreamEvent,
   type ProjectFolder,
@@ -96,15 +98,27 @@ function applyEventToAssistant(
 }
 
 type WorkspaceProps = {
+  effort: number;
   hidden?: boolean;
   initialSessionId?: string | null;
+  onEffortChange: (value: number) => void;
+  onPermissionModeChange: (mode: ChatPermissionMode) => void;
+  onProjectChange: Dispatch<SetStateAction<ProjectFolder | null>>;
   onSessionsChanged?: () => void;
+  permissionMode: ChatPermissionMode;
+  selectedProject: ProjectFolder | null;
 };
 
 export function Workspace({
+  effort,
   hidden = false,
   initialSessionId = null,
+  onEffortChange,
+  onPermissionModeChange,
+  onProjectChange,
   onSessionsChanged,
+  permissionMode,
+  selectedProject,
 }: WorkspaceProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(Boolean(initialSessionId));
@@ -112,7 +126,6 @@ export function Workspace({
   const [stopping, setStopping] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [permissionRequests, setPermissionRequests] = useState<ChatPermissionRequestEvent[]>([]);
-  const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [quote] = useState(pickQuote);
   const [greeting] = useState(() => getGreeting(new Date().getHours()));
   const sessionIdRef = useRef(initialSessionId ?? crypto.randomUUID());
@@ -232,13 +245,14 @@ export function Workspace({
     let active = true;
     void getHomeFolder().then((folder) => {
       if (active && folder) {
-        setSelectedProject((current) => current ?? folder);
+        // 仅在还没选过项目时填默认目录，保持新建任务时工作区和当前一致
+        onProjectChange((current) => current ?? folder);
       }
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [onProjectChange]);
 
   useEffect(() => {
     if (!initialSessionId) {
@@ -350,7 +364,7 @@ export function Workspace({
         }
         setMessages(historyMessages);
         if (history.project_path) {
-          setSelectedProject({
+          onProjectChange({
             name: history.project_name,
             path: history.project_path,
           });
@@ -384,7 +398,7 @@ export function Workspace({
     return () => {
       active = false;
     };
-  }, [applyLiveEvent, initialSessionId]);
+  }, [applyLiveEvent, initialSessionId, onProjectChange]);
 
   useEffect(() => {
     if (!busy) {
@@ -669,10 +683,14 @@ export function Workspace({
           <TaskComposer
             busy={busy}
             conversationStarted={conversationStarted}
+            effort={effort}
+            onEffortChange={onEffortChange}
             onPermissionDecision={handlePermissionDecision}
-            onProjectChange={setSelectedProject}
+            onPermissionModeChange={onPermissionModeChange}
+            onProjectChange={onProjectChange}
             onSend={handleSend}
             onStop={() => void handleStop()}
+            permissionMode={permissionMode}
             permissionRequest={permissionRequests[0] ?? null}
             selectedProject={selectedProject}
             stopping={stopping}

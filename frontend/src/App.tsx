@@ -13,7 +13,9 @@ import {
   getCurrentTheme,
   listChatSessions,
   setCurrentTheme,
+  type ChatPermissionMode,
   type ChatSessionSummary,
+  type ProjectFolder,
 } from "./bridge/client";
 import useGeekTheme from "./geekTheme";
 import useIllustrationTheme from "./illustrationTheme";
@@ -40,6 +42,10 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // 提升到 App 层：新建任务（Workspace 重挂载）时保持和当前一致
+  const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
+  const [effort, setEffort] = useState(2);
+  const [permissionMode, setPermissionMode] = useState<ChatPermissionMode>("default");
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [chatSessionsLoading, setChatSessionsLoading] = useState(true);
   const [windowMaximized, setWindowMaximized] = useState(false);
@@ -159,9 +165,15 @@ export default function App() {
           )}
           <Workspace
             key={workspaceKey}
+            effort={effort}
             hidden={view === "settings"}
             initialSessionId={activeSessionId}
+            onEffortChange={setEffort}
+            onPermissionModeChange={setPermissionMode}
+            onProjectChange={setSelectedProject}
             onSessionsChanged={refreshChatSessions}
+            permissionMode={permissionMode}
+            selectedProject={selectedProject}
           />
           {view === "settings" && (
             settingsSection === "theme" ? (
