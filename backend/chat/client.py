@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event, Lock
+from typing import Literal, TypedDict
 
 import aiofiles
 from claude_agent_sdk import (
@@ -20,6 +21,16 @@ from claude_agent_sdk import (
 
 from .trace import ChatTrace
 from .types import ChatEffort, ChatEventHandler, ChatPermissionMode, ChatReply
+
+
+class ClaudeCommand(TypedDict):
+    """One slash command advertised by the Claude Code runtime."""
+
+    name: str
+    description: str
+    argument_hint: str
+    aliases: list[str]
+    kind: Literal["command", "skill"]
 
 
 def discover_skill_plugins(
@@ -35,7 +46,14 @@ def discover_skill_plugins(
     ]
     if project is not None:
         plugin_roots.append(project.resolve() / ".agents")
-    return [{"type": "local", "path": str(root)} for root in plugin_roots if (root / "skills").is_dir()]
+    plugins: list[SdkPluginConfig] = []
+    for root in plugin_roots:
+        try:
+            if (root / "skills").is_dir():
+                plugins.append({"type": "local", "path": str(root)})
+        except OSError:
+            continue
+    return plugins
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +145,55 @@ class ClaudeChatClient:
                     self._client = None
                     self._loop = None
         return trace.finish(interrupted=self._stop_requested.is_set())
+
+    async def get_commands(self) -> list[ClaudeCommand]:
+        """Return commands and skills discovered by the Claude Code runtime."""
+        async with (
+            _provider_settings_file(self._config) as settings_path,
+            ClaudeSDKClient(options=self._build_options(settings_path)) as client,
+        ):
+            settings_path.unlink()
+            server_info = await client.get_server_info() or {}
+
+        commands: list[ClaudeCommand] = []
+        for item in server_info.get("commands", []):
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            normalized_name = name.strip()
+            if normalized_name in {"config", "model"}:
+                continue
+            description = item.get("description", "")
+            argument_hint = item.get("argumentHint", "")
+            aliases = item.get("aliases", [])
+            clean_description = description if isinstance(description, str) else ""
+            clean_aliases = (
+                [
+                    alias.strip()
+                    for alias in aliases
+                    if isinstance(alias, str) and alias.strip()
+                ]
+                if isinstance(aliases, list)
+                else []
+            )
+            is_skill = (
+                clean_description.rstrip().endswith("(user)")
+                or normalized_name.startswith(".agents:")
+            )
+            commands.append(
+                {
+                    "name": normalized_name,
+                    "description": clean_description,
+                    "argument_hint": (
+                        argument_hint if isinstance(argument_hint, str) else ""
+                    ),
+                    "aliases": clean_aliases,
+                    "kind": "skill" if is_skill else "command",
+                }
+            )
+        return commands
 
     def _build_options(self, settings_path: Path) -> ClaudeAgentOptions:
         config = self._config

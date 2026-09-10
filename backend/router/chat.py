@@ -301,6 +301,34 @@ class ChatRouter:
                 if active_chat is not None and active_chat.client is client:
                     self._active_chats.pop(active_session_id)
 
+    def get_claude_commands(
+        self,
+        project_path: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Return slash commands and skills discovered for one workspace."""
+        if project_path is None or project_path == "":
+            project = default_project_folder()
+        elif not isinstance(project_path, str):
+            raise TypeError("项目路径必须是字符串")
+        else:
+            project = Path(project_path).resolve()
+            if not project.is_dir():
+                raise ValueError("选择的项目文件夹已不存在")
+
+        site, model_name = self._get_current_provider()
+        client = ClaudeChatClient(
+            ClaudeChatConfig(
+                api_key=site.api_key,
+                api_url=site.api_url,
+                effort="low",
+                is_new_session=True,
+                model=model_name,
+                project=project,
+                session_id=str(uuid4()),
+            )
+        )
+        return asyncio.run(client.get_commands())
+
     def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
         sessions = self._history.list_sessions()

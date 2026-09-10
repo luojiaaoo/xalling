@@ -1,7 +1,7 @@
-import { PaperClipOutlined } from "@ant-design/icons";
-import { Bubble } from "@ant-design/x";
+import { CodeOutlined, FileOutlined, PaperClipOutlined } from "@ant-design/icons";
+import { Actions, Bubble } from "@ant-design/x";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -18,6 +18,12 @@ import {
   type ChatStreamEvent,
   type ProjectFolder,
 } from "../bridge/client";
+import {
+  commandArgsFromInput,
+  formatClaudeCommand,
+  parseClaudeCommand,
+  type ClaudeCommandInvocation,
+} from "../claudeCommand";
 import { pickQuote } from "../quotes";
 import {
   AgentTrace,
@@ -43,11 +49,13 @@ const greetingsByPeriod: string[][] = [
 
 type ConversationMessage = {
   attachments?: ComposerAttachment[];
+  command?: ClaudeCommandInvocation;
   content: string;
   expandedTraceItemKeys?: string[];
   finalOutputKey?: string;
   key: string;
   loading?: boolean;
+  rawContent?: string;
   role: "ai" | "user";
   status?: "abort" | "error" | "success";
   trace?: AgentTraceItem[];
@@ -61,13 +69,48 @@ function getGreeting(hour: number): string {
   return options[Math.floor(Math.random() * options.length)];
 }
 
-function requestPrompt(draft: ComposerDraft): string {
-  const text = draft.text || "请处理这次附加的文件。";
-  if (!draft.attachments.length) {
-    return text;
+const FILE_REFERENCE_PATTERN = /@((?:[A-Za-z]:[\\/]|\\\\|\/)[^\s@]+)/gu;
+
+function renderFileReferences(content: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  for (const match of content.matchAll(FILE_REFERENCE_PATTERN)) {
+    const index = match.index;
+    const reference = match[1];
+    if (index > lastIndex) {
+      nodes.push(content.slice(lastIndex, index));
+    }
+    const name = reference.split(/[\\/]/u).filter(Boolean).at(-1) ?? reference;
+    nodes.push(
+      <span
+        key={`${index}-${reference}`}
+        aria-label={`引用文件 ${reference}`}
+        className="chat-file-reference"
+        title={reference}
+      >
+        <FileOutlined />
+        <span>{name}</span>
+      </span>,
+    );
+    lastIndex = index + match[0].length;
   }
-  const fileNames = draft.attachments.map((file) => file.name).join("、");
-  return `${text}\n\n本次附加文件：${fileNames}。如果这些文件位于当前项目中，请读取后再处理。`;
+  if (lastIndex < content.length) {
+    nodes.push(content.slice(lastIndex));
+  }
+  return nodes;
+}
+
+function requestPrompt(draft: ComposerDraft): string {
+  const attachmentPrompt = draft.attachments.length
+    ? `本次附加文件：${draft.attachments.map((file) => file.name).join("、")}。如果这些文件位于当前项目中，请读取后再处理。`
+    : "";
+  if (draft.commandName) {
+    const commandArgs = commandArgsFromInput(draft.text);
+    const args = [commandArgs, attachmentPrompt].filter(Boolean).join("\n\n");
+    return formatClaudeCommand({ name: draft.commandName, args });
+  }
+  const text = draft.text || "请处理这次附加的文件。";
+  return attachmentPrompt ? `${text}\n\n${attachmentPrompt}` : text;
 }
 
 function errorText(error: unknown): string {
@@ -276,9 +319,12 @@ export function Workspace({
         ).length;
         let historyMessages: ConversationMessage[] = history.messages.map((message) => {
           if (message.role === "user") {
+            const command = parseClaudeCommand(message.content) ?? undefined;
             return {
-              content: message.content,
+              content: command?.args ?? message.content,
+              command,
               key: `history-${message.key}`,
+              rawContent: message.content,
               role: "user",
               status: "success",
             };
@@ -442,6 +488,7 @@ export function Workspace({
     if (busy) {
       return;
     }
+    const rawPrompt = requestPrompt(draft);
     messageNumberRef.current += 1;
     const turnId = messageNumberRef.current;
     const userKey = `user-${turnId}`;
@@ -456,7 +503,11 @@ export function Workspace({
         {
           key: userKey,
           role: "user",
-          content: draft.text || "已添加附件",
+          content: draft.commandName ? commandArgsFromInput(draft.text) : draft.text || "已添加附件",
+          rawContent: rawPrompt,
+          command: draft.commandName
+            ? { name: draft.commandName, args: commandArgsFromInput(draft.text) }
+            : undefined,
           attachments: draft.attachments,
           status: "success",
         },
@@ -491,7 +542,7 @@ export function Workspace({
 
     void conversationReady
       .then(() => sendChatMessage(
-        requestPrompt(draft),
+        rawPrompt,
         draft.project?.path ?? null,
         sessionIdRef.current,
         draft.effort,
@@ -591,6 +642,9 @@ export function Workspace({
       : undefined;
     const externalOutputKey = item.loading ? streamingOutput?.key : item.finalOutputKey;
     const responseContent = item.loading ? streamingOutput?.content : item.content;
+    const copyText = item.role === "user"
+      ? item.rawContent ?? (item.command ? formatClaudeCommand(item.command) : item.content)
+      : responseContent ?? item.content;
 
     return {
       key: item.key,
@@ -628,15 +682,41 @@ export function Workspace({
                   )}
                 </>
               )}
+          {copyText && (
+            <div className="message-copy-actions assistant-copy-actions">
+              <Actions.Copy
+                aria-label="复制助手原始文本"
+                text={copyText}
+                title="复制原始文本"
+              />
+            </div>
+          )}
         </article>
       ) : (
         <div className="user-message">
-          <div className="chat-message-text">{item.content}</div>
+          {item.command ? (
+            <div className="chat-command">
+              <CodeOutlined />
+              <code>/{item.command.name}</code>
+              {item.command.args && <span>{renderFileReferences(item.command.args)}</span>}
+            </div>
+          ) : (
+            <div className="chat-message-text">{renderFileReferences(item.content)}</div>
+          )}
           {!!item.attachments?.length && (
             <div className="chat-message-files">
               {item.attachments.map((file, index) => (
                 <span key={`${file.name}-${index}`}><PaperClipOutlined />{file.name}</span>
               ))}
+            </div>
+          )}
+          {copyText && (
+            <div className="message-copy-actions user-copy-actions">
+              <Actions.Copy
+                aria-label="复制用户原始文本"
+                text={copyText}
+                title="复制原始文本"
+              />
             </div>
           )}
         </div>

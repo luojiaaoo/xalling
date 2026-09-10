@@ -23,6 +23,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from backend.chat import ClaudeChatConfig
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
 from backend.router.chat import ChatRouter, _ChatMessageRequest
@@ -43,6 +44,37 @@ def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
+
+
+def test_chat_router_lists_runtime_commands_for_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_model(tmp_path, monkeypatch)
+    captured: dict[str, object] = {}
+    expected = [
+        {
+            "name": "clear",
+            "description": "Clear the conversation",
+            "argument_hint": "",
+            "aliases": [],
+            "kind": "command",
+        }
+    ]
+
+    class FakeClaudeChatClient:
+        def __init__(self, config: ClaudeChatConfig) -> None:
+            captured["config"] = config
+
+        async def get_commands(self) -> list[dict[str, object]]:
+            return expected
+
+    monkeypatch.setattr("backend.router.chat.ClaudeChatClient", FakeClaudeChatClient)
+
+    assert ChatRouter().get_claude_commands(str(tmp_path)) == expected
+    config = captured["config"]
+    assert isinstance(config, ClaudeChatConfig)
+    assert config.project == tmp_path.resolve()
 
 
 def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(

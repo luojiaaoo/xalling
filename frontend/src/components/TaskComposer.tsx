@@ -37,6 +37,7 @@ import type { RcFile, UploadFile } from "antd/es/upload/interface";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  getClaudeCommands,
   getCurrentModel,
   getModelGroups,
   isAskUserQuestionRequest,
@@ -44,6 +45,7 @@ import {
   selectProjectFolder,
   setCurrentModel,
   type ChatPermissionAnswers,
+  type ClaudeCommand,
   type ChatPermissionRequestEvent,
   type ChatPermissionMode,
   type ModelGroup,
@@ -80,6 +82,7 @@ export type ComposerAttachment = {
 
 export type ComposerDraft = {
   attachments: ComposerAttachment[];
+  commandName?: string;
   effort: "low" | "medium" | "high" | "max";
   permissionMode: ChatPermissionMode;
   project: ProjectFolder | null;
@@ -135,12 +138,19 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024;
 // Stable reference: a new array identity each render would reset the slot editor.
 const EMPTY_SLOT_CONFIG: SlotConfigType[] = [];
 const MENTION_TRIGGER_PATTERN = /(?:^|\s)@([^\s@]{0,64})$/u;
+const COMMAND_TRIGGER_PATTERN = /^\/([^\s/]{0,64})$/u;
 
 type MentionState = {
   activeIndex: number;
   loading: boolean;
   query: string;
   results: ProjectFileMatch[];
+};
+
+type CommandMenuState = {
+  activeIndex: number;
+  loading: boolean;
+  query: string;
 };
 
 export function TaskComposer({
@@ -167,9 +177,14 @@ export function TaskComposer({
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [selectingProject, setSelectingProject] = useState(false);
   const [mention, setMention] = useState<MentionState | null>(null);
+  const [commandMenu, setCommandMenu] = useState<CommandMenuState | null>(null);
+  const [claudeCommands, setClaudeCommands] = useState<ClaudeCommand[]>([]);
   const attachmentsRef = useRef<AttachmentsRef>(null);
   const senderRef = useRef<SenderRef>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
+  const commandListRef = useRef<HTMLDivElement>(null);
+  const commandContextRef = useRef<string | null>(null);
+  const commandSequenceRef = useRef(0);
   const mentionSequenceRef = useRef(0);
   const conversationStartedRef = useRef(conversationStarted);
   conversationStartedRef.current = conversationStarted;
@@ -250,6 +265,78 @@ export function TaskComposer({
       ?.scrollIntoView({ block: "nearest" });
   }, [mention?.activeIndex]);
 
+  const commandQuery = commandMenu?.query.trim().toLocaleLowerCase() ?? "";
+  const commandDiscoveryKey = commandMenu
+    ? `${selectedProject?.path ?? ""}\u0000${selectedModel.join("\u0000")}`
+    : null;
+  const commandMatchRank = (command: ClaudeCommand) => {
+    const name = command.name.toLocaleLowerCase();
+    const aliases = command.aliases.map((alias) => alias.toLocaleLowerCase());
+    if (!commandQuery) {
+      return command.kind === "command" ? 0 : 1;
+    }
+    if (name === commandQuery || aliases.includes(commandQuery)) {
+      return 0;
+    }
+    if (name.startsWith(commandQuery) || aliases.some((alias) => alias.startsWith(commandQuery))) {
+      return 1;
+    }
+    if (name.includes(commandQuery) || aliases.some((alias) => alias.includes(commandQuery))) {
+      return 2;
+    }
+    return command.description.toLocaleLowerCase().includes(commandQuery) ? 3 : -1;
+  };
+  const filteredCommands = claudeCommands
+    .map((command) => ({ command, rank: commandMatchRank(command) }))
+    .filter(({ rank }) => rank >= 0)
+    .sort((left, right) => left.rank - right.rank)
+    .map(({ command }) => command);
+
+  useEffect(() => {
+    if (commandDiscoveryKey === null) {
+      return undefined;
+    }
+    if (commandContextRef.current === commandDiscoveryKey) {
+      return undefined;
+    }
+    commandContextRef.current = commandDiscoveryKey;
+    let cancelled = false;
+    let settled = false;
+    setCommandMenu((current) => (current ? { ...current, loading: true } : current));
+    getClaudeCommands(selectedProject?.path ?? null)
+      .then((commands) => {
+        settled = true;
+        if (!cancelled) {
+          setClaudeCommands(commands);
+          setCommandMenu((current) => (
+            current ? { ...current, activeIndex: 0, loading: false } : current
+          ));
+        }
+      })
+      .catch(() => {
+        settled = true;
+        if (!cancelled) {
+          setClaudeCommands([]);
+          setCommandMenu((current) => (
+            current ? { ...current, activeIndex: 0, loading: false } : current
+          ));
+          messageApi.error("Claude 命令和技能加载失败，请检查模型配置。");
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (!settled && commandContextRef.current === commandDiscoveryKey) {
+        commandContextRef.current = null;
+      }
+    };
+  }, [commandDiscoveryKey, messageApi, selectedProject?.path]);
+
+  useEffect(() => {
+    commandListRef.current
+      ?.querySelector(".mention-item-active")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [commandMenu?.activeIndex]);
+
   const updateMentionFromSelection = () => {
     const selection = window.getSelection();
     const editorRoot = senderRef.current?.nativeElement;
@@ -269,6 +356,7 @@ export function TaskComposer({
       setMention(null);
       return;
     }
+    setCommandMenu(null);
     const query = match[1];
     setMention((current) => (
       current?.query === query
@@ -280,6 +368,22 @@ export function TaskComposer({
           loading: true,
         }
     ));
+  };
+
+  const updateCommandFromValue = (value: string) => {
+    const match = COMMAND_TRIGGER_PATTERN.exec(value);
+    if (!match) {
+      setCommandMenu(null);
+      return false;
+    }
+    const query = match[1];
+    setMention(null);
+    setCommandMenu((current) => (
+      current?.query === query
+        ? current
+        : { query, activeIndex: 0, loading: commandContextRef.current === null }
+    ));
+    return true;
   };
 
   const insertMention = (item: ProjectFileMatch) => {
@@ -299,7 +403,7 @@ export function TaskComposer({
             ),
             value: item.path,
           },
-          formatResult: (value: string) => `[${item.name}](${value})`,
+          formatResult: (value: string) => `@${value}`,
         },
         { type: "text", value: " " },
       ],
@@ -334,7 +438,7 @@ export function TaskComposer({
     }
   };
 
-  const handleSubmit = (value: string) => {
+  const handleSubmit = (value: string, explicitCommandName?: string) => {
     const content = value.trim();
     if (!content && !attachmentItems.length) {
       messageApi.warning("请输入消息或添加附件。");
@@ -344,8 +448,13 @@ export function TaskComposer({
       return;
     }
 
+    const commandToken = content.match(/^\/([^\s/]+)/u)?.[1];
+    const matchedCommand = claudeCommands.find((command) => (
+      command.name === commandToken || command.aliases.includes(commandToken ?? "")
+    ));
     onSend({
       text: content,
+      commandName: explicitCommandName ?? matchedCommand?.name,
       project: selectedProject,
       effort: effortValues[effort],
       permissionMode,
@@ -357,9 +466,37 @@ export function TaskComposer({
     });
     setPrompt("");
     setMention(null);
+    setCommandMenu(null);
     senderRef.current?.clear();
     setAttachmentItems([]);
     setAttachmentsOpen(false);
+  };
+
+  const selectCommand = (command: ClaudeCommand) => {
+    if (command.kind === "command") {
+      handleSubmit(`/${command.name}`, command.name);
+      return;
+    }
+    const query = commandMenu?.query ?? "";
+    commandSequenceRef.current += 1;
+    senderRef.current?.insert(
+      [
+        {
+          type: "tag",
+          key: `command-${commandSequenceRef.current}`,
+          props: {
+            label: <span className="command-chip">/{command.name}</span>,
+            value: command.name,
+          },
+          formatResult: (value: string) => `/${value}`,
+        },
+        { type: "text", value: " " },
+      ],
+      "cursor",
+      `/${query}`,
+    );
+    setCommandMenu(null);
+    window.requestAnimationFrame(() => senderRef.current?.focus({ cursor: "end" }));
   };
 
   const handlePermissionModeChange: MenuProps["onClick"] = ({ key }) => {
@@ -516,6 +653,46 @@ export function TaskComposer({
           </div>
         </section>
       )}
+      {commandMenu && (
+        <div
+          className="mention-panel command-panel"
+          role="listbox"
+          aria-label="选择 Claude 命令或技能"
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <div className="mention-panel-title">Claude 命令和技能</div>
+          <div className="mention-panel-list" ref={commandListRef}>
+            {filteredCommands.length === 0 ? (
+              <div className="mention-empty">
+                {commandMenu.loading ? "正在读取 Claude 命令和技能…" : "没有匹配的命令或技能。"}
+              </div>
+            ) : (
+              filteredCommands.map((command, index) => (
+                <button
+                  key={command.name}
+                  type="button"
+                  role="option"
+                  aria-selected={index === commandMenu.activeIndex}
+                  className={`mention-item${index === commandMenu.activeIndex ? " mention-item-active" : ""}`}
+                  onMouseEnter={() => setCommandMenu((current) => (
+                    current ? { ...current, activeIndex: index } : current
+                  ))}
+                  onClick={() => selectCommand(command)}
+                >
+                  {command.kind === "skill" ? <ThunderboltOutlined /> : <CodeOutlined />}
+                  <span className="mention-item-name">/{command.name}</span>
+                  <span className="mention-item-path" title={command.description}>
+                    {command.description || command.argument_hint || "Claude 命令"}
+                  </span>
+                  <span className="command-item-kind">
+                    {command.kind === "skill" ? "技能" : "命令"}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       {mention && (
         <div
           className="mention-panel"
@@ -561,13 +738,50 @@ export function TaskComposer({
         slotConfig={EMPTY_SLOT_CONFIG}
         onChange={(value) => {
           setPrompt(value);
-          updateMentionFromSelection();
+          if (!updateCommandFromValue(value)) {
+            updateMentionFromSelection();
+          }
         }}
-        onKeyUp={updateMentionFromSelection}
-        onBlur={() => setMention(null)}
+        onKeyUp={() => {
+          if (!updateCommandFromValue(prompt)) {
+            updateMentionFromSelection();
+          }
+        }}
+        onBlur={() => {
+          setMention(null);
+          setCommandMenu(null);
+        }}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) {
             return undefined;
+          }
+          if (commandMenu) {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const delta = event.key === "ArrowDown" ? 1 : -1;
+              setCommandMenu((current) => {
+                if (!current || filteredCommands.length === 0) {
+                  return current;
+                }
+                const count = filteredCommands.length;
+                return { ...current, activeIndex: (current.activeIndex + delta + count) % count };
+              });
+              return false;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              const command = filteredCommands[commandMenu.activeIndex];
+              if (command) {
+                selectCommand(command);
+              } else if (!commandMenu.loading) {
+                setCommandMenu(null);
+              }
+              return false;
+            }
+            if (event.key === "Escape") {
+              setCommandMenu(null);
+              return false;
+            }
           }
           if (mention) {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -610,7 +824,7 @@ export function TaskComposer({
           handleSubmit(prompt);
           return false;
         }}
-        onSubmit={handleSubmit}
+        onSubmit={(value) => handleSubmit(value)}
         onPasteFile={addPastedFiles}
         loading={busy}
         submitType="enter"

@@ -1,6 +1,10 @@
+import asyncio
 from pathlib import Path
+from typing import Self
 
-from backend.chat.client import discover_skill_plugins
+from claude_agent_sdk import ClaudeAgentOptions
+
+from backend.chat.client import ClaudeChatClient, ClaudeChatConfig, discover_skill_plugins
 
 
 def test_discover_skill_plugins_loads_supported_user_directories(
@@ -40,3 +44,76 @@ def test_discover_skill_plugins_loads_project_agents_directory(
     assert discover_skill_plugins(home=home, project=project) == [
         {"type": "local", "path": str(project / ".agents")}
     ]
+
+
+def test_claude_client_returns_runtime_commands_without_overridden_items(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            captured["options"] = options
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get_server_info(self) -> dict[str, object]:
+            return {
+                "commands": [
+                    {
+                        "name": "clear",
+                        "description": "Clear the conversation",
+                        "argumentHint": "[name]",
+                        "aliases": ["reset"],
+                    },
+                    {"name": "model", "description": "Overridden"},
+                    {"name": "config", "description": "Overridden"},
+                    {
+                        "name": ".agents:review",
+                        "description": "(.agents) Review changes",
+                        "aliases": ["review"],
+                    },
+                    {"description": "Missing name"},
+                ]
+            }
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+    config = ClaudeChatConfig(
+        api_key="secret",
+        api_url="https://api.example.com",
+        effort="low",
+        model="claude-sonnet",
+        project=tmp_path,
+        session_id="session-id",
+        is_new_session=True,
+    )
+
+    commands = asyncio.run(ClaudeChatClient(config).get_commands())
+
+    assert commands == [
+        {
+            "name": "clear",
+            "description": "Clear the conversation",
+            "argument_hint": "[name]",
+            "aliases": ["reset"],
+            "kind": "command",
+        },
+        {
+            "name": ".agents:review",
+            "description": "(.agents) Review changes",
+            "argument_hint": "",
+            "aliases": ["review"],
+            "kind": "skill",
+        },
+    ]
+    options = captured["options"]
+    assert isinstance(options, ClaudeAgentOptions)
+    assert options.cwd == tmp_path

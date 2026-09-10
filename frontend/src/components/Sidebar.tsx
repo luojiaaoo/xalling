@@ -15,6 +15,7 @@ import type { CSSProperties } from "react";
 
 import type { ChatSessionSummary } from "../bridge/client";
 import { getHomeFolder } from "../bridge/client";
+import { commandDisplayText } from "../claudeCommand";
 import { BrandMark } from "./BrandMark";
 
 const navigation: MenuProps["items"] = [
@@ -280,7 +281,7 @@ export function Sidebar({
                       <Tooltip
                         key={session.session_id}
                         placement="right"
-                        title={session.title}
+                        title={commandDisplayText(session.title)}
                       >
                         <button
                           className={`task-row${
@@ -291,7 +292,10 @@ export function Sidebar({
                           type="button"
                           onClick={() => onHistorySessionClick?.(session.session_id)}
                         >
-                          <AutoScrollText className="task-row-title" text={session.title} />
+                          <AutoScrollText
+                            className="task-row-title"
+                            text={commandDisplayText(session.title)}
+                          />
                         </button>
                       </Tooltip>
                     ))}
