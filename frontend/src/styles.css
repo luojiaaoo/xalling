@@ -534,15 +534,17 @@ button, textarea { font: inherit; }
 .settings-menu .ant-menu-submenu-title { height: 40px; line-height: 40px; margin: 3px 0; color: #3c3d4a; border-radius: 9px; }
 .settings-menu .ant-menu-sub .ant-menu-item { height: 36px; line-height: 36px; margin: 2px 0; padding-left: 26px !important; }
 
+.sidebar-top { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.sidebar-top .task-list { flex: 1; min-height: 0; max-height: none; align-content: start; }
 .sidebar-bottom { display: flex; min-height: 0; flex-direction: column; gap: 4px; }
-.project-heading { display: flex; justify-content: space-between; align-items: center; padding: 8px 8px 4px; color: #aaaab5; font-size: 12px; }
+.project-heading { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 2px; color: #aaaab5; font-size: 12px; }
 .project-heading svg { font-size: 13px; }
-.task-heading { margin-top: 9px; }
+.task-heading { margin-top: 4px; }
 .project-row, .task-row { width: 100%; padding: 8px; overflow: hidden; color: #6e7080; text-align: left; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
 .project-row:hover, .task-row:hover { color: #474856; background: #f4f3fa; }
 .project-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 3px; background: #d6d0ff; }
-.task-list { display: grid; min-width: 0; max-height: min(48vh, 440px); gap: 4px; overflow-x: hidden; overflow-y: auto; }
-.task-row { padding-left: 10px; font-size: 13px; }
+.task-list { display: grid; min-width: 0; max-height: min(48vh, 440px); gap: 1px; overflow-x: hidden; overflow-y: auto; }
+.task-row { padding: 4px 8px 4px 10px; font-size: 13px; }
 .auto-scroll-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-scroll-text-inner { display: inline-block; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-scroll-text-overflowing:hover .auto-scroll-text-inner {
@@ -554,14 +556,14 @@ button, textarea { font: inherit; }
   0%, 12% { transform: translateX(0); }
   88%, 100% { transform: translateX(calc(var(--sidebar-scroll-distance) * -1px)); }
 }
-.history-project-name { font-size: 12px; font-weight: 650; }
-.history-project-path { font-size: 10px; font-weight: 400; opacity: .55; }
+.history-project-name { font-size: 12px; font-weight: 650; line-height: 1.3; }
+.history-project-path { font-size: 10px; font-weight: 400; line-height: 1.3; opacity: .55; }
 .task-row-title { width: 100%; }
 .task-row-active { color: #5948ed; font-weight: 600; background: #eeebff; }
 .history-list-status { padding: 8px 10px; color: #aaaab5; font-size: 12px; }
 .history-project-group { min-width: 0; }
 .history-project-heading {
-  display: flex; min-width: 0; align-items: center; gap: 7px; padding: 7px 8px;
+  display: flex; min-width: 0; align-items: center; gap: 7px; padding: 3px 8px;
   color: inherit; border-radius: 8px; cursor: pointer; list-style: none;
 }
 .history-project-heading::-webkit-details-marker { display: none; }
@@ -571,7 +573,7 @@ button, textarea { font: inherit; }
 .history-project-heading > svg { flex: none; opacity: .65; }
 .history-project-copy { display: grid; min-width: 0; flex: 1; gap: 1px; }
 .history-project-count { min-width: 20px; padding: 1px 5px; flex: none; font-size: 10px; text-align: center; border-radius: 999px; background: rgba(128, 128, 144, .12); }
-.history-session-list { display: grid; gap: 1px; margin-left: 14px; padding: 2px 0 3px 7px; border-left: 1px solid rgba(128, 128, 144, .18); }
+.history-session-list { display: grid; gap: 1px; margin-left: 14px; padding: 1px 0 2px 7px; border-left: 1px solid rgba(128, 128, 144, .18); }
 .profile-row { display: flex; align-items: center; gap: 9px; margin-top: 14px; padding-top: 13px; border-top: 1px solid #eeeeF4; font-size: 13px; font-weight: 600; color: #525360; }
 .profile-avatar { color: #fff !important; background: linear-gradient(140deg, #ffb779, #e87868) !important; }
 .profile-row .ant-btn { margin-left: auto; color: #878894; }

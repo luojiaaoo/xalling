@@ -1,5 +1,4 @@
 import {
-  AppstoreOutlined,
   ArrowLeftOutlined,
   ClockCircleOutlined,
   FolderOpenOutlined,
@@ -20,7 +19,6 @@ import { BrandMark } from "./BrandMark";
 const navigation: MenuProps["items"] = [
   { key: "search", icon: <SearchOutlined />, label: "搜索" },
   { key: "automation", icon: <ThunderboltOutlined />, label: "自动化" },
-  { key: "plugins", icon: <AppstoreOutlined />, label: "插件市场" },
 ];
 
 const settingsNavigation: MenuProps["items"] = [
@@ -167,7 +165,7 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div>
+      <div className="sidebar-top">
         <div className="brand-row">
           <BrandMark />
           <span className="brand-name">Xalling</span>
@@ -207,13 +205,6 @@ export function Sidebar({
               <kbd>Ctrl N</kbd>
             </Button>
             <Menu className="main-menu" mode="inline" selectedKeys={["automation"]} items={navigation} />
-          </>
-        )}
-      </div>
-
-      <div className="sidebar-bottom">
-        {!inSettings && (
-          <>
             <div className="project-heading task-heading">
               <span>历史会话</span>
               <ClockCircleOutlined />
@@ -283,6 +274,9 @@ export function Sidebar({
             </div>
           </>
         )}
+      </div>
+
+      <div className="sidebar-bottom">
         <div className="profile-row" onClick={onSettingsClick}>
           <Avatar size={32} className="profile-avatar">L</Avatar>
           <span>luojiaaoo</span>

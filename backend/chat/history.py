@@ -50,10 +50,19 @@ class ClaudeChatHistory:
             raise ValueError("会话标识无效") from error
 
     @staticmethod
-    def _serialize_session(session: SDKSessionInfo) -> dict[str, object]:
+    def _normalize_project_path(path: str) -> str:
+        """统一 Windows 盘符为大写，避免同一项目因大小写差异被拆成多个分组。"""
+        if len(path) >= 2 and path[1] == ":" and path[0].isalpha():
+            return path[0].upper() + path[1:]
+        return path
+
+    @classmethod
+    def _serialize_session(cls, session: SDKSessionInfo) -> dict[str, object]:
         """Convert SDK session metadata to bridge-safe JSON values."""
         title = " ".join(session.summary.split()) or "未命名会话"
-        project_path = session.cwd or str(default_project_folder())
+        project_path = cls._normalize_project_path(
+            session.cwd or str(default_project_folder())
+        )
         project_name = Path(project_path).name
         return {
             "session_id": session.session_id,
