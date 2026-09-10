@@ -29,6 +29,8 @@ type PyWebviewApi = {
     effort: ChatEffort,
     permissionMode: ChatPermissionMode,
   ) => Promise<ChatReply>;
+  list_chat_sessions: () => Promise<ChatSessionSummary[]>;
+  get_chat_session: (sessionId: string) => Promise<ChatSessionHistory>;
   stop_chat_message: () => Promise<boolean>;
   respond_chat_permission: (
     permissionId: string,
@@ -92,6 +94,37 @@ export type ChatReply = {
   final_output_block_id: string | null;
   session_id: string;
   stopped?: boolean;
+};
+
+export type ChatSessionSummary = {
+  created_at: number | null;
+  last_modified: number;
+  project_name: string;
+  project_path: string;
+  session_id: string;
+  title: string;
+};
+
+type ChatHistoryUserMessage = {
+  content: string;
+  key: string;
+  role: "user";
+};
+
+type ChatHistoryAssistantMessage = {
+  content: string;
+  final_output_block_id: string | null;
+  key: string;
+  role: "assistant";
+  trace_events: ChatStreamEvent[];
+};
+
+export type ChatHistoryMessage =
+  | ChatHistoryUserMessage
+  | ChatHistoryAssistantMessage;
+
+export type ChatSessionHistory = ChatSessionSummary & {
+  messages: ChatHistoryMessage[];
 };
 
 type ChatContentEvent = {
@@ -399,6 +432,19 @@ export async function sendChatMessage(
   } finally {
     window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
   }
+}
+
+export async function listChatSessions(): Promise<ChatSessionSummary[]> {
+  const api = await getBridgeApi();
+  return (await api?.list_chat_sessions()) ?? [];
+}
+
+export async function getChatSession(sessionId: string): Promise<ChatSessionHistory> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.get_chat_session(sessionId);
 }
 
 export async function stopChatMessage(): Promise<boolean> {

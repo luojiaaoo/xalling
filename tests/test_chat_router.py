@@ -25,7 +25,7 @@ from claude_agent_sdk import (
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router.chat import ChatMessageRequest, ChatRouter
+from backend.router.chat import ChatRouter, _ChatMessageRequest
 
 
 def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -545,7 +545,9 @@ def test_chat_router_rejects_invalid_permission_mode(permission_mode: str) -> No
     ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
 )
 def test_chat_message_request_accepts_sdk_permission_modes(permission_mode: str) -> None:
-    request = ChatMessageRequest.model_validate({"prompt": "检查项目", "permission_mode": permission_mode})
+    request = _ChatMessageRequest.model_validate(
+        {"prompt": "检查项目", "permission_mode": permission_mode}
+    )
 
     assert request.permission_mode == permission_mode
 
@@ -553,7 +555,7 @@ def test_chat_message_request_accepts_sdk_permission_modes(permission_mode: str)
 def test_chat_message_request_defaults_to_home_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-    request = ChatMessageRequest.model_validate({"prompt": "检查项目"})
+    request = _ChatMessageRequest.model_validate({"prompt": "检查项目"})
 
     assert request.project_path == tmp_path.resolve()
 
@@ -565,7 +567,7 @@ def test_chat_message_request_defaults_to_desktop_when_available(
     desktop.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-    request = ChatMessageRequest.model_validate({"prompt": "检查项目"})
+    request = _ChatMessageRequest.model_validate({"prompt": "检查项目"})
 
     assert request.project_path == desktop.resolve()
 
@@ -573,7 +575,7 @@ def test_chat_message_request_defaults_to_desktop_when_available(
 def test_chat_message_request_normalizes_prompt_and_session_id() -> None:
     session_id = uuid4()
 
-    request = ChatMessageRequest.model_validate(
+    request = _ChatMessageRequest.model_validate(
         {
             "prompt": "  检查项目  ",
             "session_id": str(session_id).upper(),

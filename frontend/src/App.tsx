@@ -1,7 +1,7 @@
 import { XProvider } from "@ant-design/x";
 import { MenuUnfoldOutlined, PlusCircleOutlined } from "@ant-design/icons";
 import { Button, Tooltip } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { ModelSettings } from "./components/ModelSettings";
@@ -9,7 +9,12 @@ import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { WindowResizeHandles } from "./components/WindowResizeHandles";
 import { Workspace } from "./components/Workspace";
-import { getCurrentTheme, setCurrentTheme } from "./bridge/client";
+import {
+  getCurrentTheme,
+  listChatSessions,
+  setCurrentTheme,
+  type ChatSessionSummary,
+} from "./bridge/client";
 import useGeekTheme from "./geekTheme";
 import useIllustrationTheme from "./illustrationTheme";
 import useSereneTheme from "./sereneTheme";
@@ -34,10 +39,21 @@ export default function App() {
   const [themeName, setThemeName] = useState<ThemeName>("default");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState(0);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  const [chatSessionsLoading, setChatSessionsLoading] = useState(true);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const illustrationTheme = useIllustrationTheme();
   const geekTheme = useGeekTheme();
   const sereneTheme = useSereneTheme();
+
+  const refreshChatSessions = useCallback(() => {
+    setChatSessionsLoading(true);
+    void listChatSessions()
+      .then(setChatSessions)
+      .catch(() => setChatSessions([]))
+      .finally(() => setChatSessionsLoading(false));
+  }, []);
 
   const configProps =
     themeName === "illustration"
@@ -58,6 +74,10 @@ export default function App() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    refreshChatSessions();
+  }, [refreshChatSessions]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeName;
@@ -84,6 +104,13 @@ export default function App() {
 
   function handleNewTask() {
     setView("workspace");
+    setActiveSessionId(null);
+    setWorkspaceKey((key) => key + 1);
+  }
+
+  function handleHistorySessionClick(sessionId: string) {
+    setView("workspace");
+    setActiveSessionId(sessionId);
     setWorkspaceKey((key) => key + 1);
   }
 
@@ -115,8 +142,10 @@ export default function App() {
         <div className={`app-shell${sidebarVisible ? "" : " sidebar-collapsed"}`}>
           {sidebarVisible && (
             <Sidebar
+              activeSessionId={activeSessionId}
               mode={view}
               onCollapse={() => setSidebarVisible(false)}
+              onHistorySessionClick={handleHistorySessionClick}
               onNewTask={handleNewTask}
               onSettingsClick={() =>
                 setView((currentView) => currentView === "settings" ? "workspace" : "settings")
@@ -124,9 +153,16 @@ export default function App() {
               activeSettingsSection={settingsSection}
               onSettingsSectionChange={setSettingsSection}
               onBackToWorkspace={() => setView("workspace")}
+              sessions={chatSessions}
+              sessionsLoading={chatSessionsLoading}
             />
           )}
-          <Workspace key={workspaceKey} hidden={view === "settings"} />
+          <Workspace
+            key={workspaceKey}
+            hidden={view === "settings"}
+            initialSessionId={activeSessionId}
+            onSessionsChanged={refreshChatSessions}
+          />
           {view === "settings" && (
             settingsSection === "theme" ? (
               <AppearanceSettings themeName={themeName} onThemeChange={handleThemeChange} />

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
+  getChatSession,
   getHomeFolder,
   respondChatPermission,
   sendChatMessage,
@@ -73,10 +74,17 @@ function errorText(error: unknown): string {
 
 type WorkspaceProps = {
   hidden?: boolean;
+  initialSessionId?: string | null;
+  onSessionsChanged?: () => void;
 };
 
-export function Workspace({ hidden = false }: WorkspaceProps) {
+export function Workspace({
+  hidden = false,
+  initialSessionId = null,
+  onSessionsChanged,
+}: WorkspaceProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(Boolean(initialSessionId));
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -84,11 +92,11 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
   const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [quote] = useState(pickQuote);
   const [greeting] = useState(() => getGreeting(new Date().getHours()));
-  const sessionIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(initialSessionId);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const messageNumberRef = useRef(0);
   const stopRequestedRef = useRef(false);
-  const conversationStarted = messages.length > 0;
+  const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
 
   useEffect(() => {
     let active = true;
@@ -101,6 +109,77 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!initialSessionId) {
+      return undefined;
+    }
+
+    let active = true;
+    setHistoryLoading(true);
+    void getChatSession(initialSessionId)
+      .then((history) => {
+        if (!active) {
+          return;
+        }
+        sessionIdRef.current = history.session_id;
+        messageNumberRef.current = history.messages.filter(
+          (message) => message.role === "user",
+        ).length;
+        setMessages(history.messages.map((message) => {
+          if (message.role === "user") {
+            return {
+              content: message.content,
+              key: `history-${message.key}`,
+              role: "user",
+              status: "success",
+            };
+          }
+          const trace = message.trace_events.reduce<AgentTraceItem[]>(
+            (items, event) => applyChatStreamEvent(items, event),
+            [],
+          );
+          return {
+            content: message.content,
+            expandedTraceItemKeys: [],
+            finalOutputKey: message.final_output_block_id ?? undefined,
+            key: `history-${message.key}`,
+            role: "ai",
+            status: "success",
+            trace: finishAgentTrace(trace, "success"),
+            traceExpanded: false,
+            workingSeconds: 1,
+          };
+        }));
+        if (history.project_path) {
+          setSelectedProject({
+            name: history.project_name,
+            path: history.project_path,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        sessionIdRef.current = null;
+        setMessages([{
+          content: errorText(error),
+          key: "history-load-error",
+          role: "ai",
+          status: "error",
+        }]);
+      })
+      .finally(() => {
+        if (active) {
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialSessionId]);
 
   useEffect(() => {
     if (!busy) {
@@ -247,6 +326,7 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
               }
             : item
         )));
+        onSessionsChanged?.();
       })
       .catch((error: unknown) => {
         const stopped = stopRequestedRef.current;
@@ -392,6 +472,9 @@ export function Workspace({ hidden = false }: WorkspaceProps) {
         {conversationStarted && (
           <div ref={chatScrollRef} className="chat-scroll">
             <div className="chat-column">
+              {historyLoading && !messages.length && (
+                <div className="history-loading">正在载入历史会话…</div>
+              )}
               <Bubble.List
                 autoScroll={false}
                 className="chat-bubbles"

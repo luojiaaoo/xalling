@@ -25,6 +25,7 @@ from backend.chat import (
     ChatReply,
     ClaudeChatClient,
     ClaudeChatConfig,
+    ClaudeChatHistory,
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import ModelSiteConfig, Settings, default_project_folder
@@ -41,7 +42,7 @@ def _user_facing_error(error: ValidationError) -> ValueError:
     return ValueError(message)
 
 
-class ChatMessageRequest(BaseModel):
+class _ChatMessageRequest(BaseModel):
     """Validate and normalize one send_chat_message payload from the Web UI."""
 
     model_config = ConfigDict(validate_default=True)
@@ -110,7 +111,7 @@ class ChatMessageRequest(BaseModel):
         return value
 
 
-class ChatPermissionDecision(BaseModel):
+class _ChatPermissionDecision(BaseModel):
     """Validate and normalize one respond_chat_permission payload from the Web UI."""
 
     permission_id: str
@@ -185,6 +186,7 @@ class ChatRouter:
     def __init__(self) -> None:
         super().__init__()
         self._active_chat_client: ClaudeChatClient | None = None
+        self._history = ClaudeChatHistory()
         self._permission_lock = Lock()
         self._pending_permissions: dict[str, _PendingPermission] = {}
 
@@ -198,7 +200,7 @@ class ChatRouter:
     ) -> ChatReply:
         """Run one turn, stream text events, and return the final response."""
         try:
-            request = ChatMessageRequest.model_validate(
+            request = _ChatMessageRequest.model_validate(
                 {
                     "prompt": prompt,
                     "project_path": project_path,
@@ -241,6 +243,14 @@ class ChatRouter:
             if self._active_chat_client is client:
                 self._active_chat_client = None
 
+    def list_chat_sessions(self) -> list[dict[str, object]]:
+        """Return all Claude sessions for the workspace-grouped sidebar."""
+        return self._history.list_sessions()
+
+    def get_chat_session(self, session_id: str) -> dict[str, object]:
+        """Load one Claude session and its user-visible message text."""
+        return self._history.get_session(session_id)
+
     def stop_chat_message(self) -> bool:
         """Interrupt the active single-chat turn and release permission prompts."""
         client = self._active_chat_client
@@ -269,7 +279,7 @@ class ChatRouter:
     ) -> bool:
         """Resolve a pending SDK tool permission request from the Web UI."""
         try:
-            decision = ChatPermissionDecision.model_validate(
+            decision = _ChatPermissionDecision.model_validate(
                 {
                     "permission_id": permission_id,
                     "allowed": allowed,
@@ -343,7 +353,7 @@ class ChatRouter:
     @staticmethod
     def _validate_tool_answers(
         pending: _PendingPermission,
-        decision: ChatPermissionDecision,
+        decision: _ChatPermissionDecision,
     ) -> dict[str, str | list[str]] | None:
         """Require one non-empty answer for every AskUserQuestion item."""
         if pending.tool_name != "AskUserQuestion":

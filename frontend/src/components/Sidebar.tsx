@@ -11,8 +11,9 @@ import {
 } from "@ant-design/icons";
 import { Avatar, Button, Menu, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import type { ChatSessionSummary } from "../bridge/client";
 import { BrandMark } from "./BrandMark";
 
 const navigation: MenuProps["items"] = [
@@ -38,29 +39,67 @@ const sectionGroups: Record<string, string> = {
   theme: "basic",
 };
 
-const tasks = ["整理产品需求", "设计本周工作计划", "分析用户反馈", "准备项目周报"];
-
 type SidebarProps = {
+  activeSessionId?: string | null;
   onCollapse: () => void;
+  onHistorySessionClick?: (sessionId: string) => void;
   onNewTask: () => void;
   onSettingsClick: () => void;
   mode?: "workspace" | "settings";
   activeSettingsSection?: string;
   onSettingsSectionChange?: (section: string) => void;
   onBackToWorkspace?: () => void;
+  sessions?: ChatSessionSummary[];
+  sessionsLoading?: boolean;
 };
 
 export function Sidebar({
+  activeSessionId = null,
   onCollapse,
+  onHistorySessionClick,
   onNewTask,
   onSettingsClick,
   mode = "workspace",
   activeSettingsSection = "model",
   onSettingsSectionChange,
   onBackToWorkspace,
+  sessions = [],
+  sessionsLoading = false,
 }: SidebarProps) {
   const inSettings = mode === "settings";
   const [openKeys, setOpenKeys] = useState<string[]>(["basic"]);
+  const [openProjectKeys, setOpenProjectKeys] = useState<Set<string>>(new Set());
+  const sessionGroups = useMemo(() => {
+    const grouped = new Map<string, ChatSessionSummary[]>();
+    for (const session of sessions) {
+      const key = session.project_path || "__unknown_project__";
+      const group = grouped.get(key) ?? [];
+      group.push(session);
+      grouped.set(key, group);
+    }
+    return [...grouped.entries()].map(([key, groupSessions]) => ({
+      key,
+      name: groupSessions[0].project_name,
+      path: groupSessions[0].project_path,
+      sessions: groupSessions,
+    }));
+  }, [sessions]);
+
+  useEffect(() => {
+    const activeProjectKey = sessions.find(
+      (session) => session.session_id === activeSessionId,
+    )?.project_path || null;
+    setOpenProjectKeys((current) => {
+      const next = new Set(current);
+      if (!next.size && sessionGroups[0]) {
+        next.add(sessionGroups[0].key);
+      }
+      if (activeProjectKey) {
+        next.add(activeProjectKey);
+      }
+      return next;
+    });
+  }, [activeSessionId, sessionGroups, sessions]);
 
   // 选中分区变化时，展开它所属的分组（手风琴：同时只开一个）
   useEffect(() => {
@@ -124,14 +163,69 @@ export function Sidebar({
       <div className="sidebar-bottom">
         {!inSettings && (
           <>
-            <div className="project-heading">
-              <span>项目</span>
-              <FolderOpenOutlined />
+            <div className="project-heading task-heading">
+              <span>历史会话</span>
+              <ClockCircleOutlined />
             </div>
-            <button className="project-row" type="button"><span className="project-dot" />未打开项目</button>
-            <div className="project-heading task-heading"><span>最近任务</span><ClockCircleOutlined /></div>
             <div className="task-list">
-              {tasks.map((task) => <button key={task} className="task-row" type="button">{task}</button>)}
+              {sessionsLoading && (
+                <div className="history-list-status">正在读取…</div>
+              )}
+              {!sessionsLoading && !sessions.length && (
+                <div className="history-list-status">暂无历史会话</div>
+              )}
+              {sessionGroups.map((group) => (
+                <details
+                  key={group.key}
+                  className="history-project-group"
+                  open={openProjectKeys.has(group.key)}
+                  onToggle={(event) => {
+                    const isOpen = event.currentTarget.open;
+                    setOpenProjectKeys((current) => {
+                      const next = new Set(current);
+                      if (isOpen) {
+                        next.add(group.key);
+                      } else {
+                        next.delete(group.key);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <summary
+                    className="history-project-heading"
+                    title={group.path || "未知工作区"}
+                  >
+                    <FolderOpenOutlined />
+                    <span className="history-project-copy">
+                      <strong>{group.name}</strong>
+                      <small>{group.path || "未知工作区"}</small>
+                    </span>
+                    <span className="history-project-count">{group.sessions.length}</span>
+                  </summary>
+                  <div className="history-session-list">
+                    {group.sessions.map((session) => (
+                      <Tooltip
+                        key={session.session_id}
+                        placement="right"
+                        title={session.title}
+                      >
+                        <button
+                          className={`task-row${
+                            session.session_id === activeSessionId
+                              ? " task-row-active"
+                              : ""
+                          }`}
+                          type="button"
+                          onClick={() => onHistorySessionClick?.(session.session_id)}
+                        >
+                          <span className="task-row-title">{session.title}</span>
+                        </button>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </details>
+              ))}
             </div>
           </>
         )}
