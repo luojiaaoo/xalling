@@ -11,7 +11,8 @@ import {
 } from "@ant-design/icons";
 import { Avatar, Button, Menu, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import type { ChatSessionSummary } from "../bridge/client";
 import { BrandMark } from "./BrandMark";
@@ -38,6 +39,48 @@ const sectionGroups: Record<string, string> = {
   model: "basic",
   theme: "basic",
 };
+
+type AutoScrollTextProps = {
+  className?: string;
+  text: string;
+};
+
+function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const [scrollDistance, setScrollDistance] = useState(0);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateScrollDistance = () => {
+      setScrollDistance(Math.max(0, container.scrollWidth - container.clientWidth));
+    };
+
+    updateScrollDistance();
+    const resizeObserver = new ResizeObserver(updateScrollDistance);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [text]);
+
+  const style = {
+    "--sidebar-scroll-distance": scrollDistance,
+    "--sidebar-scroll-duration": `${Math.max(2.4, scrollDistance / 32).toFixed(2)}s`,
+  } as CSSProperties;
+
+  return (
+    <span
+      ref={containerRef}
+      className={`auto-scroll-text${scrollDistance > 1 ? " auto-scroll-text-overflowing" : ""}${
+        className ? ` ${className}` : ""
+      }`}
+    >
+      <span className="auto-scroll-text-inner" style={style}>
+        {text}
+      </span>
+    </span>
+  );
+}
 
 type SidebarProps = {
   activeSessionId?: string | null;
@@ -198,8 +241,11 @@ export function Sidebar({
                   >
                     <FolderOpenOutlined />
                     <span className="history-project-copy">
-                      <strong>{group.name}</strong>
-                      <small>{group.path || "未知工作区"}</small>
+                      <AutoScrollText className="history-project-name" text={group.name} />
+                      <AutoScrollText
+                        className="history-project-path"
+                        text={group.path || "未知工作区"}
+                      />
                     </span>
                     <span className="history-project-count">{group.sessions.length}</span>
                   </summary>
@@ -219,7 +265,7 @@ export function Sidebar({
                           type="button"
                           onClick={() => onHistorySessionClick?.(session.session_id)}
                         >
-                          <span className="task-row-title">{session.title}</span>
+                          <AutoScrollText className="task-row-title" text={session.title} />
                         </button>
                       </Tooltip>
                     ))}
