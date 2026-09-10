@@ -13,6 +13,9 @@ LOG_DIRECTORY = Path.home() / ".xalling" / "log"
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token")
 
+# 高频调用、刷日志没意义的桥接方法：不打 call/result 访问日志，但异常仍记录
+SILENT_ACCESS_LOG_CALLS = frozenset({"WindowRouter.resize_window"})
+
 _logging_configured = False
 _access_logger = logger.bind(channel="access")
 _browser_logger = logger.bind(channel="browser")
@@ -112,15 +115,18 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     if getattr(func, "__bridge_error_captured__", False):
         return func
 
+    log_access = func.__qualname__ not in SILENT_ACCESS_LOG_CALLS
+
     if inspect.iscoroutinefunction(func):
 
         @wraps(func)
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
             _ensure_logging_configured()
-            _access_logger.info(
-                f"JS-Python call: {func.__qualname__} | "
-                f"input={_call_input(func, args, kwargs)!r}"
-            )
+            if log_access:
+                _access_logger.info(
+                    f"JS-Python call: {func.__qualname__} | "
+                    f"input={_call_input(func, args, kwargs)!r}"
+                )
             try:
                 result = await func(*args, **kwargs)
             except Exception as error:
@@ -132,10 +138,11 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
                     f"JS-Python bridge call failed: {func.__qualname__}"
                 )
                 raise
-            _access_logger.info(
-                f"JS-Python result: {func.__qualname__} | "
-                f"output={_redact(result)!r}"
-            )
+            if log_access:
+                _access_logger.info(
+                    f"JS-Python result: {func.__qualname__} | "
+                    f"output={_redact(result)!r}"
+                )
             return result
 
         async_wrapper.__bridge_error_captured__ = True
@@ -144,10 +151,11 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         _ensure_logging_configured()
-        _access_logger.info(
-            f"JS-Python call: {func.__qualname__} | "
-            f"input={_call_input(func, args, kwargs)!r}"
-        )
+        if log_access:
+            _access_logger.info(
+                f"JS-Python call: {func.__qualname__} | "
+                f"input={_call_input(func, args, kwargs)!r}"
+            )
         try:
             result = func(*args, **kwargs)
         except Exception as error:
@@ -159,10 +167,11 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
                 f"JS-Python bridge call failed: {func.__qualname__}"
             )
             raise
-        _access_logger.info(
-            f"JS-Python result: {func.__qualname__} | "
-            f"output={_redact(result)!r}"
-        )
+        if log_access:
+            _access_logger.info(
+                f"JS-Python result: {func.__qualname__} | "
+                f"output={_redact(result)!r}"
+            )
         return result
 
     wrapper.__bridge_error_captured__ = True
