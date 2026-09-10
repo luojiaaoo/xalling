@@ -12,6 +12,8 @@ from claude_agent_sdk import (
     list_sessions,
 )
 
+from backend.config.setting import default_project_folder
+
 from ._formatting import summarize_tool_input
 from .types import ChatEvent
 
@@ -51,8 +53,8 @@ class ClaudeChatHistory:
     def _serialize_session(session: SDKSessionInfo) -> dict[str, object]:
         """Convert SDK session metadata to bridge-safe JSON values."""
         title = " ".join(session.summary.split()) or "未命名会话"
-        project_path = session.cwd or ""
-        project_name = Path(project_path).name if project_path else "未知项目"
+        project_path = session.cwd or str(default_project_folder())
+        project_name = Path(project_path).name
         return {
             "session_id": session.session_id,
             "title": title,

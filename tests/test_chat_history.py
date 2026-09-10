@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -32,6 +33,39 @@ def test_history_lists_native_claude_sessions(
             "project_name": "xalling",
             "last_modified": 1_789_000_000_000,
             "created_at": 1_788_000_000_000,
+        }
+    ]
+
+
+def test_history_assigns_unknown_workspace_to_default_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_id = str(uuid4())
+    monkeypatch.setattr(
+        "backend.chat.history.list_sessions",
+        lambda: [
+            SDKSessionInfo(
+                session_id=session_id,
+                summary="历史任务",
+                last_modified=1_789_000_000_000,
+                cwd=None,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.default_project_folder",
+        lambda: tmp_path,
+    )
+
+    assert ClaudeChatHistory().list_sessions() == [
+        {
+            "session_id": session_id,
+            "title": "历史任务",
+            "project_path": str(tmp_path),
+            "project_name": tmp_path.name,
+            "last_modified": 1_789_000_000_000,
+            "created_at": None,
         }
     ]
 

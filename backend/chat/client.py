@@ -110,6 +110,7 @@ class ClaudeChatClient:
             _provider_settings_file(self._config) as settings_path,
             ClaudeSDKClient(options=self._build_options(settings_path)) as client,
         ):
+            settings_path.unlink()
             await client.query(prompt)
             with self._runtime_lock:
                 self._loop = asyncio.get_running_loop()
