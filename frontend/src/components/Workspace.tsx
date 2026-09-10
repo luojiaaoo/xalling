@@ -148,7 +148,6 @@ export function Workspace({
             status: "success",
             trace: finishAgentTrace(trace, "success"),
             traceExpanded: false,
-            workingSeconds: 1,
           };
         }));
         if (history.project_path) {

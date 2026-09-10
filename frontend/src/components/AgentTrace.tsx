@@ -238,14 +238,18 @@ export function AgentTrace({
   loading,
   onExpandedChange,
   onItemExpandedChange,
-  workingSeconds = 1,
+  workingSeconds,
 }: AgentTraceProps) {
   const visibleItems = externalOutputKey
     ? items.filter((item) => item.key !== externalOutputKey)
     : items;
+  const completedTitle = failed ? "执行失败" : "已工作";
+  const showDurations = loading || workingSeconds !== undefined;
   const title = loading
     ? `工作中 ${formatDuration(elapsedSeconds)}`
-    : `${failed ? "执行失败" : "已工作"} ${formatDuration(workingSeconds)}`;
+    : workingSeconds === undefined
+      ? completedTitle
+      : `${completedTitle} ${formatDuration(workingSeconds)}`;
   const completedIcon = failed ? <CloseCircleOutlined /> : <CheckCircleOutlined />;
 
   return (
@@ -286,7 +290,7 @@ export function AgentTrace({
                 key={item.key}
                 loading={item.status === "running"}
                 onExpand={(nextExpanded) => onItemExpandedChange(item.key, nextExpanded)}
-                title={`思考 · ${itemDuration(item)}`}
+                title={showDurations ? `思考 · ${itemDuration(item)}` : "思考"}
               >
                 {item.content
                   ? <ChatMarkdown content={item.content} streaming={item.status === "running"} />
@@ -319,7 +323,9 @@ export function AgentTrace({
               key={item.key}
               loading={callsRunning}
               onExpand={(nextExpanded) => onItemExpandedChange(item.key, nextExpanded)}
-              title={`工具 · ${item.calls.length} 次调用 · ${itemDuration(item)}`}
+              title={`工具 · ${item.calls.length} 次调用${
+                showDurations ? ` · ${itemDuration(item)}` : ""
+              }`}
             >
               <ThoughtChain
                 items={item.calls.map((call) => ({
