@@ -147,7 +147,7 @@ html[data-theme="dark"] .composer-footer .ant-btn { color: rgba(255, 255, 255, .
 html[data-theme="dark"] .composer-footer .ant-btn:hover,
 html[data-theme="dark"] .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #a99cff !important; background: rgba(109, 93, 252, .14) !important; }
 html[data-theme="dark"] .mention-panel { border-color: #26262e; background: #16161a; box-shadow: 0 14px 40px rgba(0, 0, 0, .5); }
-html[data-theme="dark"] .mention-panel-title, html[data-theme="dark"] .mention-item-path { color: rgba(255, 255, 255, .38); }
+html[data-theme="dark"] .mention-panel-title, html[data-theme="dark"] .mention-group-title, html[data-theme="dark"] .mention-item-path { color: rgba(255, 255, 255, .38); }
 html[data-theme="dark"] .mention-item { color: rgba(255, 255, 255, .78); }
 html[data-theme="dark"] .mention-item .anticon { color: rgba(255, 255, 255, .45); }
 html[data-theme="dark"] .mention-item:hover, html[data-theme="dark"] .mention-item-active { background: rgba(109, 93, 252, .16); }
@@ -233,6 +233,7 @@ html[data-theme="cartoon"] .composer-footer .ant-btn:hover,
 html[data-theme="cartoon"] .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #225555 !important; background: #E8D29A !important; }
 html[data-theme="cartoon"] .mention-panel { border: 2px solid #225555; background: #fffdf3; box-shadow: none; }
 html[data-theme="cartoon"] .mention-panel-title,
+html[data-theme="cartoon"] .mention-group-title,
 html[data-theme="cartoon"] .mention-item-path,
 html[data-theme="cartoon"] .mention-empty { color: #7a6e5d; }
 html[data-theme="cartoon"] .mention-item { color: #51463B; }
@@ -373,6 +374,7 @@ html[data-theme="geek"] .chat-markdown th,
 html[data-theme="geek"] .chat-markdown td { border-color: rgba(57, 255, 20, .55); }
 html[data-theme="geek"] .mention-panel { border: 2px solid #39ff14; border-radius: 0; background: #030603; box-shadow: 0 0 8px rgba(57, 255, 20, .65); }
 html[data-theme="geek"] .mention-panel-title,
+html[data-theme="geek"] .mention-group-title,
 html[data-theme="geek"] .mention-item-path,
 html[data-theme="geek"] .mention-empty { color: rgba(57, 255, 20, .5); }
 html[data-theme="geek"] .mention-item { color: #39ff14; border-radius: 0; }
@@ -785,6 +787,7 @@ html[data-theme="serene"] .ask-question-option:hover { border-color: #c7a56b; ba
 html[data-theme="serene"] .ask-question-option-copy small { color: #766a60; }
 .mention-panel { position: absolute; z-index: 30; bottom: calc(100% + 8px); left: 0; display: flex; width: min(520px, 100%); max-height: 300px; flex-direction: column; overflow: hidden; border: 1px solid #ececf3; border-radius: 14px; background: #fff; box-shadow: 0 14px 40px rgba(45, 42, 70, .16), 0 2px 8px rgba(45, 42, 70, .06); }
 .mention-panel-title { padding: 9px 12px 6px; color: #9a9bac; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.mention-group-title { padding: 7px 10px 3px; color: #9a9bac; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
 .mention-panel-list { flex: 1; padding: 0 6px 6px; overflow-y: auto; }
 .mention-item { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 10px; color: #3d3d4d; font-size: 13px; text-align: left; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
 .mention-item .anticon { flex: none; color: #8a8b9d; }

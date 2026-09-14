@@ -34,11 +34,14 @@ import {
   Upload,
 } from "antd";
 import type { RcFile, UploadFile } from "antd/es/upload/interface";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  getAllowedCommandNames,
+  getCommands,
   getCurrentModel,
   getModelGroups,
+  getSkills,
   isAskUserQuestionRequest,
   searchProjectFiles,
   selectProjectFolder,
@@ -46,6 +49,7 @@ import {
   type ChatPermissionAnswers,
   type ChatPermissionRequestEvent,
   type ChatPermissionMode,
+  type ClaudeCommand,
   type ModelGroup,
   type ProjectFileMatch,
   type ProjectFolder,
@@ -69,6 +73,7 @@ type TaskComposerProps = {
   permissionMode: ChatPermissionMode;
   permissionRequest?: ChatPermissionRequestEvent | null;
   selectedProject: ProjectFolder | null;
+  sessionId: string;
   stopping?: boolean;
 };
 
@@ -135,6 +140,9 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024;
 // Stable reference: a new array identity each render would reset the slot editor.
 const EMPTY_SLOT_CONFIG: SlotConfigType[] = [];
 const MENTION_TRIGGER_PATTERN = /(?:^|\s)@([^\s@]{0,64})$/u;
+// 行首或空白后的 / 触发候选；非消息开头仅展示技能。
+const SKILL_TRIGGER_PATTERN = /(?:^|\s)\/([^\s]{0,64})$/u;
+const LEADING_SLASH_PATTERN = /^\/([^\s]+)/u;
 
 type MentionState = {
   activeIndex: number;
@@ -142,6 +150,38 @@ type MentionState = {
   query: string;
   results: ProjectFileMatch[];
 };
+
+type SlashState = {
+  activeIndex: number;
+  atStart: boolean;
+  query: string;
+};
+
+// 斜杠候选条目：技能与常规命令合并展示，kind 用于界面区分
+type SlashItem = ClaudeCommand & {
+  kind: "skill" | "command";
+};
+
+// 按名称/别名/描述过滤斜杠条目，名称前缀匹配的排在前面（组内保持技能在命令之前）
+function filterSlashItems(items: SlashItem[], query: string): SlashItem[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return items;
+  }
+  const prefix: SlashItem[] = [];
+  const rest: SlashItem[] = [];
+  for (const item of items) {
+    if (item.name.toLowerCase().startsWith(normalized)) {
+      prefix.push(item);
+    } else if (
+      item.name.toLowerCase().includes(normalized)
+      || item.aliases.some((alias) => alias.toLowerCase().includes(normalized))
+    ) {
+      rest.push(item);
+    }
+  }
+  return [...prefix, ...rest];
+}
 
 export function TaskComposer({
   busy = false,
@@ -156,6 +196,7 @@ export function TaskComposer({
   permissionMode,
   permissionRequest = null,
   selectedProject,
+  sessionId,
   stopping = false,
 }: TaskComposerProps) {
   const [prompt, setPrompt] = useState("");
@@ -167,12 +208,18 @@ export function TaskComposer({
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [selectingProject, setSelectingProject] = useState(false);
   const [mention, setMention] = useState<MentionState | null>(null);
+  const [slash, setSlash] = useState<SlashState | null>(null);
+  const [slashItems, setSlashItems] = useState<SlashItem[]>([]);
+  const [slashLoading, setSlashLoading] = useState(false);
   const attachmentsRef = useRef<AttachmentsRef>(null);
   const senderRef = useRef<SenderRef>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
-  const mentionSequenceRef = useRef(0);
+  const chipSequenceRef = useRef(0);
+  const slashRequestedRef = useRef(false);
   const conversationStartedRef = useRef(conversationStarted);
   conversationStartedRef.current = conversationStarted;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
   const [messageApi, contextHolder] = message.useMessage();
 
   useEffect(() => {
@@ -211,6 +258,11 @@ export function TaskComposer({
     setPermissionDecision(null);
   }, [permissionRequest?.permission_id]);
 
+  useEffect(() => {
+    slashRequestedRef.current = false;
+    setSlashItems([]);
+  }, [sessionId]);
+
   const mentionQuery = mention?.query ?? null;
   const mentionProjectPath = selectedProject?.path ?? null;
 
@@ -248,48 +300,113 @@ export function TaskComposer({
     mentionListRef.current
       ?.querySelector(".mention-item-active")
       ?.scrollIntoView({ block: "nearest" });
-  }, [mention?.activeIndex]);
+  }, [mention?.activeIndex, slash?.activeIndex]);
 
-  const updateMentionFromSelection = () => {
+  // 首次打开斜杠候选时才向后端拉取技能与命令，之后本地过滤
+  const slashOpen = slash !== null;
+  useEffect(() => {
+    if (!slashOpen || slashRequestedRef.current) {
+      return;
+    }
+    slashRequestedRef.current = true;
+    const requestedSessionId = sessionId;
+    setSlashLoading(true);
+    Promise.all([getSkills(requestedSessionId), getCommands(requestedSessionId)])
+      .then(([skills, commands]) => {
+        if (sessionIdRef.current !== requestedSessionId) {
+          return;
+        }
+        setSlashItems([
+          ...commands.map((item): SlashItem => ({ ...item, kind: "command" })),
+          ...skills.map((item): SlashItem => ({ ...item, kind: "skill" })),
+        ]);
+      })
+      .catch(() => {
+        if (sessionIdRef.current === requestedSessionId) {
+          setSlashItems([]);
+        }
+      })
+      .finally(() => {
+        if (sessionIdRef.current === requestedSessionId) {
+          setSlashLoading(false);
+        }
+      });
+  }, [sessionId, slashOpen]);
+
+  const slashResults = useMemo(
+    () => (slash
+      ? filterSlashItems(slashItems, slash.query).filter(
+        (item) => slash.atStart || item.kind === "skill",
+      )
+      : []),
+    [slashItems, slash],
+  );
+
+  const updateTriggerFromSelection = () => {
     const selection = window.getSelection();
-    const editorRoot = senderRef.current?.nativeElement;
+    const editorRoot = senderRef.current?.inputElement ?? senderRef.current?.nativeElement;
     if (!selection || selection.rangeCount === 0 || !editorRoot) {
       setMention(null);
+      setSlash(null);
       return;
     }
     const range = selection.getRangeAt(0);
     const node = range.startContainer;
     if (!range.collapsed || !editorRoot.contains(node) || node.nodeType !== Node.TEXT_NODE) {
       setMention(null);
+      setSlash(null);
       return;
     }
     const textBeforeCursor = node.textContent?.slice(0, range.startOffset) ?? "";
-    const match = MENTION_TRIGGER_PATTERN.exec(textBeforeCursor);
-    if (!match) {
-      setMention(null);
+    const mentionMatch = MENTION_TRIGGER_PATTERN.exec(textBeforeCursor);
+    if (mentionMatch) {
+      const query = mentionMatch[1];
+      setSlash(null);
+      setMention((current) => (
+        current?.query === query
+          ? current
+          : {
+            query,
+            results: current?.results ?? [],
+            activeIndex: 0,
+            loading: true,
+          }
+      ));
       return;
     }
-    const query = match[1];
-    setMention((current) => (
-      current?.query === query
-        ? current
-        : {
-          query,
-          results: current?.results ?? [],
-          activeIndex: 0,
-          loading: true,
-        }
-    ));
+    const slashMatch = SKILL_TRIGGER_PATTERN.exec(textBeforeCursor);
+    if (slashMatch) {
+      const query = slashMatch[1];
+      const prefixRange = range.cloneRange();
+      prefixRange.selectNodeContents(editorRoot);
+      prefixRange.setEnd(node, range.startOffset);
+      const fullTextBeforeCursor = prefixRange.toString();
+      const slashOffset = slashMatch[0].lastIndexOf("/");
+      const textBeforeSlash = fullTextBeforeCursor.slice(
+        0,
+        fullTextBeforeCursor.length - slashMatch[0].length + slashOffset,
+      );
+      const atStart = textBeforeSlash.length === 0;
+      setMention(null);
+      setSlash((current) => (
+        current?.query === query && current.atStart === atStart
+          ? current
+          : { query, atStart, activeIndex: 0 }
+      ));
+      return;
+    }
+    setMention(null);
+    setSlash(null);
   };
 
   const insertMention = (item: ProjectFileMatch) => {
     const query = mention?.query ?? "";
-    mentionSequenceRef.current += 1;
+    chipSequenceRef.current += 1;
     senderRef.current?.insert(
       [
         {
           type: "tag",
-          key: `mention-${mentionSequenceRef.current}`,
+          key: `mention-${chipSequenceRef.current}`,
           props: {
             label: (
               <span className="mention-chip">
@@ -299,7 +416,7 @@ export function TaskComposer({
             ),
             value: item.path,
           },
-          formatResult: (value: string) => `[${item.name}](${value})`,
+          formatResult: () => `@${item.name}`,
         },
         { type: "text", value: " " },
       ],
@@ -307,6 +424,35 @@ export function TaskComposer({
       `@${query}`,
     );
     setMention(null);
+    senderRef.current?.focus();
+  };
+
+  // 插入技能/命令词槽：提交时序列化为 /名称，Claude 按斜杠命令处理
+  const insertSlashItem = (item: SlashItem) => {
+    const query = slash?.query ?? "";
+    chipSequenceRef.current += 1;
+    senderRef.current?.insert(
+      [
+        {
+          type: "tag",
+          key: `slash-${chipSequenceRef.current}`,
+          props: {
+            label: (
+              <span className="mention-chip">
+                {item.kind === "skill" ? <ThunderboltOutlined /> : <CodeOutlined />}
+                <span>/{item.name}</span>
+              </span>
+            ),
+            value: item.name,
+          },
+          formatResult: (value: string) => `/${value}`,
+        },
+        { type: "text", value: " " },
+      ],
+      "cursor",
+      `/${query}`,
+    );
+    setSlash(null);
     senderRef.current?.focus();
   };
 
@@ -334,7 +480,7 @@ export function TaskComposer({
     }
   };
 
-  const handleSubmit = (value: string) => {
+  const handleSubmit = async (value: string) => {
     const content = value.trim();
     if (!content && !attachmentItems.length) {
       messageApi.warning("请输入消息或添加附件。");
@@ -342,6 +488,27 @@ export function TaskComposer({
     }
     if (busy) {
       return;
+    }
+
+    const leadingSlash = LEADING_SLASH_PATTERN.exec(content);
+    if (leadingSlash) {
+      try {
+        const [allowedCommands, skills] = await Promise.all([
+          getAllowedCommandNames(),
+          getSkills(sessionId),
+        ]);
+        const allowedNames = new Set([
+          ...allowedCommands,
+          ...skills.flatMap((skill) => [skill.name, ...skill.aliases]),
+        ]);
+        if (!allowedNames.has(leadingSlash[1])) {
+          messageApi.error(`不允许执行命令 /${leadingSlash[1]}`);
+          return;
+        }
+      } catch {
+        messageApi.error("命令列表加载失败，请稍后重试。");
+        return;
+      }
     }
 
     onSend({
@@ -357,6 +524,7 @@ export function TaskComposer({
     });
     setPrompt("");
     setMention(null);
+    setSlash(null);
     senderRef.current?.clear();
     setAttachmentItems([]);
     setAttachmentsOpen(false);
@@ -553,6 +721,58 @@ export function TaskComposer({
           </div>
         </div>
       )}
+      {slash && (
+        <div
+          className="mention-panel"
+          role="listbox"
+          aria-label={slash.atStart ? "选择技能或命令" : "选择技能"}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <div className="mention-panel-title">
+            {slash.atStart ? "选择技能或命令" : "选择技能"}
+          </div>
+          <div className="mention-panel-list" ref={mentionListRef}>
+            {slashResults.length === 0 ? (
+              <div className="mention-empty">
+                {slashLoading
+                  ? `加载${slash.atStart ? "技能与命令" : "技能"}…`
+                  : `没有匹配的${slash.atStart ? "技能或命令" : "技能"}。`}
+              </div>
+            ) : (
+              slashResults.map((item, index) => {
+                const previous = slashResults[index - 1];
+                const showGroupTitle = !previous || previous.kind !== item.kind;
+                return (
+                  <Fragment key={`${item.kind}-${item.name}`}>
+                    {showGroupTitle && (
+                      <div className="mention-group-title">
+                        {item.kind === "skill" ? "技能" : "命令"}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === slash.activeIndex}
+                      className={`mention-item${index === slash.activeIndex ? " mention-item-active" : ""}`}
+                      onMouseEnter={() => setSlash((current) => (
+                        current ? { ...current, activeIndex: index } : current
+                      ))}
+                      onClick={() => insertSlashItem(item)}
+                    >
+                      {item.kind === "skill" ? <ThunderboltOutlined /> : <CodeOutlined />}
+                      <span className="mention-item-name">/{item.name}</span>
+                      <span className="mention-item-path">
+                        {item.argument_hint ? `${item.argument_hint} ` : ""}
+                        {item.description}
+                      </span>
+                    </button>
+                  </Fragment>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
       <Sender
         ref={senderRef}
         className="task-sender"
@@ -561,10 +781,13 @@ export function TaskComposer({
         slotConfig={EMPTY_SLOT_CONFIG}
         onChange={(value) => {
           setPrompt(value);
-          updateMentionFromSelection();
+          updateTriggerFromSelection();
         }}
-        onKeyUp={updateMentionFromSelection}
-        onBlur={() => setMention(null)}
+        onKeyUp={updateTriggerFromSelection}
+        onBlur={() => {
+          setMention(null);
+          setSlash(null);
+        }}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) {
             return undefined;
@@ -597,6 +820,34 @@ export function TaskComposer({
               return false;
             }
           }
+          if (slash) {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const delta = event.key === "ArrowDown" ? 1 : -1;
+              setSlash((current) => {
+                if (!current || slashResults.length === 0) {
+                  return current;
+                }
+                const count = slashResults.length;
+                return { ...current, activeIndex: (current.activeIndex + delta + count) % count };
+              });
+              return false;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              const item = slashResults[slash.activeIndex];
+              if (item) {
+                insertSlashItem(item);
+              } else {
+                setSlash(null);
+              }
+              return false;
+            }
+            if (event.key === "Escape") {
+              setSlash(null);
+              return false;
+            }
+          }
           if (event.key !== "Enter") {
             return undefined;
           }
@@ -607,10 +858,10 @@ export function TaskComposer({
             return undefined;
           }
           event.preventDefault();
-          handleSubmit(prompt);
+          void handleSubmit(prompt);
           return false;
         }}
-        onSubmit={handleSubmit}
+        onSubmit={(value) => void handleSubmit(value)}
         onPasteFile={addPastedFiles}
         loading={busy}
         submitType="enter"
@@ -770,7 +1021,7 @@ export function TaskComposer({
                   className="sender-send-button"
                   disabled={!prompt.trim() && !attachmentItems.length}
                   icon={<ArrowUpOutlined />}
-                  onClick={() => handleSubmit(prompt)}
+                  onClick={() => void handleSubmit(prompt)}
                   shape="circle"
                   type="primary"
                 />

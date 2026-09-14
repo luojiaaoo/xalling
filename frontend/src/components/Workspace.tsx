@@ -693,6 +693,7 @@ export function Workspace({
             permissionMode={permissionMode}
             permissionRequest={permissionRequests[0] ?? null}
             selectedProject={selectedProject}
+            sessionId={sessionIdRef.current}
             stopping={stopping}
           />
         </div>

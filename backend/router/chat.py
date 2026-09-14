@@ -6,7 +6,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Timer
 from time import time
 from typing import Any
 from uuid import UUID, uuid4
@@ -31,6 +31,9 @@ from backend.chat import (
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import ModelSiteConfig, Settings, default_project_folder
+from backend.router.command import is_allowed_leading_slash
+
+CHAT_CLIENT_IDLE_SECONDS = 5 * 60
 
 
 def _user_facing_error(error: ValidationError) -> ValueError:
@@ -42,6 +45,20 @@ def _user_facing_error(error: ValidationError) -> ValueError:
     else:
         message = f"参数 {first['loc'][0]} 无效"
     return ValueError(message)
+
+
+def _validate_leading_slash(
+    prompt: str,
+    server_info: dict[str, Any],
+) -> None:
+    """Reject commands and skills not included in the runtime allowlist."""
+    first_token = prompt.split(maxsplit=1)[0]
+    if not first_token.startswith("/"):
+        return
+    name = first_token.removeprefix("/")
+    if name and is_allowed_leading_slash(name, server_info):
+        return
+    raise ValueError(f"不允许执行命令 {first_token}")
 
 
 class _ChatMessageRequest(BaseModel):
@@ -183,11 +200,14 @@ class _PendingPermission:
 
 @dataclass
 class _ActiveChat:
-    """Runtime state retained while one chat turn is running."""
+    """Session state retained while running and for a short idle period."""
 
     client: ClaudeChatClient
     events: list[ChatEvent]
     metadata: dict[str, object]
+    running: bool = False
+    cleanup_timer: Timer | None = None
+    cleanup_generation: int = 0
 
 
 class ChatRouter:
@@ -228,41 +248,46 @@ class ChatRouter:
         active_session_id = request.session_id or str(uuid4())
         is_new_session = not self._history.has_session(active_session_id)
         site, model_name = self._get_current_provider()
-        client = ClaudeChatClient(
-            ClaudeChatConfig(
-                api_key=site.api_key,
-                api_url=site.api_url,
-                can_use_tool=partial(
-                    self._request_tool_permission,
-                    session_id=active_session_id,
-                ),
-                effort=request.effort,
-                is_new_session=is_new_session,
-                model=model_name,
-                permission_mode=request.permission_mode,
-                project=request.project_path,
+        config = ClaudeChatConfig(
+            api_key=site.api_key,
+            api_url=site.api_url,
+            can_use_tool=partial(
+                self._request_tool_permission,
                 session_id=active_session_id,
-            )
+            ),
+            effort=request.effort,
+            is_new_session=is_new_session,
+            model=model_name,
+            permission_mode=request.permission_mode,
+            project=request.project_path,
+            session_id=active_session_id,
         )
+        client = self._get_or_create_chat_client(config)
+        first_token = request.prompt.split(maxsplit=1)[0]
+        server_info = client.get_server_info() if first_token.startswith("/") else {}
+        _validate_leading_slash(request.prompt, server_info)
 
         with self._active_chats_lock:
-            if active_session_id in self._active_chats:
+            active_chat = self._active_chats[active_session_id]
+            if active_chat.running:
                 raise RuntimeError("当前会话正在生成，请先停止后再发送")
+            if active_chat.cleanup_timer is not None:
+                active_chat.cleanup_timer.cancel()
+                active_chat.cleanup_timer = None
+            client.prepare(config)
             now = int(time() * 1000)
             title = " ".join(request.prompt.split()) or "未命名会话"
-            self._active_chats[active_session_id] = _ActiveChat(
-                client=client,
-                events=[],
-                metadata={
-                    "session_id": active_session_id,
-                    "title": title[:100],
-                    "project_path": str(request.project_path),
-                    "project_name": request.project_path.name,
-                    "last_modified": now,
-                    "created_at": now,
-                    "prompt": request.prompt,
-                },
-            )
+            active_chat.events.clear()
+            active_chat.metadata = {
+                "session_id": active_session_id,
+                "title": title[:100],
+                "project_path": str(request.project_path),
+                "project_name": request.project_path.name,
+                "last_modified": now,
+                "created_at": active_chat.metadata.get("created_at", now),
+                "prompt": request.prompt,
+            }
+            active_chat.running = True
         self._emit_chat_event(
             {"type": "session_started", "session_id": active_session_id},
             session_id=active_session_id,
@@ -299,22 +324,140 @@ class ChatRouter:
             with self._active_chats_lock:
                 active_chat = self._active_chats.get(active_session_id)
                 if active_chat is not None and active_chat.client is client:
-                    self._active_chats.pop(active_session_id)
+                    active_chat.running = False
+                    self._schedule_client_cleanup(
+                        active_session_id,
+                        active_chat,
+                    )
+
+    def _get_or_create_chat_client(
+        self,
+        config: ClaudeChatConfig,
+    ) -> ClaudeChatClient:
+        with self._active_chats_lock:
+            active_chat = self._active_chats.get(config.session_id)
+            if active_chat is None:
+                now = int(time() * 1000)
+                active_chat = _ActiveChat(
+                    client=ClaudeChatClient(config),
+                    events=[],
+                    metadata={
+                        "session_id": config.session_id,
+                        "title": "未命名会话",
+                        "project_path": str(config.project),
+                        "project_name": config.project.name,
+                        "last_modified": now,
+                        "created_at": now,
+                        "prompt": "",
+                    },
+                )
+                self._active_chats[config.session_id] = active_chat
+            elif not active_chat.running:
+                active_chat.client.prepare(config)
+            self._schedule_client_cleanup(config.session_id, active_chat)
+            return active_chat.client
+
+    def _get_chat_server_info(self, session_id: str) -> dict[str, Any]:
+        normalized_session_id = self._normalize_optional_session_id(session_id)
+        if normalized_session_id is None:
+            raise ValueError("会话标识无效")
+
+        project = default_project_folder()
+        is_new_session = not self._history.has_session(normalized_session_id)
+        if not is_new_session:
+            history = self._history.get_session(normalized_session_id)
+            history_path = history.get("project_path")
+            if isinstance(history_path, str):
+                candidate = Path(history_path).resolve()
+                if candidate.is_dir():
+                    project = candidate
+
+        site, model_name = self._get_current_provider()
+        config = ClaudeChatConfig(
+            api_key=site.api_key,
+            api_url=site.api_url,
+            can_use_tool=partial(
+                self._request_tool_permission,
+                session_id=normalized_session_id,
+            ),
+            effort="high",
+            is_new_session=is_new_session,
+            model=model_name,
+            permission_mode="default",
+            project=project,
+            session_id=normalized_session_id,
+        )
+        client = self._get_or_create_chat_client(config)
+        try:
+            return client.get_server_info()
+        finally:
+            with self._active_chats_lock:
+                active_chat = self._active_chats.get(normalized_session_id)
+                if active_chat is not None and not active_chat.running:
+                    self._schedule_client_cleanup(
+                        normalized_session_id,
+                        active_chat,
+                    )
+
+    def _schedule_client_cleanup(
+        self,
+        session_id: str,
+        active_chat: _ActiveChat,
+    ) -> None:
+        """Close an idle session client after its five-minute grace period."""
+        if active_chat.running:
+            return
+        if active_chat.cleanup_timer is not None:
+            active_chat.cleanup_timer.cancel()
+        active_chat.cleanup_generation += 1
+        generation = active_chat.cleanup_generation
+        timer = Timer(
+            CHAT_CLIENT_IDLE_SECONDS,
+            self._expire_chat_client,
+            args=(session_id, active_chat.client, generation),
+        )
+        timer.daemon = True
+        active_chat.cleanup_timer = timer
+        timer.start()
+
+    def _expire_chat_client(
+        self,
+        session_id: str,
+        client: ClaudeChatClient,
+        generation: int,
+    ) -> None:
+        with self._active_chats_lock:
+            active_chat = self._active_chats.get(session_id)
+            if (
+                active_chat is None
+                or active_chat.client is not client
+                or active_chat.running
+                or active_chat.cleanup_generation != generation
+            ):
+                return
+            self._active_chats.pop(session_id)
+        client.close()
+
+    def _shutdown_chat_clients(self) -> None:
+        """Close every retained session client during application shutdown."""
+        with self._active_chats_lock:
+            active_chats = list(self._active_chats.values())
+            self._active_chats.clear()
+            for active_chat in active_chats:
+                if active_chat.cleanup_timer is not None:
+                    active_chat.cleanup_timer.cancel()
+        for active_chat in active_chats:
+            active_chat.client.close()
 
     def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
         sessions = self._history.list_sessions()
-        sessions_by_id = {
-            str(session["session_id"]): session
-            for session in sessions
-        }
+        sessions_by_id = {str(session["session_id"]): session for session in sessions}
         with self._active_chats_lock:
             for session_id, active_chat in self._active_chats.items():
-                active_summary = {
-                    key: value
-                    for key, value in active_chat.metadata.items()
-                    if key != "prompt"
-                }
+                if not active_chat.running:
+                    continue
+                active_summary = {key: value for key, value in active_chat.metadata.items() if key != "prompt"}
                 persisted_summary = sessions_by_id.get(session_id)
                 if persisted_summary is None:
                     sessions_by_id[session_id] = active_summary
@@ -339,16 +482,12 @@ class ChatRouter:
         except ValueError:
             with self._active_chats_lock:
                 active_chat = self._active_chats.get(normalized_session_id)
-                if active_chat is None:
+                if active_chat is None or not active_chat.running:
                     raise
                 metadata = active_chat.metadata
                 prompt = str(metadata["prompt"])
                 return {
-                    **{
-                        key: value
-                        for key, value in metadata.items()
-                        if key != "prompt"
-                    },
+                    **{key: value for key, value in metadata.items() if key != "prompt"},
                     "messages": [
                         {
                             "key": f"active-user-{normalized_session_id}",
@@ -365,7 +504,7 @@ class ChatRouter:
             return None
         with self._active_chats_lock:
             active_chat = self._active_chats.get(normalized_session_id)
-            if active_chat is None:
+            if active_chat is None or not active_chat.running:
                 return None
             return {
                 "session_id": normalized_session_id,
@@ -377,18 +516,19 @@ class ChatRouter:
         normalized_session_id = self._normalize_optional_session_id(session_id)
         with self._active_chats_lock:
             if normalized_session_id is None:
-                if not self._active_chats:
+                running_chats = [
+                    (chat_session_id, active_chat)
+                    for chat_session_id, active_chat in self._active_chats.items()
+                    if active_chat.running
+                ]
+                if not running_chats:
                     return False
-                if len(self._active_chats) > 1:
-                    raise ValueError(
-                        "存在多个正在生成的会话，请指定要停止的会话"
-                    )
-                normalized_session_id, active_chat = next(
-                    iter(self._active_chats.items())
-                )
+                if len(running_chats) > 1:
+                    raise ValueError("存在多个正在生成的会话，请指定要停止的会话")
+                normalized_session_id, active_chat = running_chats[0]
             else:
                 active_chat = self._active_chats.get(normalized_session_id)
-                if active_chat is None:
+                if active_chat is None or not active_chat.running:
                     return False
             client = active_chat.client
 
@@ -396,10 +536,7 @@ class ChatRouter:
             pending_decisions = [
                 pending.future
                 for pending in self._pending_permissions.values()
-                if (
-                    pending.session_id == normalized_session_id
-                    and not pending.future.done()
-                )
+                if (pending.session_id == normalized_session_id and not pending.future.done())
             ]
             for decision in pending_decisions:
                 decision.set_result(_PermissionDecision(allowed=False))
@@ -485,9 +622,7 @@ class ChatRouter:
 
         if response.allowed:
             if tool_name == "AskUserQuestion":
-                return PermissionResultAllow(
-                    updated_input={**input_data, "answers": response.answers}
-                )
+                return PermissionResultAllow(updated_input={**input_data, "answers": response.answers})
             return PermissionResultAllow()
         return PermissionResultDeny(message="用户已拒绝本次工具调用")
 

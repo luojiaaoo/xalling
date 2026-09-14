@@ -10,6 +10,9 @@ type PyWebviewApi = {
     query: string,
     limit?: number,
   ) => Promise<ProjectFileMatch[]>;
+  get_commands: (sessionId: string) => Promise<ClaudeCommand[]>;
+  get_allowed_command_names: () => Promise<string[]>;
+  get_skills: (sessionId: string) => Promise<ClaudeCommand[]>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
   save_model_site: (
@@ -79,6 +82,14 @@ export type ProjectFileMatch = {
   path: string;
   relative: string;
   is_dir: boolean;
+};
+
+// Claude 运行时暴露的斜杠条目（技能或常规命令，由后端 CommandRouter 返回）
+export type ClaudeCommand = {
+  name: string;
+  description: string;
+  argument_hint: string;
+  aliases: string[];
 };
 
 export type ChatEffort = "low" | "medium" | "high" | "max";
@@ -389,6 +400,21 @@ export async function searchProjectFiles(
 ): Promise<ProjectFileMatch[]> {
   const api = await getBridgeApi();
   return (await api?.search_project_files(projectPath, query, limit)) ?? [];
+}
+
+export async function getCommands(sessionId: string): Promise<ClaudeCommand[]> {
+  const api = await getBridgeApi();
+  return (await api?.get_commands(sessionId)) ?? [];
+}
+
+export async function getAllowedCommandNames(): Promise<string[]> {
+  const api = await getBridgeApi();
+  return (await api?.get_allowed_command_names()) ?? [];
+}
+
+export async function getSkills(sessionId: string): Promise<ClaudeCommand[]> {
+  const api = await getBridgeApi();
+  return (await api?.get_skills(sessionId)) ?? [];
 }
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {

@@ -1,47 +1,52 @@
-from pathlib import Path
+from backend.router.command import (
+    ALLOWED_COMMAND_NAMES,
+    CommandRouter,
+    is_allowed_leading_slash,
+)
 
-from backend.config.current import CurrentConfig
-from backend.config.setting import Settings
-from backend.router.command import CommandRouter
 
-
-def test_command_router_exposes_cached_commands_and_skills(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.router.command.get_cached_server_info",
-        lambda: {
-            "commands": [
-                {
-                    "name": "clear",
-                    "description": "Clear the conversation",
-                },
-                {
-                    "name": "compact",
-                    "description": "Summarize the conversation",
-                    "argumentHint": "[instructions]",
-                },
-                {
-                    "name": "config",
-                    "description": "Set a setting",
-                },
-                {
-                    "name": ".agents:review",
-                    "description": "Review changes",
-                    "argumentHint": "[path]",
-                    "aliases": [" review ", "", 42],
-                },
-                {
-                    "name": "user-skill",
-                    "description": "A custom skill (user)",
-                },
-                {"name": "explicit", "description": "Explicit", "kind": "skill"},
-                {"description": "Missing name", "kind": "skill"},
-            ]
-        },
-    )
+def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
+    server_info = {
+        "commands": [
+            {
+                "name": "clear",
+                "description": "Clear the conversation",
+            },
+            {
+                "name": "compact",
+                "description": "Summarize the conversation",
+                "argumentHint": "[instructions]",
+            },
+            {
+                "name": "config",
+                "description": "Set a setting",
+            },
+            {
+                "name": ".agents:review",
+                "description": "Review changes",
+                "argumentHint": "[path]",
+                "aliases": [" review ", "", 42],
+            },
+            {
+                "name": "user-skill",
+                "description": "A custom skill (user)",
+            },
+            {"name": "explicit", "description": "Explicit", "kind": "skill"},
+            {"description": "Missing name", "kind": "skill"},
+        ]
+    }
 
     router = CommandRouter()
+    requested_sessions: list[str] = []
 
-    assert router.get_commands() == [
+    def get_server_info(session_id: str):
+        requested_sessions.append(session_id)
+        return server_info
+
+    monkeypatch.setattr(router, "_get_chat_server_info", get_server_info)
+
+    session_id = "session-id"
+    assert router.get_commands(session_id) == [
         {
             "name": "compact",
             "description": "Summarize the conversation",
@@ -49,7 +54,8 @@ def test_command_router_exposes_cached_commands_and_skills(monkeypatch) -> None:
             "aliases": [],
         }
     ]
-    assert router.get_skills() == [
+    assert router.get_allowed_command_names() == sorted(ALLOWED_COMMAND_NAMES)
+    assert router.get_skills(session_id) == [
         {
             "name": ".agents:review",
             "description": "Review changes",
@@ -69,66 +75,23 @@ def test_command_router_exposes_cached_commands_and_skills(monkeypatch) -> None:
             "aliases": [],
         },
     ]
+    assert requested_sessions == [session_id, session_id]
+    assert is_allowed_leading_slash("compact", server_info) is True
+    assert is_allowed_leading_slash(".agents:review", server_info) is True
+    assert is_allowed_leading_slash("review", server_info) is True
+    assert is_allowed_leading_slash("clear", server_info) is False
+    assert is_allowed_leading_slash("debug", server_info) is False
+    assert is_allowed_leading_slash("insights", server_info) is False
+    assert is_allowed_leading_slash("list-agents", server_info) is False
 
 
 def test_command_router_handles_missing_command_list(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.router.command.get_cached_server_info",
-        lambda: {"commands": None},
-    )
-
     router = CommandRouter()
-
-    assert router.get_commands() == []
-    assert router.get_skills() == []
-
-
-def test_command_router_starts_one_application_monitor(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    settings_path = tmp_path / "setting.toml"
-    settings_path.write_text(
-        '[[model]]\nname = "Claude"\napi_key = "secret"\n'
-        'api_url = "https://api.example.com"\n'
-        '[[model.models]]\nname = "claude-sonnet"\n',
-        encoding="utf-8",
-    )
-    current_path = tmp_path / "current.toml"
-    current_path.write_text(
-        '[model]\nsite = "Claude"\nname = "claude-sonnet"\n',
-        encoding="utf-8",
-    )
-    monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
-    monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
     monkeypatch.setattr(
-        "backend.router.command.default_project_folder",
-        lambda: tmp_path,
+        router,
+        "_get_chat_server_info",
+        lambda _session_id: {"commands": None},
     )
 
-    class ThreadStub:
-        @staticmethod
-        def is_alive() -> bool:
-            return True
-
-    providers = []
-
-    def start_monitor(config_provider):
-        providers.append(config_provider)
-        return ThreadStub()
-
-    monkeypatch.setattr(
-        "backend.router.command.start_server_info_monitor",
-        start_monitor,
-    )
-    router = CommandRouter()
-
-    router._start_server_info_monitor()
-    router._start_server_info_monitor()
-
-    assert len(providers) == 1
-    config = providers[0]()
-    assert config is not None
-    assert config.api_key == "secret"
-    assert config.model == "claude-sonnet"
-    assert config.project == tmp_path
+    assert router.get_commands("session-id") == []
+    assert router.get_skills("session-id") == []

@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
@@ -23,9 +23,28 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from backend.chat.client import ClaudeChatClient
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router.chat import ChatRouter, _ChatMessageRequest
+from backend.router.chat import ChatRouter, _ChatMessageRequest, _validate_leading_slash
+
+
+@pytest.fixture(autouse=True)
+def close_persistent_chat_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    clients: list[ClaudeChatClient] = []
+    original_init = ClaudeChatClient.__init__
+
+    def tracked_init(self: ClaudeChatClient, *args: object, **kwargs: object) -> None:
+        original_init(self, *args, **kwargs)
+        clients.append(self)
+
+    monkeypatch.setattr(ClaudeChatClient, "__init__", tracked_init)
+    monkeypatch.setattr("backend.chat.client.discover_skill_plugins", lambda **_: [])
+    yield
+    for client in clients:
+        client.close()
 
 
 def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,6 +64,22 @@ def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
 
+def test_leading_slash_validation_blocks_only_disallowed_leading_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "backend.router.chat.is_allowed_leading_slash",
+        lambda name, _server_info: name in {"compact", ".agents:review"},
+    )
+
+    _validate_leading_slash("/compact focus on tests", {})
+    _validate_leading_slash("/.agents:review backend", {})
+    _validate_leading_slash("请帮我执行 /clear", {})
+
+    with pytest.raises(ValueError, match=r"不允许执行命令 /clear"):
+        _validate_leading_slash("/clear", {})
+
+
 def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -62,9 +97,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
             assert self._options.settings is not None
             settings_path = Path(self._options.settings)
             captured["settings_path"] = settings_path
-            captured["flag_settings"] = json.loads(
-                settings_path.read_text(encoding="utf-8")
-            )
+            captured["flag_settings"] = json.loads(settings_path.read_text(encoding="utf-8"))
             return self
 
         async def __aexit__(self, *args: object) -> None:
@@ -75,9 +108,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
 
         async def receive_response(
             self,
-        ) -> AsyncIterator[
-            StreamEvent | AssistantMessage | UserMessage | ResultMessage
-        ]:
+        ) -> AsyncIterator[StreamEvent | AssistantMessage | UserMessage | ResultMessage]:
             yield StreamEvent(
                 uuid="message-1",
                 session_id=session_id,
@@ -237,9 +268,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert '"type":"chat_complete"' in scripts[-1]
 
 
-def test_chat_router_passes_resume_session_to_sdk(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_chat_router_passes_resume_session_to_sdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
     captured: dict[str, object] = {}
@@ -281,9 +310,7 @@ def test_chat_router_passes_resume_session_to_sdk(
     assert captured["permission_mode"] == "default"
 
 
-def test_chat_router_keeps_only_running_clients(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     configure_model(tmp_path, monkeypatch)
     session_ids = {"first": str(uuid4()), "second": str(uuid4())}
     started = {prompt: Event() for prompt in session_ids}
@@ -316,7 +343,7 @@ def test_chat_router_keeps_only_running_clients(
                 },
             )
             session_started[self._prompt].set()
-            release[self._prompt].wait(timeout=2)
+            await asyncio.to_thread(release[self._prompt].wait, 2)
             yield ResultMessage(
                 subtype="success",
                 duration_ms=1,
@@ -350,31 +377,29 @@ def test_chat_router_keeps_only_running_clients(
         }
         assert all(event.wait(timeout=2) for event in started.values())
         assert all(event.wait(timeout=2) for event in session_started.values())
-        assert set(router._active_chats) == set(session_ids.values())
-        active_first = router.get_active_chat(session_ids["first"])
-        assert active_first is not None
-        assert active_first["session_id"] == session_ids["first"]
-        assert active_first["events"][0]["type"] == "session_started"
-        assert {
-            session["session_id"] for session in router.list_chat_sessions()
-        } == set(session_ids.values())
+
+        active_running = router.get_active_chat(session_ids["first"])
+        assert active_running is not None
+        assert active_running["session_id"] == session_ids["first"]
+        assert active_running["events"][0]["type"] == "session_started"
+        visible_session_ids = {session["session_id"] for session in router.list_chat_sessions()}
+        assert visible_session_ids == set(session_ids.values())
         active_history = router.get_chat_session(session_ids["first"])
         assert active_history["messages"][0]["content"] == "first"
 
         release["first"].set()
         assert futures["first"].result(timeout=2)["content"] == "first"
-        assert set(router._active_chats) == {session_ids["second"]}
         assert router.get_active_chat(session_ids["first"]) is None
+        assert router._active_chats[session_ids["first"]].cleanup_timer is not None
 
         release["second"].set()
         assert futures["second"].result(timeout=2)["content"] == "second"
 
-    assert not router._active_chats
+    assert set(router._active_chats) == set(session_ids.values())
+    assert all(not chat.running for chat in router._active_chats.values())
 
 
-def test_chat_router_promotes_an_active_existing_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_chat_router_promotes_an_active_existing_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     configure_model(tmp_path, monkeypatch)
     active_session_id = str(uuid4())
     other_session_id = str(uuid4())
@@ -517,12 +542,12 @@ def test_chat_router_stops_active_turn_and_returns_partial_output(
     with ThreadPoolExecutor(max_workers=1) as executor:
         result_future = executor.submit(
             router.send_chat_message,
-                "执行耗时任务",
-                str(tmp_path),
-                session_id,
-                "high",
-                "default",
-            )
+            "执行耗时任务",
+            str(tmp_path),
+            session_id,
+            "high",
+            "default",
+        )
         assert query_started.wait(timeout=2)
         assert router.stop_chat_message(session_id)
         reply = result_future.result(timeout=2)
@@ -537,9 +562,7 @@ def test_chat_router_stops_active_turn_and_returns_partial_output(
     assert not router.stop_chat_message(session_id)
 
 
-def test_chat_router_stop_releases_pending_tool_permission(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_chat_router_stop_releases_pending_tool_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
     permission_visible = Event()
@@ -594,11 +617,11 @@ def test_chat_router_stop_releases_pending_tool_permission(
     with ThreadPoolExecutor(max_workers=1) as executor:
         result_future = executor.submit(
             router.send_chat_message,
-                "修改文件",
-                str(tmp_path),
-                None,
-                "high",
-            )
+            "修改文件",
+            str(tmp_path),
+            None,
+            "high",
+        )
         assert permission_visible.wait(timeout=2)
         assert router.stop_chat_message()
         reply = result_future.result(timeout=2)
@@ -734,9 +757,7 @@ def test_chat_router_rejects_invalid_permission_mode(permission_mode: str) -> No
     ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
 )
 def test_chat_message_request_accepts_sdk_permission_modes(permission_mode: str) -> None:
-    request = _ChatMessageRequest.model_validate(
-        {"prompt": "检查项目", "permission_mode": permission_mode}
-    )
+    request = _ChatMessageRequest.model_validate({"prompt": "检查项目", "permission_mode": permission_mode})
 
     assert request.permission_mode == permission_mode
 

@@ -1,24 +1,11 @@
-"""Claude skill methods exposed to the local Web UI."""
+"""Claude command and skill methods exposed to the local Web UI."""
 
-from threading import Lock, Thread
-from typing import TypedDict
-from uuid import uuid4
-
-from backend.chat.client import (
-    ClaudeChatConfig,
-    get_cached_server_info,
-    start_server_info_monitor,
-)
-from backend.config.current import CurrentConfig
-from backend.config.setting import Settings, default_project_folder
+from typing import Any, TypedDict
 
 ALLOWED_COMMAND_NAMES = frozenset(
     {
         "compact",
-        "debug",
         "init",
-        "insights",
-        "list-agents",
         "recap",
         "reload-skills",
         "security-review",
@@ -37,20 +24,21 @@ class ClaudeCommand(TypedDict):
 
 
 def _is_skill(name: str, description: str, item: dict[object, object]) -> bool:
-    """Identify skills in the runtime's combined slash-command list."""
     item_kind = item.get("kind", item.get("type"))
     if item_kind == "skill":
         return True
     if item_kind == "command":
         return False
-    return description.rstrip().endswith("(user)") or name.startswith(
-        (".agents:", ".xalling:", "opencode:")
-    )
+    return description.rstrip().endswith("(user)") or name.startswith((".agents:", ".xalling:", "opencode:"))
 
 
-def _get_cached_commands(skills: bool) -> list[ClaudeCommand]:
-    """Normalize either skills or regular commands from the shared cache."""
-    raw_commands = get_cached_server_info().get("commands", [])
+def _get_server_commands(
+    server_info: dict[str, Any],
+    *,
+    skills: bool,
+) -> list[ClaudeCommand]:
+    """Normalize either skills or regular commands from live server metadata."""
+    raw_commands = server_info.get("commands", [])
     if not isinstance(raw_commands, list):
         return []
 
@@ -76,13 +64,9 @@ def _get_cached_commands(skills: bool) -> list[ClaudeCommand]:
             {
                 "name": name,
                 "description": description,
-                "argument_hint": argument_hint if isinstance(argument_hint, str) else "",
+                "argument_hint": (argument_hint if isinstance(argument_hint, str) else ""),
                 "aliases": (
-                    [
-                        alias.strip()
-                        for alias in aliases
-                        if isinstance(alias, str) and alias.strip()
-                    ]
+                    [alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()]
                     if isinstance(aliases, list)
                     else []
                 ),
@@ -91,67 +75,35 @@ def _get_cached_commands(skills: bool) -> list[ClaudeCommand]:
     return commands
 
 
+def is_allowed_leading_slash(name: str, server_info: dict[str, Any]) -> bool:
+    """Return whether a leading slash name may be executed."""
+    if name in ALLOWED_COMMAND_NAMES:
+        return True
+    return any(
+        name == skill["name"] or name in skill["aliases"] for skill in _get_server_commands(server_info, skills=True)
+    )
+
+
 class CommandRouter:
-    """Expose cached Claude commands without creating another SDK client."""
+    """Expose live commands through clients retained by ChatRouter."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._server_info_monitor_lock = Lock()
-        self._server_info_monitor_thread: Thread | None = None
-
-    def _start_server_info_monitor(self) -> None:
-        """Start the application-wide metadata monitor once."""
-        with self._server_info_monitor_lock:
-            if (
-                self._server_info_monitor_thread is not None
-                and self._server_info_monitor_thread.is_alive()
-            ):
-                return
-            self._server_info_monitor_thread = start_server_info_monitor(
-                self._server_info_config
-            )
-
-    @staticmethod
-    def _server_info_config() -> ClaudeChatConfig | None:
-        """Build monitor configuration from the current provider selection."""
-        settings = Settings()
-        current = CurrentConfig().model
-        selected = next(
-            (
-                (site, model.name)
-                for site in settings.model
-                for model in site.models
-                if site.name == current.site and model.name == current.name
-            ),
-            None,
-        )
-        if selected is None:
-            selected = next(
-                (
-                    (site, model.name)
-                    for site in settings.model
-                    for model in site.models
-                ),
-                None,
-            )
-        if selected is None:
-            return None
-
-        site, model_name = selected
-        return ClaudeChatConfig(
-            api_key=site.api_key,
-            api_url=site.api_url,
-            effort="low",
-            is_new_session=True,
-            model=model_name,
-            project=default_project_folder(),
-            session_id=str(uuid4()),
+    def get_commands(self, session_id: str) -> list[ClaudeCommand]:
+        """Return regular commands from the session's live SDK client."""
+        return _get_server_commands(
+            self._get_chat_server_info(session_id),
+            skills=False,
         )
 
-    def get_commands(self) -> list[ClaudeCommand]:
-        """Return regular commands from the latest server metadata."""
-        return _get_cached_commands(skills=False)
+    def get_allowed_command_names(self) -> list[str]:
+        """Return command names the chat API allows at the prompt start."""
+        return sorted(ALLOWED_COMMAND_NAMES)
 
-    def get_skills(self) -> list[ClaudeCommand]:
-        """Return skills from the latest server metadata."""
-        return _get_cached_commands(skills=True)
+    def get_skills(self, session_id: str) -> list[ClaudeCommand]:
+        """Return skills from the session's live SDK client."""
+        return _get_server_commands(
+            self._get_chat_server_info(session_id),
+            skills=True,
+        )
+
+    def _get_chat_server_info(self, session_id: str) -> dict[str, Any]:
+        raise NotImplementedError

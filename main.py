@@ -43,7 +43,6 @@ def main() -> None:
     # 仅带 drag-region CSS 类的元素可拖动无边框窗口。
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     bridge = ApplicationBridge()
-    bridge._start_server_info_monitor()
     window = webview.create_window(
         "Xalling",
         url=index_file.resolve().as_uri(),
@@ -59,7 +58,10 @@ def main() -> None:
         background_color="#f7f7fb",
     )
     bridge.bind_window(window)
-    webview.start(debug=DEBUG)
+    try:
+        webview.start(debug=DEBUG)
+    finally:
+        bridge._shutdown_chat_clients()
 
 
 if __name__ == "__main__":

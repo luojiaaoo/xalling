@@ -45,7 +45,11 @@ class ChatTrace:
         elif isinstance(message, ResultMessage):
             self._result = message
 
-    def finish(self, interrupted: bool = False) -> ChatReply:
+    def finish(
+        self,
+        interrupted: bool = False,
+        empty_result_content: str | None = None,
+    ) -> ChatReply:
         """Complete open trace blocks and build the final chat reply."""
         for block_id, kind in self._block_kinds.items():
             self._complete_block(block_id, kind)
@@ -67,7 +71,7 @@ class ChatTrace:
             content_source = streamed_output or assistant_output
         else:
             content_source = result.result or assistant_output or streamed_output
-        content = content_source.strip()
+        content = content_source.strip() or (empty_result_content or "").strip()
         if not content and not interrupted:
             raise RuntimeError("Claude 没有返回文字内容")
         final_output_block_id = (
@@ -92,8 +96,7 @@ class ChatTrace:
             stream_message = event.get("message")
             self._current_stream_message_id = (
                 stream_message.get("id")
-                if isinstance(stream_message, dict)
-                and isinstance(stream_message.get("id"), str)
+                if isinstance(stream_message, dict) and isinstance(stream_message.get("id"), str)
                 else f"message-{self._stream_message_number}"
             )
             return
@@ -123,9 +126,7 @@ class ChatTrace:
     def _consume_assistant_message(self, message: AssistantMessage) -> None:
         self._assistant_message_number += 1
         message_id = (
-            message.message_id
-            or self._current_stream_message_id
-            or f"message-{self._assistant_message_number}"
+            message.message_id or self._current_stream_message_id or f"message-{self._assistant_message_number}"
         )
         self._current_stream_message_id = message_id
         tool_group_id = f"tools-{message_id}"
@@ -160,14 +161,8 @@ class ChatTrace:
                     completed_tool_ids.add(block.tool_use_id)
                     self._emit_tool_complete(block.tool_use_id, block.is_error)
 
-        if (
-            message.parent_tool_use_id is not None
-            and message.parent_tool_use_id not in completed_tool_ids
-        ):
-            is_error = bool(
-                message.tool_use_result
-                and message.tool_use_result.get("is_error") is True
-            )
+        if message.parent_tool_use_id is not None and message.parent_tool_use_id not in completed_tool_ids:
+            is_error = bool(message.tool_use_result and message.tool_use_result.get("is_error") is True)
             self._emit_tool_complete(message.parent_tool_use_id, is_error)
 
     def _block_id(self, block_index: int) -> str:
