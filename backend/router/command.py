@@ -1,5 +1,6 @@
 """Claude command and skill methods exposed to the local Web UI."""
 
+from abc import ABC, abstractmethod
 from typing import Any, TypedDict
 
 # 允许对外暴露并执行的常规命令白名单（交互式/客户端命令不开放）
@@ -91,7 +92,7 @@ def is_allowed_leading_slash(name: str, server_info: dict[str, Any]) -> bool:
     )
 
 
-class CommandRouter:
+class CommandRouter(ABC):
     """Expose live commands through clients retained by ChatRouter."""
 
     async def get_commands(self, session_id: str) -> list[ClaudeCommand]:
@@ -112,6 +113,6 @@ class CommandRouter:
             skills=True,
         )
 
+    @abstractmethod
     async def _get_chat_server_info(self, session_id: str) -> dict[str, Any]:
-        # 由 ChatRouter 提供：通过会话保留的 SDK 客户端实时获取 server info
-        raise NotImplementedError
+        """Return live server metadata for a retained chat session."""

@@ -30,7 +30,7 @@ from backend.chat import (
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import ModelSiteConfig, Settings, default_project_folder
-from backend.router.command import is_allowed_leading_slash
+from backend.router.command import CommandRouter, is_allowed_leading_slash
 
 # 对话结束后 SDK 客户端保留时长：期间命令/技能请求与下一轮对话复用同一连接，超时自动关闭
 CHAT_CLIENT_IDLE_SECONDS = 5 * 60
@@ -214,7 +214,7 @@ class _ActiveChat:
     cleanup_generation: int = 0
 
 
-class ChatRouter:
+class ChatRouter(CommandRouter):
     """Validate UI input and delegate agent turns to the chat library."""
 
     _window: Any | None = None

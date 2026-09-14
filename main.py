@@ -6,7 +6,6 @@ import webview
 from backend.async_runtime import bridge_api
 from backend.router import (
     ChatRouter,
-    CommandRouter,
     FileRouter,
     LogRouter,
     ModelRouter,
@@ -26,7 +25,6 @@ class ApplicationBridge(
     ModelRouter,
     ThemeRouter,
     ChatRouter,
-    CommandRouter,
     LogRouter,
 ):
     """Compose the JSON-only routers exposed to the local Web UI."""

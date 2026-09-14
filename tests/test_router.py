@@ -121,6 +121,8 @@ def test_application_bridge_composes_and_wraps_router_methods(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
+    assert inspect.isabstract(CommandRouter)
+
     bridge = ApplicationBridge()
     try:
         assert isinstance(bridge, WindowRouter)
