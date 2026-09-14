@@ -13,8 +13,8 @@ from backend.config.current import CurrentConfig
 from backend.config.setting import Settings, default_project_folder
 
 
-class ClaudeSkill(TypedDict):
-    """One user or project skill advertised by the Claude runtime."""
+class ClaudeCommand(TypedDict):
+    """One slash command advertised by the Claude runtime."""
 
     name: str
     description: str
@@ -34,8 +34,49 @@ def _is_skill(name: str, description: str, item: dict[object, object]) -> bool:
     )
 
 
+def _get_cached_commands(skills: bool) -> list[ClaudeCommand]:
+    """Normalize either skills or regular commands from the shared cache."""
+    raw_commands = get_cached_server_info().get("commands", [])
+    if not isinstance(raw_commands, list):
+        return []
+
+    commands: list[ClaudeCommand] = []
+    for item in raw_commands:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+
+        name = name.strip()
+        raw_description = item.get("description", "")
+        description = raw_description if isinstance(raw_description, str) else ""
+        if _is_skill(name, description, item) is not skills:
+            continue
+
+        argument_hint = item.get("argumentHint", "")
+        aliases = item.get("aliases", [])
+        commands.append(
+            {
+                "name": name,
+                "description": description,
+                "argument_hint": argument_hint if isinstance(argument_hint, str) else "",
+                "aliases": (
+                    [
+                        alias.strip()
+                        for alias in aliases
+                        if isinstance(alias, str) and alias.strip()
+                    ]
+                    if isinstance(aliases, list)
+                    else []
+                ),
+            }
+        )
+    return commands
+
+
 class CommandRouter:
-    """Expose cached Claude skills without creating another SDK client."""
+    """Expose cached Claude commands without creating another SDK client."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -91,48 +132,10 @@ class CommandRouter:
             session_id=str(uuid4()),
         )
 
-    def get_commands(self) -> list[ClaudeSkill]:
-        """Return the skills from the latest cached Claude server metadata."""
-        raw_commands = get_cached_server_info().get("commands", [])
-        if not isinstance(raw_commands, list):
-            return []
+    def get_commands(self) -> list[ClaudeCommand]:
+        """Return regular commands from the latest server metadata."""
+        return _get_cached_commands(skills=False)
 
-        skills: list[ClaudeSkill] = []
-        for item in raw_commands:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("name")
-            if not isinstance(name, str) or not name.strip():
-                continue
-
-            normalized_name = name.strip()
-            raw_description = item.get("description", "")
-            description = (
-                raw_description if isinstance(raw_description, str) else ""
-            )
-            if not _is_skill(normalized_name, description, item):
-                continue
-
-            raw_argument_hint = item.get("argumentHint", "")
-            raw_aliases = item.get("aliases", [])
-            skills.append(
-                {
-                    "name": normalized_name,
-                    "description": description,
-                    "argument_hint": (
-                        raw_argument_hint
-                        if isinstance(raw_argument_hint, str)
-                        else ""
-                    ),
-                    "aliases": (
-                        [
-                            alias.strip()
-                            for alias in raw_aliases
-                            if isinstance(alias, str) and alias.strip()
-                        ]
-                        if isinstance(raw_aliases, list)
-                        else []
-                    ),
-                }
-            )
-        return skills
+    def get_skills(self) -> list[ClaudeCommand]:
+        """Return skills from the latest server metadata."""
+        return _get_cached_commands(skills=True)

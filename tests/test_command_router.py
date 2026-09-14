@@ -5,7 +5,7 @@ from backend.config.setting import Settings
 from backend.router.command import CommandRouter
 
 
-def test_command_router_returns_only_cached_skills(monkeypatch) -> None:
+def test_command_router_exposes_cached_commands_and_skills(monkeypatch) -> None:
     monkeypatch.setattr(
         "backend.router.command.get_cached_server_info",
         lambda: {
@@ -30,7 +30,17 @@ def test_command_router_returns_only_cached_skills(monkeypatch) -> None:
         },
     )
 
-    assert CommandRouter().get_commands() == [
+    router = CommandRouter()
+
+    assert router.get_commands() == [
+        {
+            "name": "clear",
+            "description": "Clear the conversation",
+            "argument_hint": "",
+            "aliases": [],
+        }
+    ]
+    assert router.get_skills() == [
         {
             "name": ".agents:review",
             "description": "Review changes",
@@ -58,7 +68,10 @@ def test_command_router_handles_missing_command_list(monkeypatch) -> None:
         lambda: {"commands": None},
     )
 
-    assert CommandRouter().get_commands() == []
+    router = CommandRouter()
+
+    assert router.get_commands() == []
+    assert router.get_skills() == []
 
 
 def test_command_router_starts_one_application_monitor(
