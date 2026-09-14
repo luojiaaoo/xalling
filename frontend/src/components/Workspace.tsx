@@ -99,6 +99,7 @@ function applyEventToAssistant(
 
 type WorkspaceProps = {
   effort: number;
+  focusMessageKey?: string | null;
   hidden?: boolean;
   initialSessionId?: string | null;
   onEffortChange: (value: number) => void;
@@ -111,6 +112,7 @@ type WorkspaceProps = {
 
 export function Workspace({
   effort,
+  focusMessageKey = null,
   hidden = false,
   initialSessionId = null,
   onEffortChange,
@@ -137,6 +139,8 @@ export function Workspace({
   const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
   const startedAtRef = useRef<number | null>(null);
   const stopRequestedRef = useRef(false);
+  // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
+  const focusBubbleKeyRef = useRef(focusMessageKey ? `history-${focusMessageKey}` : null);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
 
   const applyLiveEvent = useCallback((event: ChatStreamEvent) => {
@@ -419,6 +423,31 @@ export function Workspace({
     const scrollBox = chatScrollRef.current;
     scrollBox?.scrollTo({ top: scrollBox.scrollHeight, behavior: "smooth" });
   }, [busy, messages, elapsedSeconds]);
+
+  // 搜索跳转：历史载入完成后，按序号数气泡，把命中气泡滚动置顶并短暂高亮
+  useEffect(() => {
+    const targetKey = focusBubbleKeyRef.current;
+    if (!targetKey || historyLoading) {
+      return undefined;
+    }
+    const index = messages.findIndex((item) => item.key === targetKey);
+    if (index < 0) {
+      return undefined;
+    }
+    focusBubbleKeyRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      const target = chatScrollRef.current
+        ?.querySelectorAll(".chat-bubbles .ant-bubble")
+        .item(index);
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.add("search-jump-target");
+      window.setTimeout(() => target.classList.remove("search-jump-target"), 2600);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [historyLoading, messages]);
 
   const handlePermissionDecision = async (
     request: ChatPermissionRequestEvent,

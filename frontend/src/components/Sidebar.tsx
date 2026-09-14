@@ -19,7 +19,16 @@ import { getHomeFolder } from "../bridge/client";
 import { BrandMark } from "./BrandMark";
 
 const navigation: MenuProps["items"] = [
-  { key: "search", icon: <SearchOutlined />, label: "搜索" },
+  {
+    key: "search",
+    icon: <SearchOutlined />,
+    label: (
+      <span className="menu-label">
+        <span>搜索</span>
+        <kbd className="menu-shortcut">Ctrl K</kbd>
+      </span>
+    ),
+  },
   { key: "automation", icon: <ThunderboltOutlined />, label: "自动化" },
 ];
 
@@ -88,8 +97,10 @@ type SidebarProps = {
   onHistorySessionClick?: (sessionId: string) => void;
   onNewTask: () => void;
   onProjectTask?: (project: ProjectFolder) => void;
+  onSearchClick?: () => void;
   onSettingsClick: () => void;
   mode?: "workspace" | "settings";
+  searchActive?: boolean;
   activeSettingsSection?: string;
   onSettingsSectionChange?: (section: string) => void;
   onBackToWorkspace?: () => void;
@@ -103,8 +114,10 @@ export function Sidebar({
   onHistorySessionClick,
   onNewTask,
   onProjectTask,
+  onSearchClick,
   onSettingsClick,
   mode = "workspace",
+  searchActive = false,
   activeSettingsSection = "model",
   onSettingsSectionChange,
   onBackToWorkspace,
@@ -232,9 +245,18 @@ export function Sidebar({
           <>
             <Button className="new-task-button" icon={<PlusCircleOutlined />} block onClick={onNewTask}>
               新建任务
-              <kbd>Ctrl N</kbd>
             </Button>
-            <Menu className="main-menu" mode="inline" selectedKeys={["automation"]} items={navigation} />
+            <Menu
+              className="main-menu"
+              mode="inline"
+              selectedKeys={[searchActive ? "search" : "automation"]}
+              onClick={({ key }) => {
+                if (key === "search") {
+                  onSearchClick?.();
+                }
+              }}
+              items={navigation}
+            />
             <div className="task-list">
               {sessionsLoading && (
                 <div className="history-list-status">正在读取…</div>

@@ -33,6 +33,7 @@ type PyWebviewApi = {
     permissionMode: ChatPermissionMode,
   ) => Promise<ChatReply>;
   list_chat_sessions: () => Promise<ChatSessionSummary[]>;
+  search_chat_sessions: (query: string) => Promise<ChatSearchMatch[]>;
   get_chat_session: (sessionId: string) => Promise<ChatSessionHistory>;
   get_active_chat: (sessionId: string) => Promise<ActiveChat | null>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
@@ -115,6 +116,13 @@ export type ChatSessionSummary = {
   project_path: string;
   session_id: string;
   title: string;
+};
+
+/** 一条搜索命中：定位到某个会话里的某条消息气泡（标题命中时 message_key 为空） */
+export type ChatSearchMatch = ChatSessionSummary & {
+  message_key: string | null;
+  role: "user" | "assistant" | null;
+  snippet: string;
 };
 
 type ChatHistoryUserMessage = {
@@ -497,6 +505,11 @@ export async function sendChatMessage(
 export async function listChatSessions(): Promise<ChatSessionSummary[]> {
   const api = await getBridgeApi();
   return (await api?.list_chat_sessions()) ?? [];
+}
+
+export async function searchChatSessions(query: string): Promise<ChatSearchMatch[]> {
+  const api = await getBridgeApi();
+  return (await api?.search_chat_sessions(query)) ?? [];
 }
 
 export async function getChatSession(sessionId: string): Promise<ChatSessionHistory> {

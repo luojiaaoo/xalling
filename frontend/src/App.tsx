@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { ModelSettings } from "./components/ModelSettings";
+import { SearchPalette } from "./components/SearchPalette";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { WindowResizeHandles } from "./components/WindowResizeHandles";
@@ -42,6 +43,9 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // 搜索跳转目标：打开会话后要滚动置顶的消息气泡（后端消息 key）
+  const [focusMessageKey, setFocusMessageKey] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   // 提升到 App 层：新建任务（Workspace 重挂载）时保持和当前一致
   const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [effort, setEffort] = useState(2);
@@ -103,6 +107,19 @@ export default function App() {
     return () => window.removeEventListener("resize", collapseSidebarOnNarrowWindow);
   }, []);
 
+  // Ctrl/Cmd + K 打开搜索面板
+  useEffect(() => {
+    function openSearchOnShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+
+    window.addEventListener("keydown", openSearchOnShortcut);
+    return () => window.removeEventListener("keydown", openSearchOnShortcut);
+  }, []);
+
   function handleThemeChange(next: ThemeName) {
     setThemeName(next);
     void setCurrentTheme(next).catch(() => undefined);
@@ -111,6 +128,7 @@ export default function App() {
   function handleNewTask() {
     setView("workspace");
     setActiveSessionId(null);
+    setFocusMessageKey(null);
     setWorkspaceKey((key) => key + 1);
   }
 
@@ -119,12 +137,22 @@ export default function App() {
     setView("workspace");
     setSelectedProject(project.path ? project : null);
     setActiveSessionId(null);
+    setFocusMessageKey(null);
     setWorkspaceKey((key) => key + 1);
   }
 
   function handleHistorySessionClick(sessionId: string) {
     setView("workspace");
     setActiveSessionId(sessionId);
+    setFocusMessageKey(null);
+    setWorkspaceKey((key) => key + 1);
+  }
+
+  // 搜索结果：打开对应会话，并把它命中的消息气泡滚动置顶
+  function handleSearchResultOpen(sessionId: string, messageKey: string | null) {
+    setView("workspace");
+    setActiveSessionId(sessionId);
+    setFocusMessageKey(messageKey);
     setWorkspaceKey((key) => key + 1);
   }
 
@@ -162,6 +190,8 @@ export default function App() {
               onHistorySessionClick={handleHistorySessionClick}
               onNewTask={handleNewTask}
               onProjectTask={handleProjectTask}
+              onSearchClick={() => setSearchOpen(true)}
+              searchActive={searchOpen}
               onSettingsClick={() =>
                 setView((currentView) => currentView === "settings" ? "workspace" : "settings")
               }
@@ -175,6 +205,7 @@ export default function App() {
           <Workspace
             key={workspaceKey}
             effort={effort}
+            focusMessageKey={focusMessageKey}
             hidden={view === "settings"}
             initialSessionId={activeSessionId}
             onEffortChange={setEffort}
@@ -192,6 +223,16 @@ export default function App() {
             )
           )}
         </div>
+        {searchOpen && (
+          <SearchPalette
+            currentSessionId={activeSessionId}
+            onClose={() => setSearchOpen(false)}
+            onOpenResult={(sessionId, messageKey) => {
+              setSearchOpen(false);
+              handleSearchResultOpen(sessionId, messageKey);
+            }}
+          />
+        )}
       </div>
     </XProvider>
   );
