@@ -540,9 +540,16 @@ class ChatRouter(CommandRouter):
         active_chat = self._active_chats.get(normalized_session_id)
         if active_chat is None or not active_chat.running:
             return None
+        # 已应答的权限请求不再重放，否则前端重连/切会话后会把已失效的确认框再弹出来
+        events = [
+            dict(event)
+            for event in active_chat.events
+            if event.get("type") != "permission_request"
+            or event.get("permission_id") in self._pending_permissions
+        ]
         return {
             "session_id": normalized_session_id,
-            "events": [dict(event) for event in active_chat.events],
+            "events": events,
         }
 
     async def stop_chat_message(self, session_id: str | None = None) -> bool:

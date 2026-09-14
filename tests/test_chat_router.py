@@ -25,7 +25,12 @@ from claude_agent_sdk import (
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router.chat import _ChatMessageRequest, _validate_leading_slash
+from backend.router.chat import (
+    _ActiveChat,
+    _ChatMessageRequest,
+    _PendingPermission,
+    _validate_leading_slash,
+)
 from main import ApplicationBridge
 
 
@@ -690,6 +695,62 @@ def test_chat_router_waits_for_tool_permission_from_ui(
         str(uuid4()),
         allowed,
     )
+
+
+def test_get_active_chat_hides_answered_permission_requests() -> None:
+    router = ApplicationBridge()
+    session_id = str(uuid4())
+    pending_id = str(uuid4())
+    answered_id = str(uuid4())
+
+    class StubClient:
+        async def close(self) -> None:
+            return None
+
+    loop = asyncio.new_event_loop()
+    try:
+        pending_future = loop.create_future()
+    finally:
+        loop.close()
+
+    # 已应答的权限已从 _pending_permissions 移除，但事件仍留在回合缓冲里；
+    # get_active_chat 重放时不应把它再交给前端，否则会弹出"已失效"的确认框
+    router._pending_permissions[pending_id] = _PendingPermission(
+        tool_name="Read",
+        input_data={},
+        future=pending_future,
+        session_id=session_id,
+    )
+    router._active_chats[session_id] = _ActiveChat(
+        client=StubClient(),
+        events=[
+            {"type": "session_started", "session_id": session_id},
+            {
+                "type": "permission_request",
+                "permission_id": answered_id,
+                "tool_name": "Write",
+            },
+            {
+                "type": "permission_request",
+                "permission_id": pending_id,
+                "tool_name": "Read",
+            },
+        ],
+        metadata={},
+        running=True,
+    )
+
+    try:
+        result = router.get_active_chat(session_id)
+        assert result is not None
+        assert [
+            event["permission_id"]
+            for event in result["events"]
+            if event.get("type") == "permission_request"
+        ] == [pending_id]
+    finally:
+        router._pending_permissions.pop(pending_id, None)
+        router._active_chats.pop(session_id, None)
 
 
 def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
