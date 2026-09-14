@@ -12,6 +12,20 @@ from backend.chat.client import (
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings, default_project_folder
 
+ALLOWED_COMMAND_NAMES = frozenset(
+    {
+        "compact",
+        "debug",
+        "init",
+        "insights",
+        "list-agents",
+        "recap",
+        "reload-skills",
+        "security-review",
+        "team-onboarding",
+    }
+)
+
 
 class ClaudeCommand(TypedDict):
     """One slash command advertised by the Claude runtime."""
@@ -52,6 +66,8 @@ def _get_cached_commands(skills: bool) -> list[ClaudeCommand]:
         raw_description = item.get("description", "")
         description = raw_description if isinstance(raw_description, str) else ""
         if _is_skill(name, description, item) is not skills:
+            continue
+        if not skills and name not in ALLOWED_COMMAND_NAMES:
             continue
 
         argument_hint = item.get("argumentHint", "")

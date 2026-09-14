@@ -15,6 +15,15 @@ def test_command_router_exposes_cached_commands_and_skills(monkeypatch) -> None:
                     "description": "Clear the conversation",
                 },
                 {
+                    "name": "compact",
+                    "description": "Summarize the conversation",
+                    "argumentHint": "[instructions]",
+                },
+                {
+                    "name": "config",
+                    "description": "Set a setting",
+                },
+                {
                     "name": ".agents:review",
                     "description": "Review changes",
                     "argumentHint": "[path]",
@@ -34,9 +43,9 @@ def test_command_router_exposes_cached_commands_and_skills(monkeypatch) -> None:
 
     assert router.get_commands() == [
         {
-            "name": "clear",
-            "description": "Clear the conversation",
-            "argument_hint": "",
+            "name": "compact",
+            "description": "Summarize the conversation",
+            "argument_hint": "[instructions]",
             "aliases": [],
         }
     ]
