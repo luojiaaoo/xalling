@@ -301,6 +301,110 @@ def test_chat_history_merges_split_tool_round_trip_into_one_assistant_turn(
     ]
 
 
+def test_history_search_matches_title_and_message_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    title_session_id = str(uuid4())
+    content_session_id = str(uuid4())
+    sessions = [
+        SDKSessionInfo(
+            session_id=title_session_id,
+            summary="修复登录流程",
+            last_modified=1_789_000_000_000,
+            cwd=r"C:\work\xalling",
+        ),
+        SDKSessionInfo(
+            session_id=content_session_id,
+            summary="其他任务",
+            last_modified=1_788_000_000_000,
+            cwd=r"C:\work\xalling",
+        ),
+    ]
+    raw_messages = {
+        content_session_id: [
+            SessionMessage(
+                type="user",
+                uuid="user-1",
+                session_id=content_session_id,
+                message={"role": "user", "content": "帮我检查登录接口为什么超时"},
+            ),
+            SessionMessage(
+                type="assistant",
+                uuid="assistant-1",
+                session_id=content_session_id,
+                message={
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "登录接口超时是因为DNS解析失败。"}],
+                },
+            ),
+        ],
+    }
+    monkeypatch.setattr("backend.chat.history.list_sessions", lambda: sessions)
+    monkeypatch.setattr(
+        "backend.chat.history.get_session_messages",
+        lambda requested_id: raw_messages.get(requested_id, []),
+    )
+
+    matches = ClaudeChatHistory().search_sessions(" 登录 ")
+
+    assert [match["session_id"] for match in matches] == [
+        title_session_id,
+        content_session_id,
+        content_session_id,
+    ]
+    assert matches[0]["message_key"] is None
+    assert matches[0]["role"] is None
+    assert matches[1]["message_key"] == "user-1"
+    assert matches[1]["role"] == "user"
+    assert "登录" in str(matches[1]["snippet"])
+    assert matches[2]["message_key"] == "assistant-1"
+    assert matches[2]["role"] == "assistant"
+
+
+def test_history_search_ignores_blank_query_and_corrupt_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    good_session_id = str(uuid4())
+    broken_session_id = str(uuid4())
+    sessions = [
+        SDKSessionInfo(
+            session_id=broken_session_id,
+            summary="损坏会话",
+            last_modified=1_789_000_000_000,
+            cwd=r"C:\work\xalling",
+        ),
+        SDKSessionInfo(
+            session_id=good_session_id,
+            summary="正常会话",
+            last_modified=1_788_000_000_000,
+            cwd=r"C:\work\xalling",
+        ),
+    ]
+
+    def fake_get_session_messages(requested_id: str) -> list[SessionMessage]:
+        if requested_id == broken_session_id:
+            raise ValueError("session file broken")
+        return [
+            SessionMessage(
+                type="user",
+                uuid="user-1",
+                session_id=good_session_id,
+                message={"role": "user", "content": "部署到生产环境"},
+            )
+        ]
+
+    monkeypatch.setattr("backend.chat.history.list_sessions", lambda: sessions)
+    monkeypatch.setattr(
+        "backend.chat.history.get_session_messages", fake_get_session_messages
+    )
+
+    history = ClaudeChatHistory()
+    assert history.search_sessions("   ") == []
+    matches = history.search_sessions("部署")
+    assert [match["session_id"] for match in matches] == [good_session_id]
+    assert matches[0]["message_key"] == "user-1"
+
+
 def test_history_rejects_missing_or_invalid_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
