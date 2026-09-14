@@ -1,10 +1,12 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
 import pytest
 from claude_agent_sdk import ResultMessage
 
+from backend.async_runtime import AsyncRuntime
 from backend.chat.client import (
     ClaudeChatClient,
     ClaudeChatConfig,
@@ -121,31 +123,98 @@ def test_live_server_info_and_chat_reuse_one_sdk_instance(
         session_id="session-id",
     )
 
-    client = ClaudeChatClient(config)
-    try:
-        first_info = client.get_server_info()
-        second_info = client.get_server_info()
-        assert connected.wait(timeout=2)
-        first = asyncio.run(client.send("first"))
-        resumed = ClaudeChatConfig(
-            api_key=config.api_key,
-            api_url=config.api_url,
-            effort=config.effort,
-            is_new_session=False,
-            model=config.model,
-            project=config.project,
-            session_id=config.session_id,
-        )
-        client.prepare(resumed)
-        second = asyncio.run(client.send("second"))
-    finally:
-        client.close()
+    with AsyncRuntime() as runtime:
+        client = runtime.call_sync(ClaudeChatClient, config)
+        try:
+            first_info = runtime.call(client.get_server_info)
+            second_info = runtime.call(client.get_server_info)
+            assert connected.wait(timeout=2)
+            first = runtime.call(client.send, "first")
+            resumed = ClaudeChatConfig(
+                api_key=config.api_key,
+                api_url=config.api_url,
+                effort=config.effort,
+                is_new_session=False,
+                model=config.model,
+                project=config.project,
+                session_id=config.session_id,
+            )
+            runtime.call_sync(client.prepare, resumed)
+            second = runtime.call(client.send, "second")
+        finally:
+            runtime.call(client.close)
 
     assert len(instances) == 1
     assert first_info["request"] == 1
     assert second_info["request"] == 2
-    assert client.server_info["request"] == 2
-    assert server_info_calls == 2
+    assert server_info_calls == 4
     assert prompts == ["first", "second"]
     assert first["content"] == "first"
     assert second["content"] == "second"
+
+
+def test_server_info_falls_back_to_snapshot_while_turn_is_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server_info_calls = 0
+    turn_started = Event()
+    release_turn = Event()
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options) -> None:
+            self.options = options
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get_server_info(self) -> dict[str, object]:
+            nonlocal server_info_calls
+            server_info_calls += 1
+            return {"request": server_info_calls}
+
+        async def query(self, prompt: str) -> None:
+            return None
+
+        async def receive_response(self):
+            turn_started.set()
+            await asyncio.to_thread(release_turn.wait, 2)
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="session-id",
+                result="done",
+            )
+
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+    monkeypatch.setattr("backend.chat.client.discover_skill_plugins", lambda **_: [])
+    config = ClaudeChatConfig(
+        api_key="secret",
+        api_url="https://api.example.com",
+        effort="high",
+        is_new_session=True,
+        model="claude-sonnet",
+        project=tmp_path,
+        session_id="session-id",
+    )
+
+    with AsyncRuntime() as runtime:
+        client = runtime.call_sync(ClaudeChatClient, config)
+        try:
+            assert runtime.call(client.get_server_info) == {"request": 1}
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(runtime.call, client.send, "hello")
+                assert turn_started.wait(timeout=2)
+                assert runtime.call(client.get_server_info) == {"request": 2}
+                assert server_info_calls == 2
+                release_turn.set()
+                assert future.result(timeout=2)["content"] == "done"
+            assert runtime.call(client.get_server_info) == {"request": 3}
+        finally:
+            runtime.call(client.close)

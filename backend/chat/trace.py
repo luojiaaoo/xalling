@@ -68,9 +68,11 @@ class ChatTrace:
         )
         assistant_output = "\n\n".join(self._assistant_text_parts)
         if interrupted:
+            # 被中断时没有最终结果，用已流出的部分内容
             content_source = streamed_output or assistant_output
         else:
             content_source = result.result or assistant_output or streamed_output
+        # 斜杠命令等无文本输出的场景，用调用方提供的兜底文案
         content = content_source.strip() or (empty_result_content or "").strip()
         if not content and not interrupted:
             raise RuntimeError("Claude 没有返回文字内容")

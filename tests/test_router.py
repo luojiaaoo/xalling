@@ -1,3 +1,4 @@
+import inspect
 import tomllib
 from pathlib import Path
 
@@ -116,14 +117,22 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
     ]
 
 
-def test_application_bridge_composes_window_and_model_routers() -> None:
+def test_application_bridge_composes_and_wraps_router_methods(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
     bridge = ApplicationBridge()
-
-    assert isinstance(bridge, WindowRouter)
-    assert isinstance(bridge, ModelRouter)
-    assert isinstance(bridge, ThemeRouter)
-    assert isinstance(bridge, ChatRouter)
-    assert isinstance(bridge, CommandRouter)
+    try:
+        assert isinstance(bridge, WindowRouter)
+        assert isinstance(bridge, ModelRouter)
+        assert isinstance(bridge, ThemeRouter)
+        assert isinstance(bridge, ChatRouter)
+        assert isinstance(bridge, CommandRouter)
+        assert inspect.iscoroutinefunction(ChatRouter.send_chat_message)
+        assert not inspect.iscoroutinefunction(ApplicationBridge.send_chat_message)
+        assert bridge.get_home_folder() == WindowRouter.get_home_folder()
+    finally:
+        bridge._close_bridge()
 
 
 def test_window_router_maximizes_to_current_windows_work_area(

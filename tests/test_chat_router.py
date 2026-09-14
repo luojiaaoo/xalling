@@ -3,7 +3,7 @@ import json
 from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Event
+from threading import Event, get_ident
 from typing import Self
 from uuid import uuid4
 
@@ -23,28 +23,33 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from backend.chat.client import ClaudeChatClient
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router.chat import ChatRouter, _ChatMessageRequest, _validate_leading_slash
+from backend.router.chat import _ChatMessageRequest, _validate_leading_slash
+from main import ApplicationBridge
 
 
 @pytest.fixture(autouse=True)
 def close_persistent_chat_clients(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[None]:
-    clients: list[ClaudeChatClient] = []
-    original_init = ClaudeChatClient.__init__
+    bridges: list[ApplicationBridge] = []
+    original_init = ApplicationBridge.__init__
 
-    def tracked_init(self: ClaudeChatClient, *args: object, **kwargs: object) -> None:
+    def tracked_init(
+        self: ApplicationBridge,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
         original_init(self, *args, **kwargs)
-        clients.append(self)
+        bridges.append(self)
 
-    monkeypatch.setattr(ClaudeChatClient, "__init__", tracked_init)
+    monkeypatch.setattr(ApplicationBridge, "__init__", tracked_init)
     monkeypatch.setattr("backend.chat.client.discover_skill_plugins", lambda **_: [])
+    monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
     yield
-    for client in clients:
-        client.close()
+    for bridge in bridges:
+        bridge._close_bridge()
 
 
 def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,7 +212,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
-    router = ChatRouter()
+    router = ApplicationBridge()
     router._window = WindowStub()
     reply = router.send_chat_message(
         "检查项目",
@@ -301,7 +306,7 @@ def test_chat_router_passes_resume_session_to_sdk(tmp_path: Path, monkeypatch: p
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
-    router = ChatRouter()
+    router = ApplicationBridge()
     monkeypatch.setattr(router._history, "has_session", lambda _session_id: True)
     router.send_chat_message("继续", str(tmp_path), session_id, "medium")
 
@@ -316,6 +321,7 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
     started = {prompt: Event() for prompt in session_ids}
     session_started = {prompt: Event() for prompt in session_ids}
     release = {prompt: Event() for prompt in session_ids}
+    runtime_thread_ids: set[int] = set()
 
     class FakeClaudeSDKClient:
         def __init__(self, options: ClaudeAgentOptions) -> None:
@@ -329,6 +335,7 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
 
         async def query(self, prompt: str) -> None:
             self._prompt = prompt
+            runtime_thread_ids.add(get_ident())
             started[prompt].set()
 
         async def receive_response(
@@ -356,7 +363,7 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
-    router = ChatRouter()
+    router = ApplicationBridge()
     monkeypatch.setattr(router._history, "list_sessions", list)
 
     def missing_history(_session_id: str) -> dict[str, object]:
@@ -390,13 +397,14 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
         release["first"].set()
         assert futures["first"].result(timeout=2)["content"] == "first"
         assert router.get_active_chat(session_ids["first"]) is None
-        assert router._active_chats[session_ids["first"]].cleanup_timer is not None
+        assert router._active_chats[session_ids["first"]].cleanup_task is not None
 
         release["second"].set()
         assert futures["second"].result(timeout=2)["content"] == "second"
 
     assert set(router._active_chats) == set(session_ids.values())
     assert all(not chat.running for chat in router._active_chats.values())
+    assert len(runtime_thread_ids) == 1
 
 
 def test_chat_router_promotes_an_active_existing_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -420,7 +428,7 @@ def test_chat_router_promotes_an_active_existing_session(tmp_path: Path, monkeyp
             started.set()
 
         async def receive_response(self) -> AsyncIterator[ResultMessage]:
-            release.wait(timeout=2)
+            await asyncio.to_thread(release.wait, 2)
             yield ResultMessage(
                 subtype="success",
                 duration_ms=1,
@@ -434,7 +442,7 @@ def test_chat_router_promotes_an_active_existing_session(tmp_path: Path, monkeyp
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
     monkeypatch.setattr("backend.router.chat.time", lambda: 3.0)
 
-    router = ChatRouter()
+    router = ApplicationBridge()
     monkeypatch.setattr(router._history, "has_session", lambda _session_id: True)
     monkeypatch.setattr(
         router._history,
@@ -538,7 +546,7 @@ def test_chat_router_stops_active_turn_and_returns_partial_output(
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
-    router = ChatRouter()
+    router = ApplicationBridge()
     with ThreadPoolExecutor(max_workers=1) as executor:
         result_future = executor.submit(
             router.send_chat_message,
@@ -612,7 +620,7 @@ def test_chat_router_stop_releases_pending_tool_permission(tmp_path: Path, monke
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
 
-    router = ChatRouter()
+    router = ApplicationBridge()
     router._window = WindowStub()
     with ThreadPoolExecutor(max_workers=1) as executor:
         result_future = executor.submit(
@@ -639,7 +647,7 @@ def test_chat_router_waits_for_tool_permission_from_ui(
     allowed: bool,
     result_type: type[PermissionResultAllow] | type[PermissionResultDeny],
 ) -> None:
-    router = ChatRouter()
+    router = ApplicationBridge()
     events: list[dict[str, object]] = []
 
     class WindowStub:
@@ -654,16 +662,15 @@ def test_chat_router_waits_for_tool_permission_from_ui(
             )
 
     router._window = WindowStub()
-    result = asyncio.run(
-        router._request_tool_permission(
-            "Write",
-            {"file_path": "README.md", "content": "updated"},
-            ToolPermissionContext(
-                title="Claude 请求写入 README.md",
-                display_name="写入文件",
-                description="将更新项目说明",
-            ),
-        )
+    result = router._async_runtime.call(
+        router._request_tool_permission,
+        "Write",
+        {"file_path": "README.md", "content": "updated"},
+        ToolPermissionContext(
+            title="Claude 请求写入 README.md",
+            display_name="写入文件",
+            description="将更新项目说明",
+        ),
     )
 
     assert isinstance(result, result_type)
@@ -686,7 +693,7 @@ def test_chat_router_waits_for_tool_permission_from_ui(
 
 
 def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
-    router = ChatRouter()
+    router = ApplicationBridge()
     question_input = {
         "questions": [
             {
@@ -725,12 +732,11 @@ def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
             )
 
     router._window = WindowStub()
-    result = asyncio.run(
-        router._request_tool_permission(
-            "AskUserQuestion",
-            question_input,
-            ToolPermissionContext(),
-        )
+    result = router._async_runtime.call(
+        router._request_tool_permission,
+        "AskUserQuestion",
+        question_input,
+        ToolPermissionContext(),
     )
 
     assert isinstance(result, PermissionResultAllow)
@@ -740,7 +746,7 @@ def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])
 def test_chat_router_rejects_invalid_effort(effort: str) -> None:
     with pytest.raises(ValueError, match="推理强度无效"):
-        ChatRouter().send_chat_message("检查项目", effort=effort)
+        ApplicationBridge().send_chat_message("检查项目", effort=effort)
 
 
 @pytest.mark.parametrize(
@@ -749,7 +755,10 @@ def test_chat_router_rejects_invalid_effort(effort: str) -> None:
 )
 def test_chat_router_rejects_invalid_permission_mode(permission_mode: str) -> None:
     with pytest.raises(ValueError, match="权限模式无效"):
-        ChatRouter().send_chat_message("检查项目", permission_mode=permission_mode)
+        ApplicationBridge().send_chat_message(
+            "检查项目",
+            permission_mode=permission_mode,
+        )
 
 
 @pytest.mark.parametrize(
@@ -798,9 +807,12 @@ def test_chat_message_request_normalizes_prompt_and_session_id() -> None:
 
 def test_chat_router_rejects_invalid_session_id() -> None:
     with pytest.raises(ValueError, match="会话标识无效"):
-        ChatRouter().send_chat_message("检查项目", session_id="not-a-uuid")
+        ApplicationBridge().send_chat_message(
+            "检查项目",
+            session_id="not-a-uuid",
+        )
 
 
 def test_chat_router_rejects_non_boolean_permission_decision() -> None:
     with pytest.raises(TypeError, match="权限决定必须是布尔值"):
-        ChatRouter().respond_chat_permission(str(uuid4()), "yes")
+        ApplicationBridge().respond_chat_permission(str(uuid4()), "yes")

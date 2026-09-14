@@ -5,12 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from concurrent.futures import Future
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Event, Lock, Thread
 from typing import Any
 
 import aiofiles
@@ -27,6 +25,7 @@ from claude_agent_sdk import (
 from .trace import ChatTrace
 from .types import ChatEffort, ChatEventHandler, ChatPermissionMode, ChatReply
 
+# 部分斜杠命令（如 /compact）执行成功后 SDK 不返回文本，用兜底文案向用户反馈执行结果
 EMPTY_COMMAND_RESULTS = {"compact": "上下文已压缩。"}
 
 
@@ -40,6 +39,7 @@ class ClaudeChatConfig:
     model: str
     project: Path
     session_id: str
+    # 新会话用 session_id 创建，旧会话则用 resume 恢复（见 _connect）
     is_new_session: bool
     can_use_tool: CanUseTool | None = None
     permission_mode: ChatPermissionMode = "default"
@@ -57,14 +57,20 @@ def discover_skill_plugins(
         user_home / ".agents",
     ]
     if project is not None:
+        # 项目级技能目录，优先级低于用户级
         plugin_roots.append(project.resolve() / ".agents")
-    return [{"type": "local", "path": str(root)} for root in plugin_roots if (root / "skills").is_dir()]
+    return [
+        {"type": "local", "path": str(root)}
+        for root in plugin_roots
+        if (root / "skills").is_dir()
+    ]
 
 
 @asynccontextmanager
 async def _provider_settings_file(
     config: ClaudeChatConfig,
 ) -> AsyncIterator[Path]:
+    # SDK 只接受文件形式的 settings，这里把密钥与接入点写入临时文件，用完即删
     settings = {
         "env": {
             "ANTHROPIC_AUTH_TOKEN": config.api_key,
@@ -81,71 +87,46 @@ async def _provider_settings_file(
         yield settings_path
 
 
-def _connection_key(
-    config: ClaudeChatConfig,
-) -> tuple[str, str, str, Path, str]:
-    return (
-        config.api_key,
-        config.api_url,
-        config.effort,
-        config.project.resolve(),
-        config.session_id,
-    )
-
-
 class ClaudeChatClient:
     """Keep one session's SDK connection alive across turns and metadata reads."""
 
     def __init__(self, config: ClaudeChatConfig) -> None:
-        self._state_lock = Lock()
-        self._ready = Event()
         self._config = config
-        self._stop_requested = Event()
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._operation_lock: asyncio.Lock | None = None
+        self._stop_requested = asyncio.Event()
+        # 所有实例都由应用级异步运行时驱动，不再为每个会话创建线程和 loop。
+        self._operation_lock = asyncio.Lock()
         self._client_stack: AsyncExitStack | None = None
         self._client: ClaudeSDKClient | None = None
         self._connected_config: ClaudeChatConfig | None = None
+        # 是否有 send 操作在进行（用于安全 interrupt 与快照回退判断）
         self._active = False
+        # send 前缓存的 server info 快照：回合进行中锁被占用时回退到它
         self._server_info: dict[str, Any] = {}
-        self._thread = Thread(
-            target=self._run,
-            daemon=True,
-            name=f"claude-{config.session_id[:8]}",
-        )
-        self._thread.start()
-        if not self._ready.wait(timeout=5):
-            raise RuntimeError("Claude 客户端启动超时")
-
-    @property
-    def server_info(self) -> dict[str, Any]:
-        """Return a snapshot of the latest live server metadata."""
-        with self._state_lock:
-            return self._server_info.copy()
 
     def prepare(self, config: ClaudeChatConfig) -> None:
         """Apply the next turn's settings and reset its stop signal."""
-        with self._state_lock:
-            self._config = config
-            self._stop_requested = Event()
+        self._config = config
+        self._stop_requested = asyncio.Event()
 
-    def get_server_info(self) -> dict[str, Any]:
+    async def get_server_info(self) -> dict[str, Any]:
         """Fetch current metadata through this session's SDK connection."""
-        config = self._get_config()
-        future = asyncio.run_coroutine_threadsafe(
-            self._get_server_info(config),
-            self._get_loop(),
-        )
-        return future.result(timeout=30)
+        if self._active:
+            return self._server_info.copy()
+        async with self._operation_lock:
+            client = await self._ensure_client(self._config)
+            try:
+                server_info = await client.get_server_info() or {}
+            except Exception:
+                await self._disconnect()
+                raise
+            self._server_info = server_info
+            return server_info.copy()
 
-    def request_stop(self) -> Future[None] | None:
+    async def request_stop(self) -> None:
         """Request interruption of the current turn."""
-        with self._state_lock:
-            self._stop_requested.set()
-            loop = self._loop
-        if loop is None or not self._thread.is_alive():
-            return None
-        return asyncio.run_coroutine_threadsafe(self._interrupt(), loop)
+        self._stop_requested.set()
+        if self._client is not None and self._active:
+            await self._client.interrupt()
 
     async def send(
         self,
@@ -153,110 +134,70 @@ class ClaudeChatClient:
         on_event: ChatEventHandler | None = None,
     ) -> ChatReply:
         """Send one prompt through the persistent session connection."""
-        config = self._get_config()
+        config = self._config
         stop_requested = self._stop_requested
-        future = asyncio.run_coroutine_threadsafe(
-            self._send(config, prompt, stop_requested, on_event),
-            self._get_loop(),
-        )
-        return await asyncio.wrap_future(future)
-
-    def close(self) -> None:
-        """Disconnect the SDK client and stop its event loop."""
-        with self._state_lock:
-            loop = self._loop
-        if loop is None or not self._thread.is_alive():
-            return
-        future = asyncio.run_coroutine_threadsafe(self._shutdown(), loop)
+        self._active = True
         try:
-            future.result(timeout=10)
+            async with self._operation_lock:
+                client = await self._ensure_client(config)
+                # 回合开始前刷新 server info 快照，供回合进行中的读取回退；失败保留旧快照
+                try:
+                    server_info = await client.get_server_info() or {}
+                except Exception:  # noqa: BLE001 - 元数据失败不应终止正常对话
+                    server_info = {}
+                if server_info:
+                    self._server_info = server_info
+                trace = ChatTrace(on_event)
+                # 斜杠命令可能没有文本输出，记录命令名以便 finish 时取兜底文案
+                first_token = prompt.split(maxsplit=1)[0]
+                command_name = first_token.removeprefix("/") if first_token.startswith("/") else ""
+                try:
+                    await client.query(prompt)
+                    if stop_requested.is_set():
+                        # query 刚发出就收到停止请求，立即中断
+                        await client.interrupt()
+                    async for message in client.receive_response():
+                        trace.consume(message)
+                except Exception:
+                    # 回合异常时断开连接，避免后续复用到一个状态不明的连接
+                    await self._disconnect()
+                    raise
+                return trace.finish(
+                    interrupted=stop_requested.is_set(),
+                    empty_result_content=EMPTY_COMMAND_RESULTS.get(command_name),
+                )
         finally:
-            loop.call_soon_threadsafe(loop.stop)
-            self._thread.join(timeout=10)
-            with self._state_lock:
-                self._loop = None
-                self._ready.clear()
+            self._active = False
 
-    def _run(self) -> None:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self._operation_lock = asyncio.Lock()
-        with self._state_lock:
-            self._loop = loop
-        self._ready.set()
-        try:
-            loop.run_forever()
-        finally:
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            if self._client_stack is not None:
-                loop.run_until_complete(self._disconnect())
-            loop.close()
-
-    async def _get_server_info(
-        self,
-        config: ClaudeChatConfig,
-    ) -> dict[str, Any]:
-        async with self._require_operation_lock():
-            client = await self._ensure_client(config)
-            try:
-                server_info = await client.get_server_info() or {}
-            except Exception:
-                await self._disconnect()
-                raise
-            with self._state_lock:
-                self._server_info = server_info
-            return server_info.copy()
-
-    async def _send(
-        self,
-        config: ClaudeChatConfig,
-        prompt: str,
-        stop_requested: Event,
-        on_event: ChatEventHandler | None,
-    ) -> ChatReply:
-        async with self._require_operation_lock():
-            client = await self._ensure_client(config)
-            trace = ChatTrace(on_event)
-            first_token = prompt.split(maxsplit=1)[0]
-            command_name = first_token.removeprefix("/") if first_token.startswith("/") else ""
-            try:
-                self._active = True
-                await client.query(prompt)
-                if stop_requested.is_set():
-                    await client.interrupt()
-                async for message in client.receive_response():
-                    trace.consume(message)
-            except Exception:
-                await self._disconnect()
-                raise
-            finally:
-                self._active = False
-
-            return trace.finish(
-                interrupted=stop_requested.is_set(),
-                empty_result_content=EMPTY_COMMAND_RESULTS.get(command_name),
-            )
+    async def close(self) -> None:
+        """Interrupt an active turn and disconnect this session client."""
+        await self.request_stop()
+        async with self._operation_lock:
+            await self._disconnect()
 
     async def _ensure_client(
         self,
         config: ClaudeChatConfig,
     ) -> ClaudeSDKClient:
+        connected = self._connected_config
+        # 连接关键字段一致时复用现有连接，模型和权限模式支持热切换
         if (
             self._client is not None
-            and self._connected_config is not None
-            and _connection_key(self._connected_config) == _connection_key(config)
+            and connected is not None
+            and connected.api_key == config.api_key
+            and connected.api_url == config.api_url
+            and connected.effort == config.effort
+            and connected.project.resolve() == config.project.resolve()
+            and connected.session_id == config.session_id
         ):
-            if self._connected_config.model != config.model:
+            if connected.model != config.model:
                 await self._client.set_model(config.model)
-            if self._connected_config.permission_mode != config.permission_mode:
+            if connected.permission_mode != config.permission_mode:
                 await self._client.set_permission_mode(config.permission_mode)
             self._connected_config = config
             return self._client
 
+        # 关键字段变化（如切换站点/项目/会话）则断开旧连接并重建
         await self._disconnect()
         return await self._connect(config)
 
@@ -272,10 +213,11 @@ class ClaudeChatClient:
                             effort=config.effort,
                             env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling/0.1.0"},
                             include_partial_messages=True,
-                            max_turns=30,
+                            max_turns=200,
                             model=config.model,
                             permission_mode=config.permission_mode,
                             plugins=discover_skill_plugins(project=config.project),
+                            # 新会话指定 session_id 创建；旧会话用 resume 恢复上下文
                             resume=None if config.is_new_session else config.session_id,
                             session_id=(config.session_id if config.is_new_session else None),
                             settings=str(settings_path),
@@ -307,17 +249,13 @@ class ClaudeChatClient:
         return client
 
     async def _disconnect(self) -> None:
+        """Tear down the SDK connection and reset connection state."""
         stack = self._client_stack
         self._client_stack = None
         self._client = None
         self._connected_config = None
-        self._active = False
         if stack is not None:
             await stack.aclose()
-
-    async def _interrupt(self) -> None:
-        if self._client is not None and self._active:
-            await self._client.interrupt()
 
     async def _can_use_tool(
         self,
@@ -325,29 +263,8 @@ class ClaudeChatClient:
         input_data: dict[str, Any],
         context: ToolPermissionContext,
     ) -> PermissionResult:
+        # SDK 工具权限回调：转发给路由层，由 UI 弹窗等待用户决定
         config = self._connected_config
         if config is None or config.can_use_tool is None:
             return PermissionResultDeny(message="当前会话未配置工具权限。")
         return await config.can_use_tool(tool_name, input_data, context)
-
-    async def _shutdown(self) -> None:
-        if self._client is not None and self._active:
-            await self._client.interrupt()
-        async with self._require_operation_lock():
-            await self._disconnect()
-
-    def _get_config(self) -> ClaudeChatConfig:
-        with self._state_lock:
-            return self._config
-
-    def _get_loop(self) -> asyncio.AbstractEventLoop:
-        with self._state_lock:
-            loop = self._loop
-        if loop is None:
-            raise RuntimeError("Claude 客户端尚未启动")
-        return loop
-
-    def _require_operation_lock(self) -> asyncio.Lock:
-        if self._operation_lock is None:
-            raise RuntimeError("Claude 客户端尚未启动")
-        return self._operation_lock

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import webview
 
+from backend.async_runtime import bridge_api
 from backend.router import (
     ChatRouter,
     CommandRouter,
@@ -17,6 +18,7 @@ from backend.router.log import capture_bridge_api_errors
 DEBUG = os.environ.get("XALLING_DEBUG", "0") == "1"
 
 
+@bridge_api
 @capture_bridge_api_errors
 class ApplicationBridge(
     WindowRouter,
@@ -28,6 +30,9 @@ class ApplicationBridge(
     LogRouter,
 ):
     """Compose the JSON-only routers exposed to the local Web UI."""
+
+    async def _shutdown_bridge(self) -> None:
+        await self._shutdown_chat_clients()
 
 
 def main() -> None:
@@ -61,7 +66,7 @@ def main() -> None:
     try:
         webview.start(debug=DEBUG)
     finally:
-        bridge._shutdown_chat_clients()
+        bridge._close_bridge()
 
 
 if __name__ == "__main__":
