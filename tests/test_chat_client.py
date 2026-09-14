@@ -1,6 +1,13 @@
+import asyncio
 from pathlib import Path
 
-from backend.chat.client import discover_skill_plugins
+import pytest
+
+from backend.chat.client import (
+    _refresh_server_info,
+    discover_skill_plugins,
+    get_cached_server_info,
+)
 
 
 def test_discover_skill_plugins_loads_supported_user_directories(
@@ -40,3 +47,27 @@ def test_discover_skill_plugins_loads_project_agents_directory(
     assert discover_skill_plugins(home=home, project=project) == [
         {"type": "local", "path": str(project / ".agents")}
     ]
+
+
+def test_refresh_server_info_updates_shared_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClaudeSDKClient:
+        async def get_server_info(self) -> dict[str, object]:
+            return {"commands": [{"name": ".agents:review"}]}
+
+    async def stop_after_first_refresh(delay: float) -> None:
+        assert delay == 15
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        "backend.chat.client.asyncio.sleep",
+        stop_after_first_refresh,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(_refresh_server_info(FakeClaudeSDKClient()))  # type: ignore[arg-type]
+
+    assert get_cached_server_info() == {
+        "commands": [{"name": ".agents:review"}]
+    }

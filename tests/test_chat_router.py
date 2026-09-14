@@ -212,7 +212,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
             "ANTHROPIC_BASE_URL": "https://api.example.com",
         },
         "alwaysThinkingEnabled": True,
-        "cleanupPeriodDays": 600,
+        "cleanupPeriodDays": 60,
         "includeCoAuthoredBy": False,
     }
     assert not Path(captured["settings_path"]).exists()

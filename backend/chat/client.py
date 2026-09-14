@@ -1,14 +1,17 @@
 """Claude Agent SDK client lifecycle for one chat turn."""
 
+from __future__ import annotations
+
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import Future
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Event, Lock
+from threading import Event, Lock, Thread
+from typing import Any
 
 import aiofiles
 from claude_agent_sdk import (
@@ -17,9 +20,59 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     SdkPluginConfig,
 )
+from loguru import logger
 
 from .trace import ChatTrace
 from .types import ChatEffort, ChatEventHandler, ChatPermissionMode, ChatReply
+
+SERVER_INFO_REFRESH_SECONDS = 15
+SERVER_INFO: dict[str, Any] = {}
+
+
+def get_cached_server_info() -> dict[str, Any]:
+    """Return the latest Claude server metadata."""
+    return SERVER_INFO.copy()
+
+
+async def _refresh_server_info(client: ClaudeSDKClient) -> None:
+    """Refresh the shared Claude server metadata every 15 seconds."""
+    global SERVER_INFO
+
+    while True:
+        SERVER_INFO = await client.get_server_info() or {}
+        await asyncio.sleep(SERVER_INFO_REFRESH_SECONDS)
+
+
+async def _monitor_server_info(
+    config_provider: Callable[[], ClaudeChatConfig | None],
+) -> None:
+    """Connect to Claude and retry initialization failures every 15 seconds."""
+    while True:
+        try:
+            if config := config_provider():
+                chat_client = ClaudeChatClient(config)
+                async with (
+                    _provider_settings_file(config) as settings_path,
+                    ClaudeSDKClient(options=chat_client._build_options(settings_path)) as client,
+                ):
+                    settings_path.unlink()
+                    await _refresh_server_info(client)
+        except Exception as error:  # noqa: BLE001
+            logger.warning("Claude server info monitor failed: {}", error)
+        await asyncio.sleep(SERVER_INFO_REFRESH_SECONDS)
+
+
+def start_server_info_monitor(
+    config_provider: Callable[[], ClaudeChatConfig | None],
+) -> Thread:
+    """Start the application-wide Claude server metadata monitor."""
+    thread = Thread(
+        target=lambda: asyncio.run(_monitor_server_info(config_provider)),
+        daemon=True,
+        name="claude-server-info",
+    )
+    thread.start()
+    return thread
 
 
 def discover_skill_plugins(
@@ -89,10 +142,7 @@ class ClaudeChatClient:
         """Request interruption from the bridge thread running the stop call."""
         self._stop_requested.set()
         with self._runtime_lock:
-            if (
-                self._client is None
-                or self._loop is None
-            ):
+            if self._client is None or self._loop is None:
                 return None
             future = asyncio.run_coroutine_threadsafe(
                 self._client.interrupt(),

@@ -5,6 +5,7 @@ import webview
 
 from backend.router import (
     ChatRouter,
+    CommandRouter,
     FileRouter,
     LogRouter,
     ModelRouter,
@@ -17,7 +18,15 @@ DEBUG = os.environ.get("XALLING_DEBUG", "0") == "1"
 
 
 @capture_bridge_api_errors
-class ApplicationBridge(WindowRouter, FileRouter, ModelRouter, ThemeRouter, ChatRouter, LogRouter):
+class ApplicationBridge(
+    WindowRouter,
+    FileRouter,
+    ModelRouter,
+    ThemeRouter,
+    ChatRouter,
+    CommandRouter,
+    LogRouter,
+):
     """Compose the JSON-only routers exposed to the local Web UI."""
 
 
@@ -34,6 +43,7 @@ def main() -> None:
     # 仅带 drag-region CSS 类的元素可拖动无边框窗口。
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     bridge = ApplicationBridge()
+    bridge._start_server_info_monitor()
     window = webview.create_window(
         "Xalling",
         url=index_file.resolve().as_uri(),

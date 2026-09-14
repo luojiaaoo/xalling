@@ -7,7 +7,13 @@ from webview.window import FixPoint
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router import ChatRouter, ModelRouter, ThemeRouter, WindowRouter
+from backend.router import (
+    ChatRouter,
+    CommandRouter,
+    ModelRouter,
+    ThemeRouter,
+    WindowRouter,
+)
 from backend.router.window import WindowBounds
 from main import ApplicationBridge
 
@@ -117,6 +123,7 @@ def test_application_bridge_composes_window_and_model_routers() -> None:
     assert isinstance(bridge, ModelRouter)
     assert isinstance(bridge, ThemeRouter)
     assert isinstance(bridge, ChatRouter)
+    assert isinstance(bridge, CommandRouter)
 
 
 def test_window_router_maximizes_to_current_windows_work_area(
