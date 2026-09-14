@@ -114,6 +114,14 @@ export default function App() {
     setWorkspaceKey((key) => key + 1);
   }
 
+  // 侧栏项目快捷按钮：以该项目为工作区开一个新任务，不选中任何历史会话
+  function handleProjectTask(project: ProjectFolder) {
+    setView("workspace");
+    setSelectedProject(project.path ? project : null);
+    setActiveSessionId(null);
+    setWorkspaceKey((key) => key + 1);
+  }
+
   function handleHistorySessionClick(sessionId: string) {
     setView("workspace");
     setActiveSessionId(sessionId);
@@ -153,6 +161,7 @@ export default function App() {
               onCollapse={() => setSidebarVisible(false)}
               onHistorySessionClick={handleHistorySessionClick}
               onNewTask={handleNewTask}
+              onProjectTask={handleProjectTask}
               onSettingsClick={() =>
                 setView((currentView) => currentView === "settings" ? "workspace" : "settings")
               }

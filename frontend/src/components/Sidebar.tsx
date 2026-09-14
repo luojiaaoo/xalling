@@ -1,5 +1,6 @@
 import {
   ArrowLeftOutlined,
+  ArrowRightOutlined,
   FolderOpenOutlined,
   HomeOutlined,
   MenuFoldOutlined,
@@ -13,7 +14,7 @@ import type { MenuProps } from "antd";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import type { ChatSessionSummary } from "../bridge/client";
+import type { ChatSessionSummary, ProjectFolder } from "../bridge/client";
 import { getHomeFolder } from "../bridge/client";
 import { BrandMark } from "./BrandMark";
 
@@ -86,6 +87,7 @@ type SidebarProps = {
   onCollapse: () => void;
   onHistorySessionClick?: (sessionId: string) => void;
   onNewTask: () => void;
+  onProjectTask?: (project: ProjectFolder) => void;
   onSettingsClick: () => void;
   mode?: "workspace" | "settings";
   activeSettingsSection?: string;
@@ -100,6 +102,7 @@ export function Sidebar({
   onCollapse,
   onHistorySessionClick,
   onNewTask,
+  onProjectTask,
   onSettingsClick,
   mode = "workspace",
   activeSettingsSection = "model",
@@ -274,6 +277,21 @@ export function Sidebar({
                       />
                     </span>
                     <span className="history-project-count">{group.sessions.length}</span>
+                    <Tooltip title="在此项目新建任务">
+                      <button
+                        className="history-project-enter"
+                        type="button"
+                        aria-label={`在 ${group.name} 新建任务`}
+                        onClick={(event) => {
+                          // 阻止默认行为，避免点击按钮时顺带展开/收起分组
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onProjectTask?.({ name: group.name, path: group.path });
+                        }}
+                      >
+                        <ArrowRightOutlined />
+                      </button>
+                    </Tooltip>
                   </summary>
                   <div className="history-session-list">
                     {group.sessions.map((session) => (
