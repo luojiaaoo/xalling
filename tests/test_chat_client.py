@@ -10,7 +10,7 @@ from backend.async_runtime import AsyncRuntime
 from backend.chat.client import (
     ClaudeChatClient,
     ClaudeChatConfig,
-    discover_skill_plugins,
+    discover_plugins,
 )
 from backend.chat.trace import ChatTrace
 
@@ -36,7 +36,7 @@ def test_chat_trace_uses_compact_success_text_for_empty_result() -> None:
     }
 
 
-def test_discover_skill_plugins_loads_supported_user_directories(
+def test_discover_plugins_loads_supported_user_directories(
     tmp_path: Path,
 ) -> None:
     plugin_roots = (
@@ -47,26 +47,26 @@ def test_discover_skill_plugins_loads_supported_user_directories(
     for root in plugin_roots:
         (root / "skills").mkdir(parents=True)
 
-    assert discover_skill_plugins(tmp_path) == [{"type": "local", "path": str(root)} for root in plugin_roots]
+    assert discover_plugins(tmp_path) == [{"type": "local", "path": str(root)} for root in plugin_roots]
 
 
-def test_discover_skill_plugins_ignores_missing_skill_directories(
+def test_discover_plugins_ignores_missing_skill_directories(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".xalling").mkdir()
     (tmp_path / ".agents" / "skills").mkdir(parents=True)
 
-    assert discover_skill_plugins(tmp_path) == [{"type": "local", "path": str(tmp_path / ".agents")}]
+    assert discover_plugins(tmp_path) == [{"type": "local", "path": str(tmp_path / ".agents")}]
 
 
-def test_discover_skill_plugins_loads_project_agents_directory(
+def test_discover_plugins_loads_project_agents_directory(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
     (project / ".agents" / "skills").mkdir(parents=True)
 
-    assert discover_skill_plugins(home=home, project=project) == [{"type": "local", "path": str(project / ".agents")}]
+    assert discover_plugins(home=home, project=project) == [{"type": "local", "path": str(project / ".agents")}]
 
 
 def test_live_server_info_and_chat_reuse_one_sdk_instance(
@@ -112,7 +112,7 @@ def test_live_server_info_and_chat_reuse_one_sdk_instance(
             )
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-    monkeypatch.setattr("backend.chat.client.discover_skill_plugins", lambda **_: [])
+    monkeypatch.setattr("backend.chat.client.discover_plugins", lambda **_: [])
     config = ClaudeChatConfig(
         api_key="secret",
         api_url="https://api.example.com",
@@ -193,7 +193,7 @@ def test_server_info_falls_back_to_snapshot_while_turn_is_running(
             )
 
     monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-    monkeypatch.setattr("backend.chat.client.discover_skill_plugins", lambda **_: [])
+    monkeypatch.setattr("backend.chat.client.discover_plugins", lambda **_: [])
     config = ClaudeChatConfig(
         api_key="secret",
         api_url="https://api.example.com",

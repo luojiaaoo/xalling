@@ -45,7 +45,7 @@ def close_persistent_chat_clients(
         bridges.append(self)
 
     monkeypatch.setattr(ApplicationBridge, "__init__", tracked_init)
-    monkeypatch.setattr("backend.chat.client.discover_skill_plugins", lambda **_: [])
+    monkeypatch.setattr("backend.chat.client.discover_plugins", lambda **_: [])
     monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
     yield
     for bridge in bridges:

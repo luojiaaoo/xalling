@@ -45,7 +45,7 @@ class ClaudeChatConfig:
     permission_mode: ChatPermissionMode = "default"
 
 
-def discover_skill_plugins(
+def discover_plugins(
     home: Path | None = None,
     project: Path | None = None,
 ) -> list[SdkPluginConfig]:
@@ -216,7 +216,7 @@ class ClaudeChatClient:
                             max_turns=200,
                             model=config.model,
                             permission_mode=config.permission_mode,
-                            plugins=discover_skill_plugins(project=config.project),
+                            plugins=discover_plugins(project=config.project),
                             # 新会话指定 session_id 创建；旧会话用 resume 恢复上下文
                             resume=None if config.is_new_session else config.session_id,
                             session_id=(config.session_id if config.is_new_session else None),
