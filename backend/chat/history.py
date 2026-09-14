@@ -40,6 +40,61 @@ class ClaudeChatHistory:
             ),
         }
 
+    def search_sessions(self, query: str, limit: int = 30) -> list[dict[str, object]]:
+        """Search persisted sessions by title and message text, newest first."""
+        normalized = query.strip().casefold()
+        if not normalized:
+            return []
+        matches: list[dict[str, object]] = []
+        sessions = sorted(
+            list_sessions(),
+            key=lambda session: session.last_modified,
+            reverse=True,
+        )
+        for session in sessions:
+            summary = self._serialize_session(session)
+            if normalized in str(summary["title"]).casefold():
+                matches.append(
+                    {
+                        **summary,
+                        "message_key": None,
+                        "role": None,
+                        "snippet": str(summary["title"]),
+                    }
+                )
+            try:
+                session_messages = get_session_messages(session.session_id)
+            except Exception:  # noqa: BLE001 - 单个会话文件损坏不应拖垮整个搜索
+                session_messages = []
+            messages = self._rebuild_messages(session_messages)
+            for message in messages:
+                content = str(message["content"])
+                index = content.casefold().find(normalized)
+                if index < 0:
+                    continue
+                matches.append(
+                    {
+                        **summary,
+                        "message_key": message["key"],
+                        "role": message["role"],
+                        "snippet": self._match_snippet(
+                            content, index, len(query.strip())
+                        ),
+                    }
+                )
+                if len(matches) >= limit:
+                    return matches
+        return matches[:limit]
+
+    @staticmethod
+    def _match_snippet(content: str, start: int, length: int, radius: int = 32) -> str:
+        """Extract a compact single-line snippet around the matched keyword."""
+        left = max(0, start - radius)
+        right = min(len(content), start + length + radius)
+        prefix = "…" if left > 0 else ""
+        suffix = "…" if right < len(content) else ""
+        return f"{prefix}{' '.join(content[left:right].split())}{suffix}"
+
     @staticmethod
     def _normalize_session_id(value: object) -> str:
         """Validate a Claude session UUID received from the Web UI."""

@@ -496,6 +496,12 @@ class ChatRouter(CommandRouter):
             reverse=True,
         )
 
+    async def search_chat_sessions(self, query: str) -> list[dict[str, object]]:
+        """Search persisted session titles and message text for the sidebar."""
+        if not isinstance(query, str):
+            raise TypeError("搜索关键词必须是字符串")
+        return await asyncer.asyncify(self._history.search_sessions)(query)
+
     async def get_chat_session(self, session_id: str) -> dict[str, object]:
         """Load one Claude session and its user-visible message text."""
         normalized_session_id = self._normalize_optional_session_id(session_id)
