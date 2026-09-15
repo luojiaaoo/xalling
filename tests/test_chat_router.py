@@ -232,6 +232,15 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
         "content": "完成了",
         "final_output_block_id": "message-1-block-1",
         "session_id": session_id,
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "num_turns": 1,
+            "model_name": "claude-sonnet",
+            "stop_reason": "success",
+        },
     }
     assert captured["prompt"] == "检查项目"
     options = captured["options"]
@@ -588,6 +597,15 @@ def test_chat_router_stops_active_turn_and_returns_partial_output(
         "final_output_block_id": "message-1-block-0",
         "session_id": session_id,
         "stopped": True,
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "num_turns": 1,
+            "model_name": None,
+            "stop_reason": "interrupted",
+        },
     }
     assert not router.stop_chat_message(session_id)
 

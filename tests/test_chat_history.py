@@ -93,6 +93,14 @@ def test_history_loads_visible_messages_from_native_claude_session(
             session_id=session_id,
             message={
                 "role": "assistant",
+                "model": "claude-sonnet",
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 120,
+                    "output_tokens": 24,
+                    "cache_read_input_tokens": 80,
+                    "cache_creation_input_tokens": 10,
+                },
                 "content": [
                     {"type": "thinking", "thinking": "内部推理"},
                     {"type": "text", "text": "第一段"},
@@ -146,6 +154,15 @@ def test_history_loads_visible_messages_from_native_claude_session(
                 "role": "assistant",
                 "content": "第一段\n\n第二段",
                 "final_output_block_id": None,
+                "usage": {
+                    "input_tokens": 120,
+                    "output_tokens": 24,
+                    "cache_read_input_tokens": 80,
+                    "cache_creation_input_tokens": 10,
+                    "num_turns": 1,
+                    "model_name": "claude-sonnet",
+                    "stop_reason": "end_turn",
+                },
                 "trace_events": [
                     {
                         "type": "thinking_start",

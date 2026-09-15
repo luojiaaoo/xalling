@@ -1,5 +1,11 @@
-import { PaperClipOutlined } from "@ant-design/icons";
+import {
+  BarChartOutlined,
+  CheckOutlined,
+  CopyOutlined,
+  PaperClipOutlined,
+} from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
+import { Popover } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { flushSync } from "react-dom";
@@ -16,6 +22,7 @@ import {
   type ChatPermissionMode,
   type ChatPermissionRequestEvent,
   type ChatStreamEvent,
+  type ChatUsage,
   type ProjectFolder,
 } from "../bridge/client";
 import { pickQuote } from "../quotes";
@@ -52,8 +59,82 @@ type ConversationMessage = {
   status?: "abort" | "error" | "success";
   trace?: AgentTraceItem[];
   traceExpanded?: boolean;
+  usage?: ChatUsage;
   workingSeconds?: number;
 };
+
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: value >= 1_000 ? 1 : 0,
+    notation: value >= 1_000 ? "compact" : "standard",
+  }).format(value);
+}
+
+function cacheHitRate(usage?: ChatUsage): number | null {
+  if (!usage) {
+    return null;
+  }
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheCreation = usage.cache_creation_input_tokens ?? 0;
+  const input = usage.input_tokens ?? 0;
+  const cacheableInput = input + cacheRead + cacheCreation;
+  return cacheableInput > 0 ? cacheRead / cacheableInput : null;
+}
+
+function formatCacheHitRate(usage?: ChatUsage): string {
+  const rate = cacheHitRate(usage);
+  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
+}
+
+function stopReasonLabel(reason?: string): string {
+  const labels: Record<string, string> = {
+    end_turn: "正常完成",
+    interrupted: "用户停止",
+    max_tokens: "达到输出上限",
+    success: "正常完成",
+  };
+  return reason ? (labels[reason] ?? reason) : "—";
+}
+
+function ResponseUsageDetails({ usage }: { usage: ChatUsage }) {
+  const input = usage.input_tokens ?? 0;
+  const output = usage.output_tokens ?? 0;
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheCreation = usage.cache_creation_input_tokens ?? 0;
+  const total = input + output + cacheRead + cacheCreation;
+  return (
+    <div className="response-usage-card">
+      <div className="response-usage-title">
+        <strong>本次响应</strong>
+      </div>
+      <dl className="response-usage-grid">
+        <div><dt>输入 Token</dt><dd>{formatTokenCount(input)}</dd></div>
+        <div><dt>输出 Token</dt><dd>{formatTokenCount(output)}</dd></div>
+        <div><dt>缓存读取</dt><dd>{formatTokenCount(cacheRead)}</dd></div>
+        <div><dt>缓存创建</dt><dd>{formatTokenCount(cacheCreation)}</dd></div>
+        <div><dt>缓存命中率</dt><dd>{formatCacheHitRate(usage)}</dd></div>
+        <div><dt>总 Token</dt><dd>{formatTokenCount(total)}</dd></div>
+        <div className="response-usage-wide">
+          <dt>模型</dt><dd title={usage.model_name ?? undefined}>{usage.model_name ?? "—"}</dd>
+        </div>
+        <div className="response-usage-wide">
+          <dt>停止原因</dt><dd>{stopReasonLabel(usage.stop_reason)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function copyWithFallback(content: string): void {
+  const textArea = document.createElement("textarea");
+  textArea.value = content;
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  textArea.remove();
+}
 
 function getGreeting(hour: number): string {
   const period = hour < 6 ? 0 : hour < 8 ? 1 : hour < 11 ? 2 : hour < 13 ? 3 : hour < 18 ? 4 : 5;
@@ -143,6 +224,8 @@ export function Workspace({
   const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
   const startedAtRef = useRef<number | null>(null);
   const stopRequestedRef = useRef(false);
+  const copyFeedbackTimerRef = useRef<number | null>(null);
+  const [copiedMessageKey, setCopiedMessageKey] = useState<string | null>(null);
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
   const focusBubbleKeyRef = useRef(focusMessageKey ? `history-${focusMessageKey}` : null);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
@@ -191,6 +274,7 @@ export function Workspace({
               status: stopped ? "abort" : "success",
               trace: finishAgentTrace(item.trace ?? [], "success", event.timestamp),
               traceExpanded: false,
+              usage: reply.usage,
               workingSeconds,
             }
           : item
@@ -308,6 +392,7 @@ export function Workspace({
             status: "success",
             trace: finishAgentTrace(trace, "success"),
             traceExpanded: false,
+            usage: message.usage,
           };
         });
         if (activeChat) {
@@ -349,6 +434,7 @@ export function Workspace({
                   "success",
                   event.timestamp,
                 ),
+                usage: event.reply.usage,
               };
               running = false;
             } else if (event.type === "chat_error") {
@@ -473,6 +559,27 @@ export function Workspace({
     return () => window.cancelAnimationFrame(frame);
   }, [historyLoading, messages]);
 
+  useEffect(() => () => {
+    if (copyFeedbackTimerRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimerRef.current);
+    }
+  }, []);
+
+  const handleCopy = async (messageKey: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      copyWithFallback(content);
+    }
+    setCopiedMessageKey(messageKey);
+    if (copyFeedbackTimerRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimerRef.current);
+    }
+    copyFeedbackTimerRef.current = window.setTimeout(() => {
+      setCopiedMessageKey((current) => current === messageKey ? null : current);
+    }, 1_800);
+  };
+
   const handlePermissionDecision = async (
     request: ChatPermissionRequestEvent,
     allowed: boolean,
@@ -569,6 +676,7 @@ export function Workspace({
                 status: stopped ? "abort" : "success",
                 trace: finishAgentTrace(item.trace ?? [], "success"),
                 traceExpanded: false,
+                usage: reply.usage,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
             : item
@@ -641,6 +749,51 @@ export function Workspace({
     }));
   };
 
+  const sessionStats = messages.reduce<{
+    agentSteps: number;
+    inputTokens: number;
+    latestUsage?: ChatUsage;
+    outputTokens: number;
+    toolCalls: number;
+    toolFailures: number;
+    toolSuccesses: number;
+    turns: number;
+  }>((stats, item) => {
+    if (item.role === "user") {
+      stats.turns += 1;
+      return stats;
+    }
+    if (item.usage) {
+      stats.inputTokens += item.usage.input_tokens ?? 0;
+      stats.outputTokens += item.usage.output_tokens ?? 0;
+      stats.agentSteps += item.usage.num_turns ?? 1;
+      stats.latestUsage = item.usage;
+    } else if (!item.loading) {
+      stats.agentSteps += 1;
+    }
+    for (const traceItem of item.trace ?? []) {
+      if (traceItem.kind !== "tools") {
+        continue;
+      }
+      stats.toolCalls += traceItem.calls.length;
+      stats.toolSuccesses += traceItem.calls.filter(
+        (call) => call.status === "success",
+      ).length;
+      stats.toolFailures += traceItem.calls.filter(
+        (call) => call.status === "error",
+      ).length;
+    }
+    return stats;
+  }, {
+    agentSteps: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    toolCalls: 0,
+    toolFailures: 0,
+    toolSuccesses: 0,
+    turns: 0,
+  });
+
   const bubbleItems = messages.map((item) => {
     const traceItems = item.trace ?? [];
     const lastTraceItem = traceItems.at(-1);
@@ -655,6 +808,58 @@ export function Workspace({
       role: item.role,
       status: item.status,
       streaming: item.role === "ai" && item.loading,
+      footer: item.role === "user" ? (
+        <div className="message-actions user-message-footer">
+          <button
+            aria-label="复制用户消息的 Markdown 原文"
+            className={`message-action-button${
+              copiedMessageKey === item.key ? " is-copied" : ""
+            }`}
+            type="button"
+            onClick={() => void handleCopy(item.key, item.content)}
+          >
+            {copiedMessageKey === item.key ? <CheckOutlined /> : <CopyOutlined />}
+            <span className="message-action-label">
+              {copiedMessageKey === item.key ? "已复制" : "复制 Markdown"}
+            </span>
+          </button>
+        </div>
+      ) : !item.loading && item.content ? (
+        <div className="message-actions assistant-message-footer">
+          <button
+            aria-label="复制 AI 回复的 Markdown 原文"
+            className={`message-action-button${
+              copiedMessageKey === item.key ? " is-copied" : ""
+            }`}
+            type="button"
+            onClick={() => void handleCopy(item.key, item.content)}
+          >
+            {copiedMessageKey === item.key ? <CheckOutlined /> : <CopyOutlined />}
+            <span className="message-action-label">
+              {copiedMessageKey === item.key ? "已复制" : "复制 Markdown"}
+            </span>
+          </button>
+          {item.usage && (
+            <Popover
+              content={<ResponseUsageDetails usage={item.usage} />}
+              mouseEnterDelay={0.12}
+              placement="topLeft"
+            >
+              <button
+                aria-label="查看本次 AI 响应用量"
+                className={`message-action-button response-status-button response-status-${
+                  item.status ?? "success"
+                }`}
+                type="button"
+              >
+                <BarChartOutlined />
+                <span className="message-action-label">查看响应用量</span>
+              </button>
+            </Popover>
+          )}
+        </div>
+      ) : undefined,
+      footerPlacement: item.role === "user" ? "outer-end" as const : "outer-start" as const,
       content: item.role === "ai" ? (
         <article className="assistant-turn">
           <AgentTrace
@@ -755,6 +960,15 @@ export function Workspace({
             sessionId={sessionIdRef.current}
             stopping={stopping}
           />
+          {conversationStarted && (
+            <div className="conversation-stats" aria-label="当前会话统计">
+              <span><strong>{sessionStats.turns}</strong>轮对话</span>
+              <span>AI 调用<strong>{sessionStats.agentSteps}</strong>步</span>
+              <span>缓存命中率<strong>{formatCacheHitRate(sessionStats.latestUsage)}</strong></span>
+              <span>词元 · 输入<strong>{formatTokenCount(sessionStats.inputTokens)}</strong> · 输出<strong>{formatTokenCount(sessionStats.outputTokens)}</strong> · 总<strong>{formatTokenCount(sessionStats.inputTokens + sessionStats.outputTokens)}</strong></span>
+              <span>工具<strong>{sessionStats.toolCalls}</strong>次 · <em className="stat-success">成功{sessionStats.toolSuccesses}</em>/<em className="stat-failure">失败{sessionStats.toolFailures}</em></span>
+            </div>
+          )}
         </div>
       </div>
     </main>

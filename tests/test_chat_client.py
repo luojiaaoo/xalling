@@ -28,6 +28,12 @@ def test_chat_trace_uses_compact_success_text_for_empty_result() -> None:
             is_error=False,
             num_turns=0,
             session_id="session-id",
+            usage={
+                "input_tokens": 120,
+                "output_tokens": 24,
+                "cache_read_input_tokens": 80,
+                "cache_creation_input_tokens": 10,
+            },
             result=None,
         )
     )
@@ -36,6 +42,15 @@ def test_chat_trace_uses_compact_success_text_for_empty_result() -> None:
         "content": "上下文已压缩。",
         "final_output_block_id": None,
         "session_id": "session-id",
+        "usage": {
+            "input_tokens": 120,
+            "output_tokens": 24,
+            "cache_read_input_tokens": 80,
+            "cache_creation_input_tokens": 10,
+            "num_turns": 0,
+            "model_name": None,
+            "stop_reason": "success",
+        },
     }
 
 

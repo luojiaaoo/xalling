@@ -115,11 +115,22 @@ export type ChatPermissionMode =
   | "auto"
   | "bypassPermissions";
 
+export type ChatUsage = {
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  input_tokens?: number;
+  model_name?: string | null;
+  num_turns?: number;
+  output_tokens?: number;
+  stop_reason?: string;
+};
+
 export type ChatReply = {
   content: string;
   final_output_block_id: string | null;
   session_id: string;
   stopped?: boolean;
+  usage: ChatUsage;
 };
 
 export type ChatSessionSummary = {
@@ -151,6 +162,7 @@ type ChatHistoryAssistantMessage = {
   key: string;
   role: "assistant";
   trace_events: ChatStreamEvent[];
+  usage?: ChatUsage;
 };
 
 export type ChatHistoryMessage =

@@ -16,7 +16,7 @@ from claude_agent_sdk import (
 )
 
 from ._formatting import summarize_tool_input
-from .types import ChatEvent, ChatEventHandler, ChatReply
+from .types import ChatEvent, ChatEventHandler, ChatReply, ChatUsage
 
 
 class ChatTrace:
@@ -32,6 +32,7 @@ class ChatTrace:
         self._assistant_message_number = 0
         self._current_stream_message_id: str | None = None
         self._latest_output_block_id: str | None = None
+        self._model_names: list[str] = []
         self._result: ResultMessage | None = None
 
     def consume(self, message: object) -> None:
@@ -86,10 +87,50 @@ class ChatTrace:
             "content": content,
             "final_output_block_id": final_output_block_id,
             "session_id": result.session_id,
+            "usage": self._serialize_usage(result, interrupted),
         }
         if interrupted:
             reply["stopped"] = True
         return reply
+
+    def _serialize_usage(
+        self,
+        result: ResultMessage,
+        interrupted: bool,
+    ) -> ChatUsage:
+        """Normalize the SDK's per-model usage into one UI-friendly total."""
+        model_usage = result.model_usage or {}
+        raw_usage = result.usage or {}
+
+        def token_total(model_key: str, usage_key: str) -> int:
+            if model_usage:
+                return sum(item.get(model_key, 0) for item in model_usage.values())
+            value = raw_usage.get(usage_key, 0)
+            return value if type(value) is int else 0
+
+        model_names = list(model_usage)
+        if not model_names:
+            model_names = self._model_names
+
+        return {
+            "input_tokens": token_total("inputTokens", "input_tokens"),
+            "output_tokens": token_total("outputTokens", "output_tokens"),
+            "cache_read_input_tokens": token_total(
+                "cacheReadInputTokens", "cache_read_input_tokens"
+            ),
+            "cache_creation_input_tokens": token_total(
+                "cacheCreationInputTokens", "cache_creation_input_tokens"
+            ),
+            "num_turns": result.num_turns,
+            "model_name": "、".join(dict.fromkeys(model_names)) or None,
+            "stop_reason": (
+                "interrupted"
+                if interrupted
+                else result.stop_reason
+                or result.terminal_reason
+                or result.subtype
+            ),
+        }
 
     def _consume_stream_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -127,6 +168,8 @@ class ChatTrace:
 
     def _consume_assistant_message(self, message: AssistantMessage) -> None:
         self._assistant_message_number += 1
+        if message.model and message.model not in self._model_names:
+            self._model_names.append(message.model)
         message_id = (
             message.message_id or self._current_stream_message_id or f"message-{self._assistant_message_number}"
         )

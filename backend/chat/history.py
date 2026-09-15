@@ -137,13 +137,15 @@ class ClaudeChatHistory:
         assistant_key: str | None = None
         trace_events: list[ChatEvent] = []
         output_groups: list[list[tuple[str, str]]] = []
+        usage: dict[str, object] = {}
 
         def append_assistant() -> None:
-            nonlocal assistant_key, trace_events, output_groups
+            nonlocal assistant_key, trace_events, output_groups, usage
             if assistant_key is None or not trace_events:
                 assistant_key = None
                 trace_events = []
                 output_groups = []
+                usage = {}
                 return
 
             final_outputs = output_groups[-1] if output_groups else []
@@ -153,18 +155,20 @@ class ClaudeChatHistory:
                 if final_outputs and final_outputs[-1][1].strip() == content
                 else None
             )
-            messages.append(
-                {
-                    "key": assistant_key,
-                    "role": "assistant",
-                    "content": content,
-                    "final_output_block_id": final_output_block_id,
-                    "trace_events": trace_events,
-                }
-            )
+            assistant: dict[str, object] = {
+                "key": assistant_key,
+                "role": "assistant",
+                "content": content,
+                "final_output_block_id": final_output_block_id,
+                "trace_events": trace_events,
+            }
+            if usage:
+                assistant["usage"] = usage
+            messages.append(assistant)
             assistant_key = None
             trace_events = []
             output_groups = []
+            usage = {}
 
         for session_message in session_messages:
             content_blocks = cls._content_blocks(session_message.message)
@@ -204,6 +208,8 @@ class ClaudeChatHistory:
             if assistant_key is None:
                 assistant_key = session_message.uuid
             raw_message = session_message.message
+            if isinstance(raw_message, dict):
+                cls._accumulate_usage(usage, raw_message)
             message_id = (
                 raw_message.get("id")
                 if isinstance(raw_message, dict)
@@ -268,6 +274,45 @@ class ClaudeChatHistory:
 
         append_assistant()
         return messages
+
+    @staticmethod
+    def _accumulate_usage(
+        total: dict[str, object],
+        raw_message: dict[str, Any],
+    ) -> None:
+        """Add common usage metadata from one persisted assistant message."""
+        raw_usage = raw_message.get("usage")
+        model_name = raw_message.get("model")
+        stop_reason = raw_message.get("stop_reason")
+        has_metadata = (
+            isinstance(raw_usage, dict)
+            or isinstance(model_name, str)
+            or isinstance(stop_reason, str)
+        )
+        if not has_metadata:
+            return
+
+        current_turns = total.get("num_turns", 0)
+        if type(current_turns) is int:
+            total["num_turns"] = current_turns + 1
+        if isinstance(model_name, str) and model_name:
+            total["model_name"] = model_name
+        if isinstance(stop_reason, str) and stop_reason:
+            total["stop_reason"] = stop_reason
+        if not isinstance(raw_usage, dict):
+            return
+        usage_keys = (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        )
+        for key in usage_keys:
+            value = raw_usage.get(key)
+            if type(value) is int and value >= 0:
+                current = total.get(key, 0)
+                if type(current) is int:
+                    total[key] = current + value
 
     @staticmethod
     def _content_blocks(message: object) -> list[dict[str, Any]]:
