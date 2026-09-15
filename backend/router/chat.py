@@ -224,6 +224,8 @@ class ChatRouter(CommandRouter):
         self._active_chats: dict[str, _ActiveChat] = {}
         self._history = ClaudeChatHistory()
         self._pending_permissions: dict[str, _PendingPermission] = {}
+        # 在整个路由生命周期内单调递增，保证 _active_chats 事件序号和前端流序号的一致性和单调性
+        self._next_event_index = 0
 
     async def send_chat_message(
         self,
@@ -718,8 +720,9 @@ class ChatRouter(CommandRouter):
             if active_chat is not None:
                 detail_event = {
                     **detail_event,
-                    "event_index": len(active_chat.events),
+                    "event_index": self._next_event_index,
                 }
+                self._next_event_index += 1
                 active_chat.events.append(detail_event)
         if self._window is None:
             return False

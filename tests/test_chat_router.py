@@ -768,6 +768,40 @@ def test_get_active_chat_hides_answered_permission_requests() -> None:
         router._active_chats.pop(session_id, None)
 
 
+def test_chat_event_indexes_do_not_restart_when_turn_buffer_is_cleared() -> None:
+    router = ApplicationBridge()
+    session_id = str(uuid4())
+
+    class StubClient:
+        async def close(self) -> None:
+            return None
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            return None
+
+    router._window = WindowStub()
+    router._active_chats[session_id] = _ActiveChat(
+        client=StubClient(),
+        events=[],
+        metadata={},
+        running=True,
+    )
+
+    assert router._emit_chat_event(
+        {"type": "session_started", "session_id": session_id},
+        session_id=session_id,
+    )
+    assert router._active_chats[session_id].events[0]["event_index"] == 0
+
+    router._active_chats[session_id].events.clear()
+    assert router._emit_chat_event(
+        {"type": "permission_request", "permission_id": str(uuid4())},
+        session_id=session_id,
+    )
+    assert router._active_chats[session_id].events[0]["event_index"] == 1
+
+
 def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
     router = ApplicationBridge()
     question_input = {
