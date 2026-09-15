@@ -41,7 +41,7 @@ def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
         format=LOG_FORMAT,
         encoding="utf-8",
         rotation="10 MB",
-        retention="14 days",
+        retention=4,
         backtrace=True,
         diagnose=False,
         filter=lambda record: record["extra"].get("channel") == "access",
