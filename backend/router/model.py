@@ -2,8 +2,14 @@
 
 from typing import TypedDict
 
+import asyncer
+
 from backend.config.current import CurrentConfig
-from backend.config.setting import ModelSiteConfig, Settings
+from backend.config.setting import (
+    ModelSiteConfig,
+    Settings,
+    get_settings,
+)
 
 
 class ModelInfo(TypedDict):
@@ -39,8 +45,9 @@ class ModelSiteView(TypedDict):
 class ModelRouter:
     """Expose the model configuration to the pywebview bridge."""
 
-    def get_model_groups(self) -> list[ModelGroup]:
+    async def get_model_groups(self) -> list[ModelGroup]:
         """Return non-empty model groups without exposing private settings."""
+        settings = await get_settings()
         return [
             {
                 "name": site.name,
@@ -49,12 +56,13 @@ class ModelRouter:
                     for model in site.models
                 ],
             }
-            for site in Settings().model
+            for site in settings.model
             if site.models
         ]
 
-    def get_model_sites(self) -> list[ModelSiteView]:
+    async def get_model_sites(self) -> list[ModelSiteView]:
         """Return provider configuration with API keys for in-app editing."""
+        settings = await get_settings()
         return [
             {
                 "name": site.name,
@@ -65,10 +73,10 @@ class ModelRouter:
                     for model in site.models
                 ],
             }
-            for site in Settings().model
+            for site in settings.model
         ]
 
-    def save_model_site(
+    async def save_model_site(
         self,
         original_name: str | None,
         name: str,
@@ -83,7 +91,7 @@ class ModelRouter:
         normalized_key = self._validate_secret(api_key)
         normalized_models = self._validate_models(models)
 
-        settings = Settings()
+        settings = await get_settings()
         existing = next(
             (site for site in settings.model if site.name == normalized_original), None
         )
@@ -105,24 +113,24 @@ class ModelRouter:
         else:
             settings.model[settings.model.index(existing)] = replacement
 
-        settings.write()
-        self._restore_current_selection(Settings())
+        await asyncer.asyncify(settings.write)()
+        self._restore_current_selection(settings)
 
-    def delete_model_site(self, name: str) -> None:
+    async def delete_model_site(self, name: str) -> None:
         """Delete a provider and reset the active selection when necessary."""
         normalized_name = self._validate_name(name, "供应商名称")
-        settings = Settings()
+        settings = await get_settings()
         remaining_sites = [site for site in settings.model if site.name != normalized_name]
         if len(remaining_sites) == len(settings.model):
             raise ValueError("要删除的供应商不存在")
 
         settings.model = remaining_sites
-        settings.write()
-        self._restore_current_selection(Settings())
+        await asyncer.asyncify(settings.write)()
+        self._restore_current_selection(settings)
 
-    def get_current_model(self) -> ModelSelection | None:
+    async def get_current_model(self) -> ModelSelection | None:
         """Return the saved selection, or persist and return the first model."""
-        settings = Settings()
+        settings = await get_settings()
         current = CurrentConfig()
         selection = self._find_selection(
             settings, current.model.site, current.model.name
@@ -137,12 +145,12 @@ class ModelRouter:
                 return selection
         return None
 
-    def set_current_model(self, site: str, model: str) -> None:
+    async def set_current_model(self, site: str, model: str) -> None:
         """Validate and persist the model selected from the desktop UI."""
         if not isinstance(site, str) or not isinstance(model, str):
             raise TypeError("模型站点和模型名称必须是字符串")
 
-        selection = self._find_selection(Settings(), site, model)
+        selection = self._find_selection(await get_settings(), site, model)
         if selection is None:
             raise ValueError("所选模型不在当前配置中")
         self._write_selection(selection)

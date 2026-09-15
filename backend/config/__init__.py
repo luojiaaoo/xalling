@@ -1,5 +1,5 @@
 """Application configuration exports."""
 
-from .setting import Settings
+from .setting import Settings, get_settings
 
-settings = Settings()
+__all__ = ["Settings", "get_settings"]

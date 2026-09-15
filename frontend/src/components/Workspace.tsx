@@ -102,6 +102,7 @@ type WorkspaceProps = {
   focusMessageKey?: string | null;
   hidden?: boolean;
   initialSessionId?: string | null;
+  modelsRevision: number;
   onEffortChange: (value: number) => void;
   onPermissionModeChange: (mode: ChatPermissionMode) => void;
   onProjectChange: Dispatch<SetStateAction<ProjectFolder | null>>;
@@ -115,6 +116,7 @@ export function Workspace({
   focusMessageKey = null,
   hidden = false,
   initialSessionId = null,
+  modelsRevision,
   onEffortChange,
   onPermissionModeChange,
   onProjectChange,
@@ -714,6 +716,7 @@ export function Workspace({
             busy={busy}
             conversationStarted={conversationStarted}
             effort={effort}
+            modelsRevision={modelsRevision}
             onEffortChange={onEffortChange}
             onPermissionDecision={handlePermissionDecision}
             onPermissionModeChange={onPermissionModeChange}

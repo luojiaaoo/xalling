@@ -10,6 +10,9 @@ from typing import Any, cast
 from loguru import logger
 
 LOG_DIRECTORY = Path.home() / ".xalling" / "log"
+ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"
+BROWSER_LOG_FILEPATH = LOG_DIRECTORY / "browser.log"
+ERROR_LOG_FILEPATH = LOG_DIRECTORY / "error.log"
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token")
 
@@ -22,11 +25,11 @@ _browser_logger = logger.bind(channel="browser")
 _error_logger = logger.bind(channel="error")
 
 
-def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
+def configure_logging() -> None:
     """Clear Loguru's defaults and add console and file log channels."""
     global _logging_configured
 
-    log_directory.mkdir(parents=True, exist_ok=True)
+    LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
     logger.remove()
     logger.add(
         sys.stderr,
@@ -36,7 +39,7 @@ def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
         diagnose=False,
     )
     logger.add(
-        log_directory / "access.log",
+        ACCESS_LOG_FILEPATH,
         level="INFO",
         format=LOG_FORMAT,
         encoding="utf-8",
@@ -47,7 +50,7 @@ def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
         filter=lambda record: record["extra"].get("channel") == "access",
     )
     logger.add(
-        log_directory / "error.log",
+        ERROR_LOG_FILEPATH,
         level="ERROR",
         format=LOG_FORMAT,
         encoding="utf-8",
@@ -58,7 +61,7 @@ def configure_logging(log_directory: Path = LOG_DIRECTORY) -> None:
         filter=lambda record: record["extra"].get("channel") == "error",
     )
     logger.add(
-        log_directory / "browser.log",
+        BROWSER_LOG_FILEPATH,
         level="ERROR",
         format=LOG_FORMAT,
         encoding="utf-8",

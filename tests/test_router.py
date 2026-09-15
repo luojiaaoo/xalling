@@ -6,6 +6,7 @@ import pytest
 from webview import FileDialog
 from webview.window import FixPoint
 
+from backend.async_runtime import AsyncRuntime
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
 from backend.router import (
@@ -34,7 +35,18 @@ def test_model_router_manages_sites_and_returns_api_keys(
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
     router = ModelRouter()
 
-    assert router.get_model_sites() == [
+    with AsyncRuntime() as runtime:
+        model_sites = runtime.call(router.get_model_sites)
+        runtime.call(
+            router.save_model_site,
+            "Provider A",
+            "Provider B",
+            "https://api.example.com/v2",
+            "replacement-secret",
+            [{"name": "model-b", "image_vision": True}],
+        )
+
+    assert model_sites == [
         {
             "name": "Provider A",
             "api_url": "https://api.example.com/v1",
@@ -42,14 +54,6 @@ def test_model_router_manages_sites_and_returns_api_keys(
             "models": [{"name": "model-a", "image_vision": False}],
         }
     ]
-
-    router.save_model_site(
-        "Provider A",
-        "Provider B",
-        "https://api.example.com/v2",
-        "replacement-secret",
-        [{"name": "model-b", "image_vision": True}],
-    )
 
     with settings_path.open("rb") as file:
         assert tomllib.load(file) == {
@@ -85,7 +89,8 @@ def test_model_router_deletes_site_and_replaces_current_model(
     monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
-    ModelRouter().delete_model_site("Provider A")
+    with AsyncRuntime() as runtime:
+        runtime.call(ModelRouter().delete_model_site, "Provider A")
 
     with current_path.open("rb") as file:
         assert tomllib.load(file) == {
@@ -106,7 +111,10 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
     )
     monkeypatch.setitem(Settings.model_config, "toml_file", path)
 
-    assert ModelRouter().get_model_groups() == [
+    with AsyncRuntime() as runtime:
+        model_groups = runtime.call(ModelRouter().get_model_groups)
+
+    assert model_groups == [
         {
             "name": "内部部署",
             "models": [
@@ -342,7 +350,10 @@ def test_model_router_restores_saved_selection(
     monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
-    assert ModelRouter().get_current_model() == {
+    with AsyncRuntime() as runtime:
+        current_model = runtime.call(ModelRouter().get_current_model)
+
+    assert current_model == {
         "site": "站点二",
         "model": "model-b",
     }
@@ -361,7 +372,10 @@ def test_model_router_persists_first_model_when_selection_is_missing(
     monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
-    assert ModelRouter().get_current_model() == {
+    with AsyncRuntime() as runtime:
+        current_model = runtime.call(ModelRouter().get_current_model)
+
+    assert current_model == {
         "site": "可用站点",
         "model": "model-a",
     }
@@ -388,7 +402,10 @@ def test_model_router_replaces_selection_that_is_no_longer_available(
     monkeypatch.setitem(Settings.model_config, "toml_file", settings_path)
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
-    assert ModelRouter().get_current_model() == {
+    with AsyncRuntime() as runtime:
+        current_model = runtime.call(ModelRouter().get_current_model)
+
+    assert current_model == {
         "site": "可用站点",
         "model": "model-a",
     }
@@ -413,12 +430,14 @@ def test_model_router_validates_and_persists_changed_selection(
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
     router = ModelRouter()
 
-    router.set_current_model("站点一", "model-b")
+    with AsyncRuntime() as runtime:
+        runtime.call(router.set_current_model, "站点一", "model-b")
+
+        with pytest.raises(ValueError, match="所选模型不在当前配置中"):
+            runtime.call(router.set_current_model, "站点一", "missing")
 
     with current_path.open("rb") as file:
         assert tomllib.load(file) == {
             "model": {"site": "站点一", "name": "model-b"},
             "theme": {"name": "default"},
         }
-    with pytest.raises(ValueError, match="所选模型不在当前配置中"):
-        router.set_current_model("站点一", "missing")

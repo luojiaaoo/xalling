@@ -29,7 +29,11 @@ from backend.chat import (
     ClaudeChatHistory,
 )
 from backend.config.current import CurrentConfig
-from backend.config.setting import ModelSiteConfig, Settings, default_project_folder
+from backend.config.setting import (
+    ModelSiteConfig,
+    default_project_folder,
+    get_settings,
+)
 from backend.router.command import CommandRouter, is_allowed_leading_slash
 
 # 对话结束后 SDK 客户端保留时长：期间命令/技能请求与下一轮对话复用同一连接，超时自动关闭
@@ -250,10 +254,8 @@ class ChatRouter(CommandRouter):
             raise _user_facing_error(error) from error
 
         active_session_id = request.session_id or str(uuid4())
-        is_new_session = not await asyncer.asyncify(self._history.has_session)(
-            active_session_id
-        )
-        site, model_name = await asyncer.asyncify(self._get_current_provider)()
+        is_new_session = not await asyncer.asyncify(self._history.has_session)(active_session_id)
+        site, model_name = await self._get_current_provider()
         config = ClaudeChatConfig(
             api_key=site.api_key,
             api_url=site.api_url,
@@ -271,9 +273,7 @@ class ChatRouter(CommandRouter):
         client = self._get_or_create_chat_client(config)
         # 仅斜杠开头时才实时拉取 server info 做白名单校验，避免普通消息多一次请求
         first_token = request.prompt.split(maxsplit=1)[0]
-        server_info = (
-            await client.get_server_info() if first_token.startswith("/") else {}
-        )
+        server_info = await client.get_server_info() if first_token.startswith("/") else {}
         _validate_leading_slash(request.prompt, server_info)
 
         active_chat = self._active_chats[active_session_id]
@@ -374,21 +374,17 @@ class ChatRouter(CommandRouter):
             raise ValueError("会话标识无效")
 
         project = default_project_folder()
-        is_new_session = not await asyncer.asyncify(self._history.has_session)(
-            normalized_session_id
-        )
+        is_new_session = not await asyncer.asyncify(self._history.has_session)(normalized_session_id)
         if not is_new_session:
             # 已有会话沿用历史记录中的项目目录，保证技能/命令上下文一致
-            history = await asyncer.asyncify(self._history.get_session)(
-                normalized_session_id
-            )
+            history = await asyncer.asyncify(self._history.get_session)(normalized_session_id)
             history_path = history.get("project_path")
             if isinstance(history_path, str):
                 candidate = Path(history_path).resolve()
                 if candidate.is_dir():
                     project = candidate
 
-        site, model_name = await asyncer.asyncify(self._get_current_provider)()
+        site, model_name = await self._get_current_provider()
         config = ClaudeChatConfig(
             api_key=site.api_key,
             api_url=site.api_url,
@@ -475,18 +471,11 @@ class ChatRouter(CommandRouter):
     async def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
         sessions = await asyncer.asyncify(self._history.list_sessions)()
-        sessions_by_id = {
-            str(session["session_id"]): {**session, "running": False}
-            for session in sessions
-        }
+        sessions_by_id = {str(session["session_id"]): {**session, "running": False} for session in sessions}
         for session_id, active_chat in self._active_chats.items():
             if not active_chat.running:
                 continue
-            active_summary = {
-                key: value
-                for key, value in active_chat.metadata.items()
-                if key != "prompt"
-            }
+            active_summary = {key: value for key, value in active_chat.metadata.items() if key != "prompt"}
             persisted_summary = sessions_by_id.get(session_id)
             if persisted_summary is None:
                 sessions_by_id[session_id] = {
@@ -517,9 +506,7 @@ class ChatRouter(CommandRouter):
         if normalized_session_id is None:
             raise ValueError("会话标识无效")
         try:
-            return await asyncer.asyncify(self._history.get_session)(
-                normalized_session_id
-            )
+            return await asyncer.asyncify(self._history.get_session)(normalized_session_id)
         except ValueError:
             active_chat = self._active_chats.get(normalized_session_id)
             if active_chat is None or not active_chat.running:
@@ -527,11 +514,7 @@ class ChatRouter(CommandRouter):
             metadata = active_chat.metadata
             prompt = str(metadata["prompt"])
             return {
-                **{
-                    key: value
-                    for key, value in metadata.items()
-                    if key != "prompt"
-                },
+                **{key: value for key, value in metadata.items() if key != "prompt"},
                 "messages": [
                     {
                         "key": f"active-user-{normalized_session_id}",
@@ -553,8 +536,7 @@ class ChatRouter(CommandRouter):
         events = [
             dict(event)
             for event in active_chat.events
-            if event.get("type") != "permission_request"
-            or event.get("permission_id") in self._pending_permissions
+            if event.get("type") != "permission_request" or event.get("permission_id") in self._pending_permissions
         ]
         return {
             "session_id": normalized_session_id,
@@ -586,10 +568,7 @@ class ChatRouter(CommandRouter):
         pending_decisions = [
             pending.future
             for pending in self._pending_permissions.values()
-            if (
-                pending.session_id == normalized_session_id
-                and not pending.future.done()
-            )
+            if (pending.session_id == normalized_session_id and not pending.future.done())
         ]
         for decision in pending_decisions:
             decision.set_result(_PermissionDecision(allowed=False))
@@ -753,12 +732,13 @@ class ChatRouter(CommandRouter):
             raise ValueError("会话标识无效") from error
 
     @staticmethod
-    def _get_current_provider() -> tuple[ModelSiteConfig, str]:
+    async def _get_current_provider() -> tuple[ModelSiteConfig, str]:
         current = CurrentConfig().model
         if not current.site or not current.name:
             raise ValueError("请先在模型管理中配置并选择模型")
 
-        site = next((item for item in Settings().model if item.name == current.site), None)
+        settings = await get_settings()
+        site = next((item for item in settings.model if item.name == current.site), None)
         if site is None or not any(model.name == current.name for model in site.models):
             raise ValueError("当前选择的模型已不存在，请重新选择")
         if not site.api_url.strip():

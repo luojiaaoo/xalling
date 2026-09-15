@@ -60,6 +60,7 @@ type TaskComposerProps = {
   busy?: boolean;
   conversationStarted?: boolean;
   effort: number;
+  modelsRevision: number;
   onEffortChange: (value: number) => void;
   onPermissionDecision?: (
     request: ChatPermissionRequestEvent,
@@ -187,6 +188,7 @@ export function TaskComposer({
   busy = false,
   conversationStarted = false,
   effort,
+  modelsRevision,
   onEffortChange,
   onPermissionDecision,
   onPermissionModeChange,
@@ -226,6 +228,7 @@ export function TaskComposer({
     let active = true;
 
     const loadModels = async () => {
+      setModelsLoading(true);
       try {
         const configuredGroups = await getModelGroups();
         if (!active) {
@@ -234,8 +237,10 @@ export function TaskComposer({
 
         setModelGroups(configuredGroups);
         const currentModel = await getCurrentModel();
-        if (active && currentModel) {
-          setSelectedModel([currentModel.site, currentModel.model]);
+        if (active) {
+          setSelectedModel(
+            currentModel ? [currentModel.site, currentModel.model] : [],
+          );
         }
       } catch {
         if (active) {
@@ -252,7 +257,7 @@ export function TaskComposer({
     return () => {
       active = false;
     };
-  }, [messageApi]);
+  }, [messageApi, modelsRevision]);
 
   useEffect(() => {
     setPermissionDecision(null);

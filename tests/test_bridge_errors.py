@@ -9,14 +9,27 @@ from backend.router.log import LogRouter, capture_bridge_api_errors, capture_bri
 from main import ApplicationBridge
 
 
+def configure_test_logging(
+    log_directory: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Point every application log path at one isolated test directory."""
+    monkeypatch.setattr(log, "LOG_DIRECTORY", log_directory)
+    monkeypatch.setattr(log, "ACCESS_LOG_FILEPATH", log_directory / "access.log")
+    monkeypatch.setattr(log, "BROWSER_LOG_FILEPATH", log_directory / "browser.log")
+    monkeypatch.setattr(log, "ERROR_LOG_FILEPATH", log_directory / "error.log")
+    log.configure_logging()
+
+
 def test_capture_bridge_errors_logs_to_console_and_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_directory = tmp_path / ".xalling" / "log"
     error_log = log_directory / "error.log"
     access_log = log_directory / "access.log"
-    log.configure_logging(log_directory)
+    configure_test_logging(log_directory, monkeypatch)
 
     @capture_bridge_errors
     def fail() -> None:
@@ -36,9 +49,10 @@ def test_capture_bridge_errors_logs_to_console_and_file(
 
 def test_capture_bridge_errors_supports_async_functions(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     error_log = tmp_path / "error.log"
-    log.configure_logging(tmp_path)
+    configure_test_logging(tmp_path, monkeypatch)
 
     @capture_bridge_errors
     async def fail() -> None:
@@ -53,9 +67,10 @@ def test_capture_bridge_errors_supports_async_functions(
 def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     access_log = tmp_path / "access.log"
-    log.configure_logging(tmp_path)
+    configure_test_logging(tmp_path, monkeypatch)
 
     @capture_bridge_errors
     def exchange(prompt: str, api_key: str) -> dict[str, str]:
@@ -74,10 +89,13 @@ def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
         assert "top-secret" not in output
 
 
-def test_frontend_errors_log_to_separate_browser_file(tmp_path: Path) -> None:
+def test_frontend_errors_log_to_separate_browser_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     browser_log = tmp_path / "browser.log"
     error_log = tmp_path / "error.log"
-    log.configure_logging(tmp_path)
+    configure_test_logging(tmp_path, monkeypatch)
 
     LogRouter().report_frontend_error(
         "unhandledrejection",
@@ -93,8 +111,9 @@ def test_frontend_errors_log_to_separate_browser_file(tmp_path: Path) -> None:
 
 def test_capture_bridge_api_errors_wraps_inherited_public_methods(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    log.configure_logging(tmp_path)
+    configure_test_logging(tmp_path, monkeypatch)
 
     class Router:
         def exposed(self) -> str:

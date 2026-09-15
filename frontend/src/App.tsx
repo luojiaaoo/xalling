@@ -42,6 +42,7 @@ export default function App() {
   const [themeName, setThemeName] = useState<ThemeName>("default");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [workspaceKey, setWorkspaceKey] = useState(0);
+  const [modelsRevision, setModelsRevision] = useState(0);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   // 搜索跳转目标：打开会话后要滚动置顶的消息气泡（后端消息 key）
   const [focusMessageKey, setFocusMessageKey] = useState<string | null>(null);
@@ -245,6 +246,7 @@ export default function App() {
             focusMessageKey={focusMessageKey}
             hidden={view === "settings"}
             initialSessionId={activeSessionId}
+            modelsRevision={modelsRevision}
             onEffortChange={setEffort}
             onPermissionModeChange={setPermissionMode}
             onProjectChange={setSelectedProject}
@@ -256,7 +258,10 @@ export default function App() {
             settingsSection === "theme" ? (
               <AppearanceSettings themeName={themeName} onThemeChange={handleThemeChange} />
             ) : (
-              <ModelSettings section={settingsSection} />
+              <ModelSettings
+                section={settingsSection}
+                onModelsChanged={() => setModelsRevision((revision) => revision + 1)}
+              />
             )
           )}
         </div>

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import asyncer
 import tomli_w
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -73,3 +74,8 @@ class Settings(BaseSettings):
         conf_file_path.parent.mkdir(parents=True, exist_ok=True)
         contents = tomli_w.dumps(self.model_dump(mode="json"))
         conf_file_path.write_text(contents, encoding="utf-8")
+
+
+async def get_settings() -> Settings:
+    """Load application settings without blocking the async runtime."""
+    return await asyncer.asyncify(Settings)()

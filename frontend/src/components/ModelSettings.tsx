@@ -50,7 +50,12 @@ function formatBridgeError(error: unknown): string {
   return error instanceof Error ? error.message : "保存失败，请稍后重试。";
 }
 
-export function ModelSettings({ section }: { section: string }) {
+type ModelSettingsProps = {
+  onModelsChanged: () => void;
+  section: string;
+};
+
+export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) {
   const [sites, setSites] = useState<ModelSite[]>([]);
   const [draft, setDraft] = useState<ProviderDraft>(newDraft);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -156,6 +161,7 @@ export function ModelSettings({ section }: { section: string }) {
         })),
       );
       await reload(nextName);
+      onModelsChanged();
       setFeedback("模型配置已保存。");
     } catch (saveError) {
       setError(formatBridgeError(saveError));
@@ -176,6 +182,7 @@ export function ModelSettings({ section }: { section: string }) {
     try {
       await deleteModelSite(draft.originalName);
       await reload(null);
+      onModelsChanged();
       setFeedback("供应商已删除。");
     } catch (deleteError) {
       setError(formatBridgeError(deleteError));
