@@ -253,6 +253,7 @@ type ChatStreamEventPayload =
 export type ChatStreamEvent = ChatStreamEventPayload & {
   event_index?: number;
   session_id?: string;
+  timestamp?: number;
 };
 
 export type ActiveChat = {
@@ -268,6 +269,12 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     || value === null
     || !("type" in value)
     || typeof value.type !== "string"
+  ) {
+    return false;
+  }
+  if (
+    "timestamp" in value
+    && (typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp))
   ) {
     return false;
   }

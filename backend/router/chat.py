@@ -693,7 +693,9 @@ class ChatRouter(CommandRouter):
         session_id: str | None = None,
     ) -> bool:
         """Dispatch one structured progress event to the Web UI."""
-        detail_event = {**event, "session_id": session_id} if session_id else event
+        detail_event = {**event, "timestamp": int(time() * 1000)}
+        if session_id:
+            detail_event["session_id"] = session_id
         if session_id is not None:
             active_chat = self._active_chats.get(session_id)
             if active_chat is not None:

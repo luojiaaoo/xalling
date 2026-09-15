@@ -167,6 +167,7 @@ export function Workspace({
     }
     if (event.type === "session_started") {
       sessionIdRef.current = event.session_id;
+      startedAtRef.current = event.timestamp ?? Date.now();
       onSessionsChanged?.();
       return;
     }
@@ -176,7 +177,10 @@ export function Workspace({
       const stopped = Boolean(reply.stopped || stopRequestedRef.current);
       const workingSeconds = startedAtRef.current === null
         ? undefined
-        : Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
+        : Math.max(
+            1,
+            Math.round(((event.timestamp ?? Date.now()) - startedAtRef.current) / 1000),
+          );
       setMessages((current) => current.map((item) => (
         item.key === activeAssistantKeyRef.current
           ? {
@@ -185,7 +189,7 @@ export function Workspace({
               finalOutputKey: reply.final_output_block_id ?? undefined,
               loading: false,
               status: stopped ? "abort" : "success",
-              trace: finishAgentTrace(item.trace ?? [], "success"),
+              trace: finishAgentTrace(item.trace ?? [], "success", event.timestamp),
               traceExpanded: false,
               workingSeconds,
             }
@@ -205,7 +209,7 @@ export function Workspace({
               content: event.message || item.content,
               loading: false,
               status: "error",
-              trace: finishAgentTrace(item.trace ?? [], "error"),
+              trace: finishAgentTrace(item.trace ?? [], "error", event.timestamp),
             }
           : item
       )));
@@ -331,6 +335,7 @@ export function Workspace({
               permissions.push(event);
             } else if (event.type === "session_started") {
               sessionIdRef.current = event.session_id;
+              startedAtRef.current = event.timestamp ?? Date.now();
             } else if (event.type === "chat_complete") {
               const stopped = Boolean(event.reply.stopped);
               assistant = {
@@ -339,7 +344,11 @@ export function Workspace({
                 finalOutputKey: event.reply.final_output_block_id ?? undefined,
                 loading: false,
                 status: stopped ? "abort" : "success",
-                trace: finishAgentTrace(assistant.trace ?? [], "success"),
+                trace: finishAgentTrace(
+                  assistant.trace ?? [],
+                  "success",
+                  event.timestamp,
+                ),
               };
               running = false;
             } else if (event.type === "chat_error") {
@@ -348,7 +357,11 @@ export function Workspace({
                 content: event.message || assistant.content,
                 loading: false,
                 status: "error",
-                trace: finishAgentTrace(assistant.trace ?? [], "error"),
+                trace: finishAgentTrace(
+                  assistant.trace ?? [],
+                  "error",
+                  event.timestamp,
+                ),
               };
               running = false;
             } else {
@@ -368,7 +381,9 @@ export function Workspace({
           ];
           setPermissionRequests(permissions);
           setBusy(running);
-          startedAtRef.current = running ? Date.now() : null;
+          if (!running) {
+            startedAtRef.current = null;
+          }
         }
         setMessages(historyMessages);
         if (history.project_path) {
@@ -413,9 +428,14 @@ export function Workspace({
       setElapsedSeconds(0);
       return;
     }
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => {
+    const updateElapsed = () => {
+      const startedAt = startedAtRef.current ?? Date.now();
+      startedAtRef.current = startedAt;
       setElapsedSeconds(Math.max(1, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    updateElapsed();
+    const timer = window.setInterval(() => {
+      updateElapsed();
     }, 1000);
     return () => window.clearInterval(timer);
   }, [busy]);

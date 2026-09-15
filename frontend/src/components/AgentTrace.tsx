@@ -77,7 +77,7 @@ export function applyChatStreamEvent(
   items: AgentTraceItem[],
   event: ChatStreamEvent,
 ): AgentTraceItem[] {
-  const now = Date.now();
+  const now = event.timestamp ?? Date.now();
 
   if (event.type === "thinking_start" || event.type === "output_start") {
     const kind = event.type === "thinking_start" ? "thinking" : "output";
@@ -187,8 +187,8 @@ export function applyChatStreamEvent(
 export function finishAgentTrace(
   items: AgentTraceItem[],
   status: "error" | "success",
+  finishedAt = Date.now(),
 ): AgentTraceItem[] {
-  const finishedAt = Date.now();
   return items.map((item) => completeStatus(item, status, finishedAt));
 }
 

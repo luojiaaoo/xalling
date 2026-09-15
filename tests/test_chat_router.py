@@ -268,6 +268,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert len(scripts) == 11
     assert all(f'"session_id":"{session_id}"' in script for script in scripts)
     assert '"type":"session_started"' in scripts[0]
+    assert all('"timestamp":' in script for script in scripts)
     trace_scripts = scripts[1:-1]
     assert '"type":"thinking_start"' in trace_scripts[0]
     assert '"type":"thinking_delta"' in trace_scripts[1]
@@ -399,6 +400,7 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
         assert active_running is not None
         assert active_running["session_id"] == session_ids["first"]
         assert active_running["events"][0]["type"] == "session_started"
+        assert isinstance(active_running["events"][0]["timestamp"], int)
         visible_sessions = router.list_chat_sessions()
         visible_session_ids = {session["session_id"] for session in visible_sessions}
         assert visible_session_ids == set(session_ids.values())
@@ -704,8 +706,10 @@ def test_chat_router_waits_for_tool_permission_from_ui(
             "display_name": "写入文件",
             "description": "将更新项目说明",
             "blocked_path": "",
+            "timestamp": events[0]["timestamp"],
         }
     ]
+    assert isinstance(events[0]["timestamp"], int)
     assert not router.respond_chat_permission(
         str(uuid4()),
         allowed,
@@ -793,6 +797,8 @@ def test_chat_event_indexes_do_not_restart_when_turn_buffer_is_cleared() -> None
         session_id=session_id,
     )
     assert router._active_chats[session_id].events[0]["event_index"] == 0
+    first_timestamp = router._active_chats[session_id].events[0]["timestamp"]
+    assert isinstance(first_timestamp, int)
 
     router._active_chats[session_id].events.clear()
     assert router._emit_chat_event(
@@ -800,6 +806,9 @@ def test_chat_event_indexes_do_not_restart_when_turn_buffer_is_cleared() -> None
         session_id=session_id,
     )
     assert router._active_chats[session_id].events[0]["event_index"] == 1
+    second_timestamp = router._active_chats[session_id].events[0]["timestamp"]
+    assert isinstance(second_timestamp, int)
+    assert second_timestamp >= first_timestamp
 
 
 def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
