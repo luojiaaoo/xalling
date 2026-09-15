@@ -64,10 +64,19 @@ type ConversationMessage = {
 };
 
 function formatTokenCount(value: number): string {
-  return new Intl.NumberFormat("zh-CN", {
-    maximumFractionDigits: value >= 1_000 ? 1 : 0,
-    notation: value >= 1_000 ? "compact" : "standard",
-  }).format(value);
+  const formatScaled = (scaled: number, unit: "K" | "M" | "亿") => (
+    `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(scaled)}${unit}`
+  );
+  if (value >= 100_000_000) {
+    return formatScaled(value / 100_000_000, "亿");
+  }
+  if (value >= 1_000_000) {
+    return formatScaled(value / 1_000_000, "M");
+  }
+  if (value >= 1_000) {
+    return formatScaled(value / 1_000, "K");
+  }
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
 function cacheHitRate(usage?: ChatUsage): number | null {
