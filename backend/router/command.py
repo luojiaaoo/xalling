@@ -12,6 +12,9 @@ ALLOWED_COMMAND_NAMES = frozenset(
         "reload-skills",
         "security-review",
         "team-onboarding",
+        "verify",
+        "code-review",
+        "dataviz",
     }
 )
 
