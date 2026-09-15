@@ -43,7 +43,7 @@ def configure_logging() -> None:
         level="INFO",
         format=LOG_FORMAT,
         encoding="utf-8",
-        rotation="10 MB",
+        rotation="30 MB",
         retention=4,
         backtrace=True,
         diagnose=False,
