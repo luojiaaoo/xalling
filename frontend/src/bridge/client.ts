@@ -114,6 +114,7 @@ export type ChatSessionSummary = {
   last_modified: number;
   project_name: string;
   project_path: string;
+  running?: boolean;
   session_id: string;
   title: string;
 };

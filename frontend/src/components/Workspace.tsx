@@ -567,6 +567,7 @@ export function Workspace({
         setBusy(false);
         setStopping(false);
         setPermissionRequests([]);
+        onSessionsChanged?.();
       });
   };
 

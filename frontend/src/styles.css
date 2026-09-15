@@ -603,7 +603,7 @@ button, textarea { font: inherit; }
 .task-list::-webkit-scrollbar-track { background: transparent; }
 .task-list::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #c7c5d2; background-clip: padding-box; }
 .task-list::-webkit-scrollbar-thumb:hover { background: #aaa6bd; background-clip: padding-box; }
-.task-row { padding: 4px 8px 4px 10px; font-size: 13px; }
+.task-row { display: flex; align-items: center; gap: 7px; padding: 4px 8px 4px 10px; font-size: 13px; }
 .auto-scroll-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-scroll-text-inner { display: inline-block; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-scroll-text-overflowing:hover .auto-scroll-text-inner {
@@ -617,8 +617,17 @@ button, textarea { font: inherit; }
 }
 .history-project-name { font-size: 12px; font-weight: 650; line-height: 1.3; }
 .history-project-path { font-size: 10px; font-weight: 400; line-height: 1.3; opacity: .55; }
-.task-row-title { width: 100%; }
+.task-row-title { width: 100%; min-width: 0; flex: 1; }
 .task-row-active { color: #5948ed; font-weight: 600; background: #eeebff; }
+.session-running-indicator {
+  width: 12px; height: 12px; flex: none; box-sizing: border-box;
+  border: 2px solid rgba(89, 72, 237, .2); border-top-color: currentColor; border-radius: 50%;
+  color: #6d5dfc; animation: session-running-spin .8s linear infinite;
+}
+@keyframes session-running-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .session-running-indicator { animation: none; }
+}
 .history-list-status { padding: 8px 10px; color: #aaaab5; font-size: 12px; }
 
 /* 居中悬浮搜索面板 */

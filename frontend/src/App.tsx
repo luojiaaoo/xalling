@@ -1,7 +1,7 @@
 import { XProvider } from "@ant-design/x";
 import { MenuUnfoldOutlined, PlusCircleOutlined } from "@ant-design/icons";
 import { Button, Tooltip } from "antd";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { ModelSettings } from "./components/ModelSettings";
@@ -52,17 +52,34 @@ export default function App() {
   const [permissionMode, setPermissionMode] = useState<ChatPermissionMode>("default");
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [chatSessionsLoading, setChatSessionsLoading] = useState(true);
+  const chatSessionsRequestIdRef = useRef(0);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const illustrationTheme = useIllustrationTheme();
   const geekTheme = useGeekTheme();
   const sereneTheme = useSereneTheme();
 
-  const refreshChatSessions = useCallback(() => {
-    setChatSessionsLoading(true);
+  const refreshChatSessions = useCallback((showLoading = false) => {
+    const requestId = chatSessionsRequestIdRef.current + 1;
+    chatSessionsRequestIdRef.current = requestId;
+    if (showLoading) {
+      setChatSessionsLoading(true);
+    }
     void listChatSessions()
-      .then(setChatSessions)
-      .catch(() => setChatSessions([]))
-      .finally(() => setChatSessionsLoading(false));
+      .then((sessions) => {
+        if (requestId === chatSessionsRequestIdRef.current) {
+          setChatSessions(sessions);
+        }
+      })
+      .catch(() => {
+        if (showLoading && requestId === chatSessionsRequestIdRef.current) {
+          setChatSessions([]);
+        }
+      })
+      .finally(() => {
+        if (requestId === chatSessionsRequestIdRef.current) {
+          setChatSessionsLoading(false);
+        }
+      });
   }, []);
 
   const configProps =
@@ -86,8 +103,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refreshChatSessions();
+    refreshChatSessions(true);
   }, [refreshChatSessions]);
+
+  const hasRunningSession = chatSessions.some((session) => session.running);
+
+  useEffect(() => {
+    if (!hasRunningSession) {
+      return undefined;
+    }
+
+    const pollRunningSessions = () => {
+      if (document.visibilityState === "visible") {
+        refreshChatSessions(false);
+      }
+    };
+    const intervalId = window.setInterval(pollRunningSessions, 1_000);
+    document.addEventListener("visibilitychange", pollRunningSessions);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", pollRunningSessions);
+    };
+  }, [hasRunningSession, refreshChatSessions]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeName;

@@ -473,7 +473,10 @@ class ChatRouter(CommandRouter):
     async def list_chat_sessions(self) -> list[dict[str, object]]:
         """Return all Claude sessions for the workspace-grouped sidebar."""
         sessions = await asyncer.asyncify(self._history.list_sessions)()
-        sessions_by_id = {str(session["session_id"]): session for session in sessions}
+        sessions_by_id = {
+            str(session["session_id"]): {**session, "running": False}
+            for session in sessions
+        }
         for session_id, active_chat in self._active_chats.items():
             if not active_chat.running:
                 continue
@@ -484,11 +487,15 @@ class ChatRouter(CommandRouter):
             }
             persisted_summary = sessions_by_id.get(session_id)
             if persisted_summary is None:
-                sessions_by_id[session_id] = active_summary
+                sessions_by_id[session_id] = {
+                    **active_summary,
+                    "running": True,
+                }
             else:
                 sessions_by_id[session_id] = {
                     **persisted_summary,
                     "last_modified": active_summary["last_modified"],
+                    "running": True,
                 }
         return sorted(
             sessions_by_id.values(),

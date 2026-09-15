@@ -394,8 +394,10 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
         assert active_running is not None
         assert active_running["session_id"] == session_ids["first"]
         assert active_running["events"][0]["type"] == "session_started"
-        visible_session_ids = {session["session_id"] for session in router.list_chat_sessions()}
+        visible_sessions = router.list_chat_sessions()
+        visible_session_ids = {session["session_id"] for session in visible_sessions}
         assert visible_session_ids == set(session_ids.values())
+        assert all(session["running"] is True for session in visible_sessions)
         active_history = router.get_chat_session(session_ids["first"])
         assert active_history["messages"][0]["content"] == "first"
 
@@ -403,6 +405,12 @@ def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, mo
         assert futures["first"].result(timeout=2)["content"] == "first"
         assert router.get_active_chat(session_ids["first"]) is None
         assert router._active_chats[session_ids["first"]].cleanup_task is not None
+        session_states = {
+            session["session_id"]: session["running"]
+            for session in router.list_chat_sessions()
+        }
+        assert session_ids["first"] not in session_states
+        assert session_states[session_ids["second"]] is True
 
         release["second"].set()
         assert futures["second"].result(timeout=2)["content"] == "second"
@@ -488,6 +496,8 @@ def test_chat_router_promotes_an_active_existing_session(tmp_path: Path, monkeyp
         ]
         assert sessions[0]["last_modified"] == 3_000
         assert sessions[0]["title"] == "existing title"
+        assert sessions[0]["running"] is True
+        assert sessions[1]["running"] is False
 
         release.set()
         assert future.result(timeout=2)["content"] == "done"

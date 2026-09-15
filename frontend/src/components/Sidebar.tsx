@@ -258,7 +258,7 @@ export function Sidebar({
               items={navigation}
             />
             <div className="task-list">
-              {sessionsLoading && (
+              {sessionsLoading && !sessions.length && (
                 <div className="history-list-status">正在读取…</div>
               )}
               {!sessionsLoading && !sessions.length && (
@@ -332,6 +332,13 @@ export function Sidebar({
                           onClick={() => onHistorySessionClick?.(session.session_id)}
                         >
                           <AutoScrollText className="task-row-title" text={session.title} />
+                          {session.running && (
+                            <span
+                              className="session-running-indicator"
+                              role="status"
+                              aria-label="会话正在运行"
+                            />
+                          )}
                         </button>
                       </Tooltip>
                     ))}
