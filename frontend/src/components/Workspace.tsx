@@ -104,6 +104,7 @@ type WorkspaceProps = {
   initialSessionId?: string | null;
   modelsRevision: number;
   onEffortChange: (value: number) => void;
+  onConversationStart?: (project: ProjectFolder | null) => void;
   onPermissionModeChange: (mode: ChatPermissionMode) => void;
   onProjectChange: Dispatch<SetStateAction<ProjectFolder | null>>;
   onSessionsChanged?: () => void;
@@ -118,6 +119,7 @@ export function Workspace({
   initialSessionId = null,
   modelsRevision,
   onEffortChange,
+  onConversationStart,
   onPermissionModeChange,
   onProjectChange,
   onSessionsChanged,
@@ -481,7 +483,11 @@ export function Workspace({
     activeAssistantKeyRef.current = assistantKey;
     startedAtRef.current = startedAt;
     stopRequestedRef.current = false;
+    const startingNewConversation = !conversationStarted;
     const startConversation = () => {
+      if (startingNewConversation) {
+        onConversationStart?.(draft.project);
+      }
       setMessages((current) => [
         ...current,
         {

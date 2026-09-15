@@ -44,6 +44,10 @@ export default function App() {
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [modelsRevision, setModelsRevision] = useState(0);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [projectExpansionRequest, setProjectExpansionRequest] = useState<{
+    path: string;
+    sequence: number;
+  } | null>(null);
   // 搜索跳转目标：打开会话后要滚动置顶的消息气泡（后端消息 key）
   const [focusMessageKey, setFocusMessageKey] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -186,6 +190,16 @@ export default function App() {
     setWorkspaceKey((key) => key + 1);
   }
 
+  function handleConversationStart(project: ProjectFolder | null) {
+    if (!project?.path) {
+      return;
+    }
+    setProjectExpansionRequest((current) => ({
+      path: project.path,
+      sequence: (current?.sequence ?? 0) + 1,
+    }));
+  }
+
   // 搜索结果：打开对应会话，并把它命中的消息气泡滚动置顶
   function handleSearchResultOpen(sessionId: string, messageKey: string | null) {
     setView("workspace");
@@ -223,6 +237,7 @@ export default function App() {
           {sidebarVisible && (
             <Sidebar
               activeSessionId={activeSessionId}
+              projectExpansionRequest={projectExpansionRequest}
               mode={view}
               onCollapse={() => setSidebarVisible(false)}
               onHistorySessionClick={handleHistorySessionClick}
@@ -249,6 +264,7 @@ export default function App() {
             modelsRevision={modelsRevision}
             onEffortChange={setEffort}
             onPermissionModeChange={setPermissionMode}
+            onConversationStart={handleConversationStart}
             onProjectChange={setSelectedProject}
             onSessionsChanged={refreshChatSessions}
             permissionMode={permissionMode}

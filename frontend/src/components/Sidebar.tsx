@@ -107,6 +107,7 @@ function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
 
 type SidebarProps = {
   activeSessionId?: string | null;
+  projectExpansionRequest?: { path: string; sequence: number } | null;
   onCollapse: () => void;
   onHistorySessionClick?: (sessionId: string) => void;
   onNewTask: () => void;
@@ -124,6 +125,7 @@ type SidebarProps = {
 
 export function Sidebar({
   activeSessionId = null,
+  projectExpansionRequest = null,
   onCollapse,
   onHistorySessionClick,
   onNewTask,
@@ -205,6 +207,19 @@ export function Sidebar({
       return new Set([activeProjectKey]);
     });
   }, [activeProjectKey, activeSessionId]);
+
+  useEffect(() => {
+    const projectPath = projectExpansionRequest?.path;
+    if (!projectPath) {
+      return;
+    }
+    setOpenProjectKeys((current) => {
+      if (current.size === 1 && current.has(projectPath)) {
+        return current;
+      }
+      return new Set([projectPath]);
+    });
+  }, [projectExpansionRequest]);
 
   // 选中分区变化时，展开它所属的分组（手风琴：同时只开一个）
   useEffect(() => {
