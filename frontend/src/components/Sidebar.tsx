@@ -54,16 +54,23 @@ type AutoScrollTextProps = {
   text: string;
 };
 
+const SIDEBAR_SCROLL_GAP = 24;
+const SIDEBAR_SCROLL_SPEED = 32;
+
 function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
   const containerRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
   const [scrollDistance, setScrollDistance] = useState(0);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    const textElement = textRef.current;
+    if (!container || !textElement) return;
 
     const updateScrollDistance = () => {
-      setScrollDistance(Math.max(0, container.scrollWidth - container.clientWidth));
+      const contentWidth = textElement.scrollWidth;
+      const overflowing = contentWidth - container.clientWidth > 1;
+      setScrollDistance(overflowing ? contentWidth + SIDEBAR_SCROLL_GAP : 0);
     };
 
     updateScrollDistance();
@@ -74,7 +81,8 @@ function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
 
   const style = {
     "--sidebar-scroll-distance": scrollDistance,
-    "--sidebar-scroll-duration": `${Math.max(2.4, scrollDistance / 32).toFixed(2)}s`,
+    "--sidebar-scroll-gap": `${SIDEBAR_SCROLL_GAP}px`,
+    "--sidebar-scroll-duration": `${(scrollDistance / SIDEBAR_SCROLL_SPEED).toFixed(2)}s`,
   } as CSSProperties;
 
   return (
@@ -84,9 +92,15 @@ function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
         className ? ` ${className}` : ""
       }`}
     >
-      <span className="auto-scroll-text-inner" style={style}>
+      <span ref={textRef} className="auto-scroll-text-inner">
         {text}
       </span>
+      {scrollDistance > 1 && (
+        <span className="auto-scroll-text-track" style={style} aria-hidden="true">
+          <span className="auto-scroll-text-copy">{text}</span>
+          <span className="auto-scroll-text-copy">{text}</span>
+        </span>
+      )}
     </span>
   );
 }
