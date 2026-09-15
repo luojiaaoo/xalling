@@ -52,18 +52,17 @@ def discover_plugins(
 ) -> list[SdkPluginConfig]:
     """Return installed user and project skill directories as SDK plugins."""
     user_home = (home or Path.home()).resolve()
-    plugin_roots = [
+    home_plugin_roots = [
         user_home / ".xalling",
         user_home / ".config" / "opencode",
         user_home / ".agents",
     ]
-    if project is not None:
-        # 项目级技能目录，优先级低于用户级
-        plugin_roots.append(project.resolve() / ".agents")
+    project_plugin_roots: list[Path] = [
+        *([project.resolve() / ".agents"] if project.is_dir() else []),
+    ]
     return [
-        {"type": "local", "path": str(root)}
-        for root in plugin_roots
-        if (root / "skills").is_dir()
+        *[{"type": "local", "path": str(root)} for root in home_plugin_roots],
+        *[{"type": "local", "path": str(root)} for root in project_plugin_roots],
     ]
 
 
