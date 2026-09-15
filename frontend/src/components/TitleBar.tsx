@@ -2,6 +2,7 @@ import { CloseOutlined, FullscreenOutlined, MinusOutlined, ShrinkOutlined } from
 import { Button } from "antd";
 
 import { closeWindow, minimizeWindow, toggleMaximizeWindow } from "../bridge/client";
+import { TutorialHelp } from "./TutorialHelp";
 
 type TitleBarProps = {
   maximized: boolean;
@@ -20,6 +21,7 @@ export function TitleBar({ maximized, onMaximizedChange }: TitleBarProps) {
         onDoubleClick={() => void handleMaximize()}
       />
       <div className="window-controls" aria-label="窗口控制">
+        <TutorialHelp />
         <Button type="text" icon={<MinusOutlined />} onClick={() => void minimizeWindow()} aria-label="最小化" />
         <Button
           type="text"

@@ -10,6 +10,7 @@ from backend.router import (
     LogRouter,
     ModelRouter,
     ThemeRouter,
+    TutorialRouter,
     WindowRouter,
 )
 from backend.router.log import capture_bridge_api_errors
@@ -24,6 +25,7 @@ class ApplicationBridge(
     FileRouter,
     ModelRouter,
     ThemeRouter,
+    TutorialRouter,
     ChatRouter,
     LogRouter,
 ):

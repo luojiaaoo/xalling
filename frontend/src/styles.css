@@ -534,6 +534,12 @@ button, textarea { font: inherit; }
 .window-controls .ant-btn:hover { color: #4e3eea; background: #efedff; }
 .window-controls .close-window-button:hover { color: #fff; background: #e05252; }
 
+/* 教程弹窗：左侧正文滚动，右侧固定标题导航目录 */
+.tutorial-modal .ant-modal-body { max-height: 70vh; }
+.tutorial-body { display: flex; gap: 16px; max-height: 70vh; }
+.tutorial-content { flex: 1; min-width: 0; overflow-y: auto; }
+.tutorial-toc { flex: none; width: 170px; max-height: 70vh; overflow-y: auto; }
+
 .window-resize-handles { position: absolute; z-index: 20; inset: 0; pointer-events: none; }
 .window-resize-handle { position: absolute; pointer-events: auto; touch-action: none; }
 .window-resize-n, .window-resize-s { right: 10px; left: 10px; height: 6px; cursor: ns-resize; }

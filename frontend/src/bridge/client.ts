@@ -44,11 +44,23 @@ type PyWebviewApi = {
   ) => Promise<boolean>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
+  list_tutorials: () => Promise<TutorialSummary[]>;
+  get_tutorial: (tutorialId: string) => Promise<TutorialDocument>;
   report_frontend_error: (
     kind: string,
     message: string,
     stack: string | null,
   ) => Promise<void>;
+};
+
+// 本地教程：id 为 tutorials 目录下的 Markdown 文件名，标题取自文件首个一级标题
+export type TutorialSummary = {
+  id: string;
+  title: string;
+};
+
+export type TutorialDocument = TutorialSummary & {
+  content: string;
 };
 
 export type ModelGroup = {
@@ -574,6 +586,16 @@ export async function setCurrentTheme(name: string): Promise<void> {
     throw new Error("桌面应用桥接尚未准备好");
   }
   await api.set_current_theme(name);
+}
+
+export async function listTutorials(): Promise<TutorialSummary[]> {
+  const api = await getBridgeApi();
+  return (await api?.list_tutorials()) ?? [];
+}
+
+export async function getTutorial(tutorialId: string): Promise<TutorialDocument | null> {
+  const api = await getBridgeApi();
+  return (await api?.get_tutorial(tutorialId)) ?? null;
 }
 
 export async function reportFrontendError(

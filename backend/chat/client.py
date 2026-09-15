@@ -76,6 +76,9 @@ async def _provider_settings_file(
         "env": {
             "ANTHROPIC_AUTH_TOKEN": config.api_key,
             "ANTHROPIC_BASE_URL": config.api_url,
+            "CLAUDE_CODE_ENABLE_TELEMETRY": "0",  # 关闭遥测数据上报
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",  # 禁用非必要网络流量。比如更新检查、崩溃报告、后台统计等。
+            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",  # 关闭归因 Header。减少请求中携带的客户端归因信息，进一步降低指纹/隐私暴露。 https://unsloth.ai/docs/basics/claude-code#fixing-90-slower-inference-in-claude-code
         },
         "alwaysThinkingEnabled": True,
         "cleanupPeriodDays": 60,
