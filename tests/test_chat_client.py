@@ -1,8 +1,10 @@
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
+import aiofiles
 import pytest
 from claude_agent_sdk import ResultMessage
 
@@ -10,6 +12,7 @@ from backend.async_runtime import AsyncRuntime
 from backend.chat.client import (
     ClaudeChatClient,
     ClaudeChatConfig,
+    _provider_settings_file,
     discover_plugins,
 )
 from backend.chat.trace import ChatTrace
@@ -67,6 +70,45 @@ def test_discover_plugins_loads_project_agents_directory(
     (project / ".agents" / "skills").mkdir(parents=True)
 
     assert discover_plugins(home=home, project=project) == [{"type": "local", "path": str(project / ".agents")}]
+
+
+@pytest.mark.parametrize(
+    ("system_name", "powershell_enabled"),
+    [("Windows", True), ("Linux", False)],
+)
+def test_provider_settings_select_platform_shell(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    system_name: str,
+    powershell_enabled: bool,
+) -> None:
+    config = ClaudeChatConfig(
+        api_key="secret",
+        api_url="https://api.example.com",
+        effort="high",
+        is_new_session=True,
+        model="claude-sonnet",
+        project=tmp_path,
+        session_id="session-id",
+    )
+    monkeypatch.setattr("backend.chat.client.platform.system", lambda: system_name)
+
+    async def load_settings() -> dict[str, object]:
+        async with (
+            _provider_settings_file(config) as settings_path,
+            aiofiles.open(settings_path, encoding="utf-8") as file,
+        ):
+            return json.loads(await file.read())
+
+    with AsyncRuntime() as runtime:
+        settings = runtime.call(load_settings)
+
+    if powershell_enabled:
+        assert settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] == "1"
+        assert settings["defaultShell"] == "powershell"
+    else:
+        assert "CLAUDE_CODE_USE_POWERSHELL_TOOL" not in settings["env"]
+        assert "defaultShell" not in settings
 
 
 def test_live_server_info_and_chat_reuse_one_sdk_instance(

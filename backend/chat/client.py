@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import platform
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -71,7 +72,8 @@ async def _provider_settings_file(
     config: ClaudeChatConfig,
 ) -> AsyncIterator[Path]:
     # SDK 只接受文件形式的 settings，这里把密钥与接入点写入临时文件，用完即删
-    settings = {
+    is_windows = platform.system() == "Windows"
+    settings: dict[str, Any] = {
         "env": {
             "ANTHROPIC_AUTH_TOKEN": config.api_key,
             "ANTHROPIC_BASE_URL": config.api_url,
@@ -80,6 +82,10 @@ async def _provider_settings_file(
         "cleanupPeriodDays": 60,
         "includeCoAuthoredBy": False,
     }
+    if is_windows:
+        # 强制启用原生 PowerShell 工具，并让交互式 Shell 命令也使用 PowerShell。
+        settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] = "1"
+        settings["defaultShell"] = "powershell"
     with TemporaryDirectory(prefix="xalling-claude-") as directory:
         settings_path = Path(directory) / "settings.json"
         async with aiofiles.open(settings_path, "w", encoding="utf-8") as file:

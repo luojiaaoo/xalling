@@ -1,5 +1,6 @@
 import asyncio
 import json
+import platform
 from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -247,7 +248,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert options.setting_sources == ["user", "project", "local"]
     assert options.include_partial_messages is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
-    assert captured["flag_settings"] == {
+    expected_settings = {
         "env": {
             "ANTHROPIC_AUTH_TOKEN": "secret",
             "ANTHROPIC_BASE_URL": "https://api.example.com",
@@ -256,6 +257,10 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
         "cleanupPeriodDays": 60,
         "includeCoAuthoredBy": False,
     }
+    if platform.system() == "Windows":
+        expected_settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] = "1"
+        expected_settings["defaultShell"] = "powershell"
+    assert captured["flag_settings"] == expected_settings
     assert not Path(captured["settings_path"]).exists()
     assert "ANTHROPIC_BASE_URL" not in options.env
     assert "ANTHROPIC_AUTH_TOKEN" not in options.env

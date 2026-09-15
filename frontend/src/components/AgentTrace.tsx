@@ -210,6 +210,7 @@ function itemDuration(item: AgentTraceItem): string {
 function toolLabel(name: string): string {
   const labels: Record<string, string> = {
     Bash: "执行命令",
+    PowerShell: "执行命令",
     Edit: "编辑文件",
     Glob: "查找文件",
     Grep: "搜索内容",
