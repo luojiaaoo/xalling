@@ -3,6 +3,9 @@
 from typing import TypedDict
 
 import asyncer
+import httpx
+from pydantic import BaseModel, ValidationError
+from yarl import URL
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
@@ -42,6 +45,20 @@ class ModelSiteView(TypedDict):
     models: list[ModelInfo]
 
 
+class _RemoteModel(BaseModel):
+    """One model entry returned by a provider's models endpoint."""
+
+    id: str | None = None
+    name: str | None = None
+
+
+class _RemoteModelList(BaseModel):
+    """Known shapes used by Anthropic and OpenAI-compatible providers."""
+
+    data: list[_RemoteModel | str] | None = None
+    models: list[_RemoteModel | str] | None = None
+
+
 class ModelRouter:
     """Expose the model configuration to the pywebview bridge."""
 
@@ -75,6 +92,54 @@ class ModelRouter:
             }
             for site in settings.model
         ]
+
+    async def fetch_model_names(self, api_url: str, api_key: str) -> list[str]:
+        """Fetch model names from an Anthropic/OpenAI-compatible provider."""
+        normalized_url = self._validate_text(api_url, "API 地址", 2048)
+        normalized_key = self._validate_secret(api_key)
+        endpoint = self._models_endpoint(normalized_url)
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {normalized_key}",
+            "anthropic-version": "2023-06-01",
+            "x-api-key": normalized_key,
+        }
+
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=httpx.Timeout(15.0),
+            ) as client:
+                response = await client.get(str(endpoint), headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise RuntimeError(f"获取模型列表失败：服务返回 HTTP {error.response.status_code}") from error
+        except httpx.HTTPError as error:
+            raise RuntimeError(f"获取模型列表失败：{error}") from error
+
+        try:
+            payload = _RemoteModelList.model_validate(response.json())
+        except (ValidationError, ValueError) as error:
+            raise RuntimeError("获取模型列表失败：服务返回了无法识别的数据") from error
+
+        entries = payload.data if payload.data is not None else payload.models
+        if entries is None:
+            raise RuntimeError("获取模型列表失败：响应中没有模型列表")
+
+        names: list[str] = []
+        seen: set[str] = set()
+        for entry in entries:
+            raw_name = entry if isinstance(entry, str) else entry.id or entry.name
+            if raw_name is None:
+                continue
+            name = raw_name.strip()
+            if name and len(name) <= 120 and name not in seen:
+                names.append(name)
+                seen.add(name)
+
+        if not names:
+            raise RuntimeError("获取模型列表失败：没有找到有效的模型名称")
+        return names
 
     async def save_model_site(
         self,
@@ -211,13 +276,32 @@ class ModelRouter:
             raise ValueError("API Key 不能超过 4096 个字符")
         return normalized
 
+    @staticmethod
+    def _models_endpoint(api_url: str) -> URL:
+        """Build the standard models endpoint from a configured API base URL."""
+        if not api_url:
+            raise ValueError("请填写 API 地址")
+        try:
+            base_url = URL(api_url)
+        except ValueError as error:
+            raise ValueError("API 地址格式不正确") from error
+        if base_url.scheme not in {"http", "https"} or not base_url.host:
+            raise ValueError("API 地址必须是有效的 HTTP 或 HTTPS 地址")
+
+        path = base_url.path.rstrip("/")
+        if path.endswith("/models"):
+            endpoint_path = path
+        elif path.endswith("/v1"):
+            endpoint_path = f"{path}/models"
+        else:
+            endpoint_path = f"{path}/v1/models"
+        return base_url.with_path(endpoint_path).with_query(None).with_fragment(None)
+
     @classmethod
     def _validate_models(cls, value: object) -> list[ModelInfo]:
         """Validate the JSON model list supplied by the configuration screen."""
         if not isinstance(value, list):
             raise TypeError("模型列表必须是数组")
-        if len(value) > 100:
-            raise ValueError("每个供应商最多配置 100 个模型")
 
         names: set[str] = set()
         models: list[ModelInfo] = []

@@ -15,6 +15,7 @@ type PyWebviewApi = {
   get_skills: (sessionId: string) => Promise<ClaudeCommand[]>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
+  fetch_model_names: (apiUrl: string, apiKey: string) => Promise<string[]>;
   save_model_site: (
     originalName: string | null,
     name: string,
@@ -467,6 +468,17 @@ export async function getModelGroups(): Promise<ModelGroup[]> {
 export async function getModelSites(): Promise<ModelSite[]> {
   const api = await getBridgeApi();
   return (await api?.get_model_sites()) ?? [];
+}
+
+export async function fetchModelNames(
+  apiUrl: string,
+  apiKey: string,
+): Promise<string[]> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.fetch_model_names(apiUrl, apiKey);
 }
 
 export async function saveModelSite(

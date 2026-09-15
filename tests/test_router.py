@@ -2,6 +2,7 @@ import inspect
 import tomllib
 from pathlib import Path
 
+import httpx
 import pytest
 from webview import FileDialog
 from webview.window import FixPoint
@@ -123,6 +124,72 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
             ],
         }
     ]
+
+
+def test_model_router_fetches_and_normalizes_remote_model_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "claude-sonnet-4-5"},
+                    {"name": "claude-opus-4-1"},
+                    "claude-sonnet-4-5",
+                    {"id": " "},
+                    *[{"id": f"model-{index}"} for index in range(125)],
+                ]
+            },
+        )
+
+    transport = httpx.MockTransport(respond)
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "backend.router.model.httpx.AsyncClient",
+        lambda **kwargs: original_client(transport=transport, **kwargs),
+    )
+
+    with AsyncRuntime() as runtime:
+        names = runtime.call(
+            ModelRouter().fetch_model_names,
+            "https://api.example.com/custom/v1/",
+            "secret-token",
+        )
+
+    assert names[:2] == ["claude-sonnet-4-5", "claude-opus-4-1"]
+    assert len(names) == 127
+    assert names[-1] == "model-124"
+    assert len(requests) == 1
+    assert str(requests[0].url) == "https://api.example.com/custom/v1/models"
+    assert requests[0].headers["authorization"] == "Bearer secret-token"
+    assert requests[0].headers["x-api-key"] == "secret-token"
+
+
+@pytest.mark.parametrize(
+    ("api_url", "expected_url"),
+    [
+        ("https://api.example.com", "https://api.example.com/v1/models"),
+        ("https://api.example.com/v1", "https://api.example.com/v1/models"),
+        ("https://api.example.com/models", "https://api.example.com/models"),
+    ],
+)
+def test_model_router_builds_models_endpoint(
+    api_url: str,
+    expected_url: str,
+) -> None:
+    assert str(ModelRouter._models_endpoint(api_url)) == expected_url
+
+
+def test_model_router_accepts_more_than_one_hundred_configured_models() -> None:
+    models = ModelRouter._validate_models(
+        [{"name": f"model-{index}", "image_vision": False} for index in range(125)]
+    )
+
+    assert len(models) == 125
 
 
 def test_application_bridge_composes_and_wraps_router_methods(

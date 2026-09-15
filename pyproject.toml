@@ -9,10 +9,12 @@ dependencies = [
     "anyio>=4.15.1",
     "asyncer>=0.0.18",
     "claude-agent-sdk>=0.2.152",
+    "httpx",
     "loguru>=0.7.3",
     "pydantic-settings>=2.15.0",
     "pywebview>=6.2.1",
     "tomli-w>=1.2.0",
+    "yarl",
 ]
 
 [tool.pytest.ini_options]

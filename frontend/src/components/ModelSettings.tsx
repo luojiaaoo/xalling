@@ -1,17 +1,20 @@
 import {
   CheckCircleFilled,
+  CloudDownloadOutlined,
   CloudServerOutlined,
   DeleteOutlined,
   LoadingOutlined,
   PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
-import { Button, Empty, Input, Popconfirm, Switch, Tooltip } from "antd";
+import { Button, Checkbox, Empty, Input, Modal, Popconfirm, Switch, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 
 import {
   deleteModelSite,
+  fetchModelNames,
   getModelSites,
   saveModelSite,
   type ModelConfig,
@@ -61,6 +64,11 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [remoteModelNames, setRemoteModelNames] = useState<string[]>([]);
+  const [selectedRemoteNames, setSelectedRemoteNames] = useState<string[]>([]);
+  const [modelSearch, setModelSearch] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,6 +127,49 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
       ...current,
       models: current.models.filter((_, modelIndex) => modelIndex !== index),
     }));
+  }
+
+  async function fetchModels() {
+    if (!draft.apiUrl.trim()) {
+      setError("请填写 API 地址。");
+      return;
+    }
+    if (!draft.apiKey.trim()) {
+      setError("请填写 API Key。");
+      return;
+    }
+
+    setFetchingModels(true);
+    setFeedback(null);
+    setError(null);
+    try {
+      const names = await fetchModelNames(draft.apiUrl.trim(), draft.apiKey);
+      setRemoteModelNames(names);
+      setSelectedRemoteNames([]);
+      setModelSearch("");
+      setModelPickerOpen(true);
+      setFeedback(`已获取 ${names.length} 个模型，请选择需要添加的模型。`);
+    } catch (fetchError) {
+      setError(formatBridgeError(fetchError));
+    } finally {
+      setFetchingModels(false);
+    }
+  }
+
+  function addSelectedModels() {
+    const existingNames = new Set(
+      draft.models.map((model) => model.name.trim()).filter(Boolean),
+    );
+    const namesToAdd = selectedRemoteNames.filter((name) => !existingNames.has(name));
+    setDraft((current) => ({
+      ...current,
+      models: [
+        ...current.models,
+        ...namesToAdd.map((name) => ({ name, image_vision: false })),
+      ],
+    }));
+    setModelPickerOpen(false);
+    setFeedback(`已添加 ${namesToAdd.length} 个模型，请保存配置。`);
   }
 
   function validateDraft(): string | null {
@@ -192,6 +243,44 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
   }
 
   const isNew = draft.originalName === null;
+  const existingModelNames = new Set(
+    draft.models.map((model) => model.name.trim()).filter(Boolean),
+  );
+  const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
+  const filteredRemoteNames = remoteModelNames.filter((name) => (
+    !normalizedModelSearch || name.toLocaleLowerCase().includes(normalizedModelSearch)
+  ));
+  const selectableFilteredNames = filteredRemoteNames.filter(
+    (name) => !existingModelNames.has(name),
+  );
+  const allFilteredSelected = selectableFilteredNames.length > 0
+    && selectableFilteredNames.every((name) => selectedRemoteNames.includes(name));
+  const someFilteredSelected = selectableFilteredNames.some(
+    (name) => selectedRemoteNames.includes(name),
+  );
+
+  function selectFilteredModels(checked: boolean) {
+    if (!checked) {
+      const visibleNames = new Set(selectableFilteredNames);
+      setSelectedRemoteNames((current) => current.filter((name) => !visibleNames.has(name)));
+      return;
+    }
+    setSelectedRemoteNames((current) => [
+      ...new Set([...current, ...selectableFilteredNames]),
+    ]);
+  }
+
+  function selectRemoteModel(name: string, checked: boolean) {
+    setSelectedRemoteNames((current) => {
+      if (!checked) {
+        return current.filter((item) => item !== name);
+      }
+      if (current.includes(name)) {
+        return current;
+      }
+      return [...current, name];
+    });
+  }
 
   return (
     <main className="settings-page">
@@ -202,7 +291,13 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
           <p>管理模型供应商、访问凭据和可在对话中选择的模型。</p>
         </div>
         {section === "model" && (
-          <Button type="text" icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
+          <Button
+            type="text"
+            icon={<ReloadOutlined />}
+            onClick={() => void reload()}
+            loading={loading}
+            disabled={fetchingModels}
+          >
             刷新
           </Button>
         )}
@@ -222,6 +317,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                 className={`provider-item ${site.name === selectedName ? "provider-item-active" : ""}`}
                 key={site.name}
                 type="button"
+                disabled={fetchingModels}
                 onClick={() => selectSite(site)}
               >
                 <CloudServerOutlined />
@@ -234,7 +330,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
               <Empty className="provider-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有供应商" />
             )}
           </div>
-          <Button block icon={<PlusOutlined />} onClick={addProvider}>
+          <Button block icon={<PlusOutlined />} onClick={addProvider} disabled={fetchingModels}>
             添加供应商
           </Button>
         </aside>
@@ -254,7 +350,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                 okButtonProps={{ danger: true }}
                 onConfirm={() => void removeProvider()}
               >
-                <Button danger icon={<DeleteOutlined />} loading={saving}>删除</Button>
+                <Button danger icon={<DeleteOutlined />} loading={saving} disabled={fetchingModels}>删除</Button>
               </Popconfirm>
             )}
           </div>
@@ -275,6 +371,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                 value={draft.apiUrl}
                 placeholder="https://api.example.com"
                 maxLength={2048}
+                disabled={fetchingModels}
                 onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))}
               />
             </label>
@@ -284,6 +381,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                 value={draft.apiKey}
                 placeholder="输入 API Key"
                 maxLength={4096}
+                disabled={fetchingModels}
                 onChange={(event) => setDraft((current) => ({
                   ...current,
                   apiKey: event.target.value,
@@ -296,15 +394,26 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
             <div>
               <h3>可用模型</h3>
             </div>
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() => setDraft((current) => ({
-                ...current,
-                models: [...current.models, { name: "", image_vision: false }],
-              }))}
-            >
-              添加模型
-            </Button>
+            <div className="model-list-actions">
+              <Button
+                icon={<CloudDownloadOutlined />}
+                loading={fetchingModels}
+                disabled={saving}
+                onClick={() => void fetchModels()}
+              >
+                获取模型列表
+              </Button>
+              <Button
+                icon={<PlusOutlined />}
+                disabled={fetchingModels}
+                onClick={() => setDraft((current) => ({
+                  ...current,
+                  models: [...current.models, { name: "", image_vision: false }],
+                }))}
+              >
+                添加模型
+              </Button>
+            </div>
           </div>
 
           <div className="model-editor-list">
@@ -351,6 +460,58 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
           </div>
         </section>
       </section>
+
+      <Modal
+        className="model-picker-modal"
+        title="选择要添加的模型"
+        open={modelPickerOpen}
+        width={620}
+        okText={`添加选中的模型 (${selectedRemoteNames.length})`}
+        cancelText="取消"
+        okButtonProps={{ disabled: selectedRemoteNames.length === 0 }}
+        onOk={addSelectedModels}
+        onCancel={() => setModelPickerOpen(false)}
+      >
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          value={modelSearch}
+          placeholder="搜索模型名称"
+          onChange={(event) => setModelSearch(event.target.value)}
+        />
+        <div className="model-picker-summary">
+          <Checkbox
+            checked={allFilteredSelected}
+            indeterminate={!allFilteredSelected && someFilteredSelected}
+            disabled={!selectableFilteredNames.length}
+            onChange={(event) => selectFilteredModels(event.target.checked)}
+          >
+            全选当前结果
+          </Checkbox>
+          <span>已选 {selectedRemoteNames.length} 个</span>
+        </div>
+        <div className="remote-model-list">
+          {filteredRemoteNames.length ? filteredRemoteNames.map((name) => {
+            const alreadyAdded = existingModelNames.has(name);
+            const checked = selectedRemoteNames.includes(name);
+            return (
+              <Checkbox
+                className="remote-model-option"
+                key={name}
+                value={name}
+                checked={checked}
+                disabled={alreadyAdded}
+                onChange={(event) => selectRemoteModel(name, event.target.checked)}
+              >
+                <span className="remote-model-name">{name}</span>
+                {alreadyAdded && <span className="remote-model-added">已添加</span>}
+              </Checkbox>
+            );
+          }) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的模型" />
+          )}
+        </div>
+      </Modal>
     </main>
   );
 }
