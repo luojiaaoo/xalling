@@ -249,7 +249,7 @@ export function Sidebar({
             <Menu
               className="main-menu"
               mode="inline"
-              selectedKeys={[searchActive ? "search" : "automation"]}
+              selectedKeys={searchActive ? ["search"] : []}
               onClick={({ key }) => {
                 if (key === "search") {
                   onSearchClick?.();
