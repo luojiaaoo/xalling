@@ -177,21 +177,20 @@ export function Sidebar({
     return groups;
   }, [defaultProjectPath, sessions]);
 
+  const activeProjectKey =
+    sessions.find((session) => session.session_id === activeSessionId)?.project_path || null;
+
   useEffect(() => {
-    const activeProjectKey = sessions.find(
-      (session) => session.session_id === activeSessionId,
-    )?.project_path || null;
+    if (!activeProjectKey) {
+      return;
+    }
     setOpenProjectKeys((current) => {
-      const next = new Set(current);
-      if (!next.size && sessionGroups[0]) {
-        next.add(sessionGroups[0].key);
+      if (current.size === 1 && current.has(activeProjectKey)) {
+        return current;
       }
-      if (activeProjectKey) {
-        next.add(activeProjectKey);
-      }
-      return next;
+      return new Set([activeProjectKey]);
     });
-  }, [activeSessionId, sessionGroups, sessions]);
+  }, [activeProjectKey, activeSessionId]);
 
   // 选中分区变化时，展开它所属的分组（手风琴：同时只开一个）
   useEffect(() => {
@@ -272,12 +271,14 @@ export function Sidebar({
                   onToggle={(event) => {
                     const isOpen = event.currentTarget.open;
                     setOpenProjectKeys((current) => {
-                      const next = new Set(current);
                       if (isOpen) {
-                        next.add(group.key);
-                      } else {
-                        next.delete(group.key);
+                        return new Set([group.key]);
                       }
+                      if (!current.has(group.key)) {
+                        return current;
+                      }
+                      const next = new Set(current);
+                      next.delete(group.key);
                       return next;
                     });
                   }}
