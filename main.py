@@ -4,6 +4,7 @@ from pathlib import Path
 import webview
 
 from backend.async_runtime import bridge_api
+from backend.patch import hide_claude_console_windows
 from backend.router import (
     ChatRouter,
     FileRouter,
@@ -37,6 +38,8 @@ class ApplicationBridge(
 
 def main() -> None:
     """Launch the desktop shell."""
+    hide_claude_console_windows()
+
     # 禁用GPU渲染
     # os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu")
 
