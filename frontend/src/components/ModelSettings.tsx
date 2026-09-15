@@ -273,7 +273,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
               <span>API 地址</span>
               <Input
                 value={draft.apiUrl}
-                placeholder="https://api.example.com/v1"
+                placeholder="https://api.example.com"
                 maxLength={2048}
                 onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))}
               />
