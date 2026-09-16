@@ -6,7 +6,13 @@ from threading import Event
 
 import aiofiles
 import pytest
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 
 from backend.async_runtime import AsyncRuntime
 from backend.chat.client import (
@@ -51,6 +57,76 @@ def test_chat_trace_uses_compact_success_text_for_empty_result() -> None:
             "model_name": None,
             "stop_reason": "success",
         },
+    }
+
+
+def test_chat_trace_keeps_parent_agent_running_during_nested_tool_results() -> None:
+    events = []
+    trace = ChatTrace(events.append)
+    trace.consume(
+        AssistantMessage(
+            content=[
+                ToolUseBlock(
+                    id="agent-tool",
+                    name="Agent",
+                    input={"description": "check dependencies"},
+                )
+            ],
+            model="claude-sonnet",
+            message_id="message-1",
+        )
+    )
+
+    trace.consume(
+        UserMessage(
+            content=[
+                ToolResultBlock(
+                    tool_use_id="nested-tool",
+                    content="nested result",
+                    is_error=False,
+                )
+            ],
+            parent_tool_use_id="agent-tool",
+        )
+    )
+
+    assert events == [
+        {
+            "type": "tool_start",
+            "group_id": "tools-message-1",
+            "tool_id": "agent-tool",
+            "name": "Agent",
+            "summary": "description: check dependencies",
+        }
+    ]
+
+    trace.consume(
+        UserMessage(
+            content="parent id without an explicit result block",
+            parent_tool_use_id="agent-tool",
+            tool_use_result={"is_error": False},
+        )
+    )
+
+    assert len(events) == 1
+
+    trace.consume(
+        UserMessage(
+            content=[
+                ToolResultBlock(
+                    tool_use_id="agent-tool",
+                    content="agent result",
+                    is_error=False,
+                )
+            ],
+            parent_tool_use_id="agent-tool",
+        )
+    )
+
+    assert events[-1] == {
+        "type": "tool_complete",
+        "tool_id": "agent-tool",
+        "status": "success",
     }
 
 

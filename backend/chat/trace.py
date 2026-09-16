@@ -33,6 +33,7 @@ class ChatTrace:
         self._current_stream_message_id: str | None = None
         self._latest_output_block_id: str | None = None
         self._model_names: list[str] = []
+        self._running_tool_ids: set[str] = set()
         self._result: ResultMessage | None = None
 
     def consume(self, message: object) -> None:
@@ -184,6 +185,7 @@ class ChatTrace:
             elif isinstance(block, ThinkingBlock):
                 self._complete_block(block_id, "thinking", block.thinking)
             elif isinstance(block, (ToolUseBlock, ServerToolUseBlock)):
+                self._running_tool_ids.add(block.id)
                 self._emit(
                     {
                         "type": "tool_start",
@@ -199,16 +201,12 @@ class ChatTrace:
                 self._emit_tool_complete(block.tool_use_id, False)
 
     def _consume_user_message(self, message: UserMessage) -> None:
-        completed_tool_ids: set[str] = set()
         if isinstance(message.content, list):
             for block in message.content:
                 if isinstance(block, ToolResultBlock):
-                    completed_tool_ids.add(block.tool_use_id)
                     self._emit_tool_complete(block.tool_use_id, block.is_error)
-
-        if message.parent_tool_use_id is not None and message.parent_tool_use_id not in completed_tool_ids:
-            is_error = bool(message.tool_use_result and message.tool_use_result.get("is_error") is True)
-            self._emit_tool_complete(message.parent_tool_use_id, is_error)
+                elif isinstance(block, ServerToolResultBlock):
+                    self._emit_tool_complete(block.tool_use_id, False)
 
     def _block_id(self, block_index: int) -> str:
         message_id = self._current_stream_message_id or "message-1"
@@ -242,6 +240,9 @@ class ChatTrace:
             self._emit({"type": f"{kind}_complete", "block_id": block_id})
 
     def _emit_tool_complete(self, tool_id: str, is_error: bool) -> None:
+        if tool_id not in self._running_tool_ids:
+            return
+        self._running_tool_ids.remove(tool_id)
         self._emit(
             {
                 "type": "tool_complete",
