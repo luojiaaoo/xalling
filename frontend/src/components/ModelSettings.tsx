@@ -9,7 +9,17 @@ import {
   ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { Button, Checkbox, Empty, Input, Modal, Popconfirm, Switch, Tooltip } from "antd";
+import {
+  Button,
+  Checkbox,
+  Empty,
+  Input,
+  Modal,
+  Popconfirm,
+  Radio,
+  Switch,
+  Tooltip,
+} from "antd";
 import { useEffect, useState } from "react";
 
 import {
@@ -26,8 +36,21 @@ type ProviderDraft = {
   name: string;
   apiUrl: string;
   apiKey: string;
-  models: ModelConfig[];
+  models: ModelDraft[];
 };
+
+type ModelDraft = ModelConfig & {
+  draftId: string;
+};
+
+function newModel(name = ""): ModelDraft {
+  return {
+    draftId: crypto.randomUUID(),
+    name,
+    image_vision: false,
+    max_context_tokens: null,
+  };
+}
 
 function newDraft(): ProviderDraft {
   return {
@@ -45,7 +68,10 @@ function draftFromSite(site: ModelSite): ProviderDraft {
     name: site.name,
     apiUrl: site.api_url,
     apiKey: site.api_key,
-    models: site.models.map((model) => ({ ...model })),
+    models: site.models.map((model) => ({
+      ...model,
+      draftId: crypto.randomUUID(),
+    })),
   };
 }
 
@@ -165,7 +191,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
       ...current,
       models: [
         ...current.models,
-        ...namesToAdd.map((name) => ({ name, image_vision: false })),
+        ...namesToAdd.map((name) => newModel(name)),
       ],
     }));
     setModelPickerOpen(false);
@@ -209,6 +235,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
         draft.models.map((model) => ({
           name: model.name.trim(),
           image_vision: model.image_vision,
+          max_context_tokens: model.max_context_tokens,
         })),
       );
       await reload(nextName);
@@ -408,7 +435,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                 disabled={fetchingModels}
                 onClick={() => setDraft((current) => ({
                   ...current,
-                  models: [...current.models, { name: "", image_vision: false }],
+                  models: [...current.models, newModel()],
                 }))}
               >
                 添加模型
@@ -418,7 +445,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
 
           <div className="model-editor-list">
             {draft.models.length ? draft.models.map((model, index) => (
-              <div className="model-editor-row" key={`${model.name}-${index}`}>
+              <div className="model-editor-row" key={model.draftId}>
                 <Input
                   aria-label={`模型 ${index + 1} 名称`}
                   value={model.name}
@@ -443,6 +470,27 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                   icon={<DeleteOutlined />}
                   onClick={() => removeModel(index)}
                 />
+                <div className="model-context-setting">
+                  <span>上下文</span>
+                  <Radio.Group
+                    value={
+                      model.max_context_tokens === null
+                        ? "conservative"
+                        : String(model.max_context_tokens)
+                    }
+                    onChange={(event) => updateModel(index, {
+                      max_context_tokens: event.target.value === "conservative"
+                        ? null
+                        : Number(event.target.value),
+                    })}
+                  >
+                    <Radio value="conservative">保守模式</Radio>
+                    <Radio value="0">自动检测上下文</Radio>
+                    <Radio value="200000">200K</Radio>
+                    <Radio value="256000">256K</Radio>
+                    <Radio value="1000000">1M</Radio>
+                  </Radio.Group>
+                </div>
               </div>
             )) : (
               <div className="model-editor-empty">尚未添加模型。供应商可以先保存，之后再补充模型。</div>

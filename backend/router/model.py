@@ -9,6 +9,7 @@ from yarl import URL
 
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
+    CONTEXT_TOKEN_OPTIONS,
     ModelSiteConfig,
     Settings,
     get_settings,
@@ -20,6 +21,7 @@ class ModelInfo(TypedDict):
 
     name: str
     image_vision: bool
+    max_context_tokens: int | None
 
 
 class ModelGroup(TypedDict):
@@ -69,7 +71,11 @@ class ModelRouter:
             {
                 "name": site.name,
                 "models": [
-                    {"name": model.name, "image_vision": model.image_vision}
+                    {
+                        "name": model.name,
+                        "image_vision": model.image_vision,
+                        "max_context_tokens": model.max_context_tokens,
+                    }
                     for model in site.models
                 ],
             }
@@ -86,7 +92,11 @@ class ModelRouter:
                 "api_url": site.api_url,
                 "api_key": site.api_key,
                 "models": [
-                    {"name": model.name, "image_vision": model.image_vision}
+                    {
+                        "name": model.name,
+                        "image_vision": model.image_vision,
+                        "max_context_tokens": model.max_context_tokens,
+                    }
                     for model in site.models
                 ],
             }
@@ -312,10 +322,25 @@ class ModelRouter:
             image_vision = item.get("image_vision", False)
             if type(image_vision) is not bool:
                 raise TypeError("图片理解能力必须是布尔值")
+            max_context_tokens = item.get("max_context_tokens")
+            if (
+                max_context_tokens is not None
+                and (
+                    type(max_context_tokens) is not int
+                    or max_context_tokens not in CONTEXT_TOKEN_OPTIONS
+                )
+            ):
+                raise ValueError("上下文长度不是支持的选项")
             if model_name in names:
                 raise ValueError("同一供应商内的模型名称不能重复")
             names.add(model_name)
-            models.append({"name": model_name, "image_vision": image_vision})
+            models.append(
+                {
+                    "name": model_name,
+                    "image_vision": image_vision,
+                    "max_context_tokens": max_context_tokens,
+                }
+            )
         return models
 
     @staticmethod

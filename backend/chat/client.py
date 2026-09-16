@@ -42,6 +42,7 @@ class ClaudeChatConfig:
     session_id: str
     # 新会话用 session_id 创建，旧会话则用 resume 恢复（见 _connect）
     is_new_session: bool
+    max_context_tokens: int | None = None
     can_use_tool: CanUseTool | None = None
     permission_mode: ChatPermissionMode = "default"
 
@@ -98,6 +99,12 @@ async def _provider_settings_file(
         "cleanupPeriodDays": 60,
         "includeCoAuthoredBy": False,
     }
+    if config.max_context_tokens == 0:
+        settings["env"]["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] = "1"
+    elif config.max_context_tokens is not None:
+        settings["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(
+            config.max_context_tokens
+        )
     if is_windows:
         # 强制启用原生 PowerShell 工具，并让交互式 Shell 命令也使用 PowerShell。
         settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] = "1"
@@ -210,6 +217,7 @@ class ClaudeChatClient:
             and connected.api_url == config.api_url
             and connected.effort == config.effort
             and connected.model == config.model
+            and connected.max_context_tokens == config.max_context_tokens
             and connected.project.resolve() == config.project.resolve()
             and connected.session_id == config.session_id
         ):

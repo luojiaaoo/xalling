@@ -31,6 +31,7 @@ from backend.chat import (
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
+    ModelConfig,
     ModelSiteConfig,
     default_project_folder,
     get_settings,
@@ -270,7 +271,7 @@ class ChatRouter(CommandRouter):
 
         active_session_id = request.session_id or str(uuid4())
         is_new_session = not await asyncer.asyncify(self._history.has_session)(active_session_id)
-        site, model_name = await self._get_current_provider()
+        site, model = await self._get_current_provider()
         config = ClaudeChatConfig(
             api_key=site.api_key,
             api_url=site.api_url,
@@ -280,7 +281,8 @@ class ChatRouter(CommandRouter):
             ),
             effort=request.effort,
             is_new_session=is_new_session,
-            model=model_name,
+            model=model.name,
+            max_context_tokens=model.max_context_tokens,
             permission_mode=request.permission_mode,
             project=request.project_path,
             session_id=active_session_id,
@@ -399,7 +401,7 @@ class ChatRouter(CommandRouter):
                 if candidate.is_dir():
                     project = candidate
 
-        site, model_name = await self._get_current_provider()
+        site, model = await self._get_current_provider()
         config = ClaudeChatConfig(
             api_key=site.api_key,
             api_url=site.api_url,
@@ -409,7 +411,8 @@ class ChatRouter(CommandRouter):
             ),
             effort="high",
             is_new_session=is_new_session,
-            model=model_name,
+            model=model.name,
+            max_context_tokens=model.max_context_tokens,
             permission_mode="default",
             project=project,
             session_id=normalized_session_id,
@@ -794,17 +797,22 @@ class ChatRouter(CommandRouter):
             raise ValueError("会话标识无效") from error
 
     @staticmethod
-    async def _get_current_provider() -> tuple[ModelSiteConfig, str]:
+    async def _get_current_provider() -> tuple[ModelSiteConfig, ModelConfig]:
         current = CurrentConfig().model
         if not current.site or not current.name:
             raise ValueError("请先在模型管理中配置并选择模型")
 
         settings = await get_settings()
         site = next((item for item in settings.model if item.name == current.site), None)
-        if site is None or not any(model.name == current.name for model in site.models):
+        model = (
+            next((item for item in site.models if item.name == current.name), None)
+            if site is not None
+            else None
+        )
+        if site is None or model is None:
             raise ValueError("当前选择的模型已不存在，请重新选择")
         if not site.api_url.strip():
             raise ValueError("当前供应商尚未填写 API 地址")
         if not site.api_key.strip():
             raise ValueError("当前供应商尚未填写 API Key")
-        return site, current.name
+        return site, model

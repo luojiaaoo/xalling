@@ -340,6 +340,57 @@ def test_provider_settings_select_platform_shell(
         assert "defaultShell" not in settings
 
 
+@pytest.mark.parametrize(
+    ("max_context_tokens", "expected_context_env"),
+    [
+        (None, {}),
+        (
+            0,
+            {"CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1"},
+        ),
+        (1_000_000, {"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"}),
+    ],
+)
+def test_provider_settings_applies_context_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    max_context_tokens: int | None,
+    expected_context_env: dict[str, str],
+) -> None:
+    config = ClaudeChatConfig(
+        api_key="secret",
+        api_url="https://api.example.com",
+        effort="high",
+        is_new_session=True,
+        max_context_tokens=max_context_tokens,
+        model="claude-sonnet",
+        project=tmp_path,
+        session_id="session-id",
+    )
+    monkeypatch.setattr("backend.chat.client.platform.system", lambda: "Linux")
+
+    async def load_settings() -> dict[str, object]:
+        async with (
+            _provider_settings_file(config) as settings_path,
+            aiofiles.open(settings_path, encoding="utf-8") as file,
+        ):
+            return json.loads(await file.read())
+
+    with AsyncRuntime() as runtime:
+        settings = runtime.call(load_settings)
+
+    context_env_names = {
+        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+    }
+    actual_context_env = {
+        name: settings["env"][name]
+        for name in context_env_names
+        if name in settings["env"]
+    }
+    assert actual_context_env == expected_context_env
+
+
 def test_live_server_info_and_chat_reuse_one_sdk_instance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

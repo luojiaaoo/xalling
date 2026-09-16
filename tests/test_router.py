@@ -52,7 +52,13 @@ def test_model_router_manages_sites_and_returns_api_keys(
             "name": "Provider A",
             "api_url": "https://api.example.com/v1",
             "api_key": "secret",
-            "models": [{"name": "model-a", "image_vision": False}],
+            "models": [
+                {
+                    "name": "model-a",
+                    "image_vision": False,
+                    "max_context_tokens": None,
+                }
+            ],
         }
     ]
 
@@ -63,7 +69,12 @@ def test_model_router_manages_sites_and_returns_api_keys(
                     "name": "Provider B",
                     "api_key": "replacement-secret",
                     "api_url": "https://api.example.com/v2",
-                    "models": [{"name": "model-b", "image_vision": True}],
+                    "models": [
+                        {
+                            "name": "model-b",
+                            "image_vision": True,
+                        }
+                    ],
                 }
             ]
         }
@@ -119,8 +130,16 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
         {
             "name": "内部部署",
             "models": [
-                {"name": "model-a", "image_vision": True},
-                {"name": "model-b", "image_vision": False},
+                {
+                    "name": "model-a",
+                    "image_vision": True,
+                    "max_context_tokens": None,
+                },
+                {
+                    "name": "model-b",
+                    "image_vision": False,
+                    "max_context_tokens": None,
+                },
             ],
         }
     ]

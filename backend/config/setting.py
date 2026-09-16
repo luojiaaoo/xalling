@@ -4,7 +4,7 @@ from pathlib import Path
 
 import asyncer
 import tomli_w
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -14,6 +14,7 @@ from pydantic_settings import (
 
 USER_CONF_DIRPATH = Path.home() / ".xalling"
 CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
+CONTEXT_TOKEN_OPTIONS = {0, 200_000, 256_000, 1_000_000}
 
 
 def default_project_folder() -> Path:
@@ -30,6 +31,17 @@ class ModelConfig(BaseModel):
 
     name: str
     image_vision: bool = False
+    max_context_tokens: int | None = None
+
+    @model_validator(mode="after")
+    def validate_max_context_tokens(self) -> "ModelConfig":
+        """Only accept context sizes offered by the model settings UI."""
+        if (
+            self.max_context_tokens is not None
+            and self.max_context_tokens not in CONTEXT_TOKEN_OPTIONS
+        ):
+            raise ValueError("上下文长度不是支持的选项")
+        return self
 
 
 class ModelSiteConfig(BaseModel):
@@ -72,7 +84,7 @@ class Settings(BaseSettings):
         """Write all values from this instance to the configured TOML file."""
         conf_file_path = self._conf_file_path()
         conf_file_path.parent.mkdir(parents=True, exist_ok=True)
-        contents = tomli_w.dumps(self.model_dump(mode="json"))
+        contents = tomli_w.dumps(self.model_dump(mode="json", exclude_none=True))
         conf_file_path.write_text(contents, encoding="utf-8")
 
 
