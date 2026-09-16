@@ -50,19 +50,26 @@ def discover_plugins(
     home: Path | None = None,
     project: Path | None = None,
 ) -> list[SdkPluginConfig]:
-    """Return installed user and project skill directories as SDK plugins."""
+    """Return user and project roots containing Claude plugin components."""
     user_home = (home or Path.home()).resolve()
     home_plugin_roots = [
         user_home / ".xalling",
         user_home / ".config" / "opencode",
         user_home / ".agents",
     ]
-    project_plugin_roots: list[Path] = [
-        *([project.resolve() / ".agents"] if project.is_dir() else []),
-    ]
+    project_plugin_roots = (
+        [project.resolve() / ".agents"]
+        if project is not None and project.is_dir()
+        else []
+    )
+    candidate_roots = [*home_plugin_roots, *project_plugin_roots]
     return [
-        *[{"type": "local", "path": str(root)} for root in home_plugin_roots],
-        *[{"type": "local", "path": str(root)} for root in project_plugin_roots],
+        {
+            "type": "local",
+            "path": str(root),
+        }
+        for root in candidate_roots
+        if root.is_dir()
     ]
 
 
@@ -76,6 +83,13 @@ async def _provider_settings_file(
         "env": {
             "ANTHROPIC_AUTH_TOKEN": config.api_key,
             "ANTHROPIC_BASE_URL": config.api_url,
+            "ANTHROPIC_MODEL": config.model,
+            "ANTHROPIC_DEFAULT_MODEL": config.model,
+            "ANTHROPIC_DEFAULT_FABLE_MODEL": config.model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": config.model,
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": config.model,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": config.model,
+            "CLAUDE_CODE_SUBAGENT_MODEL": config.model,
             "CLAUDE_CODE_ENABLE_TELEMETRY": "0",  # 关闭遥测数据上报
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",  # 禁用非必要网络流量。比如更新检查、崩溃报告、后台统计等。
             "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",  # 关闭归因 Header。减少请求中携带的客户端归因信息，进一步降低指纹/隐私暴露。 https://unsloth.ai/docs/basics/claude-code#fixing-90-slower-inference-in-claude-code
@@ -188,18 +202,17 @@ class ClaudeChatClient:
         config: ClaudeChatConfig,
     ) -> ClaudeSDKClient:
         connected = self._connected_config
-        # 连接关键字段一致时复用现有连接，模型和权限模式支持热切换
+        # 连接关键字段一致时复用现有连接，权限模式支持热切换
         if (
             self._client is not None
             and connected is not None
             and connected.api_key == config.api_key
             and connected.api_url == config.api_url
             and connected.effort == config.effort
+            and connected.model == config.model
             and connected.project.resolve() == config.project.resolve()
             and connected.session_id == config.session_id
         ):
-            if connected.model != config.model:
-                await self._client.set_model(config.model)
             if connected.permission_mode != config.permission_mode:
                 await self._client.set_permission_mode(config.permission_mode)
             self._connected_config = config

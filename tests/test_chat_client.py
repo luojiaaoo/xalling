@@ -261,19 +261,24 @@ def test_discover_plugins_loads_supported_user_directories(
         tmp_path / ".config" / "opencode",
         tmp_path / ".agents",
     )
-    for root in plugin_roots:
-        (root / "skills").mkdir(parents=True)
+    (plugin_roots[0] / "agents").mkdir(parents=True)
+    (plugin_roots[1] / "commands").mkdir(parents=True)
+    plugin_roots[2].mkdir(parents=True)
+    (plugin_roots[2] / ".mcp.json").write_text("{}", encoding="utf-8")
 
     assert discover_plugins(tmp_path) == [{"type": "local", "path": str(root)} for root in plugin_roots]
 
 
-def test_discover_plugins_ignores_missing_skill_directories(
+def test_discover_plugins_loads_existing_directories(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".xalling").mkdir()
     (tmp_path / ".agents" / "skills").mkdir(parents=True)
 
-    assert discover_plugins(tmp_path) == [{"type": "local", "path": str(tmp_path / ".agents")}]
+    assert discover_plugins(tmp_path) == [
+        {"type": "local", "path": str(tmp_path / ".xalling")},
+        {"type": "local", "path": str(tmp_path / ".agents")},
+    ]
 
 
 def test_discover_plugins_loads_project_agents_directory(
@@ -281,7 +286,7 @@ def test_discover_plugins_loads_project_agents_directory(
 ) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
-    (project / ".agents" / "skills").mkdir(parents=True)
+    (project / ".agents" / "agents").mkdir(parents=True)
 
     assert discover_plugins(home=home, project=project) == [{"type": "local", "path": str(project / ".agents")}]
 
@@ -317,6 +322,16 @@ def test_provider_settings_select_platform_shell(
     with AsyncRuntime() as runtime:
         settings = runtime.call(load_settings)
 
+    model_env_names = {
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_MODEL",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+    }
+    assert all(settings["env"][name] == config.model for name in model_env_names)
     if powershell_enabled:
         assert settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] == "1"
         assert settings["defaultShell"] == "powershell"
@@ -407,6 +422,78 @@ def test_live_server_info_and_chat_reuse_one_sdk_instance(
     assert prompts == ["first", "second"]
     assert first["content"] == "first"
     assert second["content"] == "second"
+
+
+def test_model_change_reconnects_to_refresh_subagent_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instances = []
+    closed_models: list[str] = []
+
+    class FakeClaudeSDKClient:
+        def __init__(self, options) -> None:
+            self.options = options
+            self.prompt = ""
+            instances.append(self)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            closed_models.append(self.options.model)
+
+        async def query(self, prompt: str) -> None:
+            self.prompt = prompt
+
+        async def receive_response(self):
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="session-id",
+                result=self.prompt,
+            )
+
+    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
+    monkeypatch.setattr("backend.chat.client.discover_plugins", lambda **_: [])
+    config = ClaudeChatConfig(
+        api_key="secret",
+        api_url="https://api.example.com",
+        effort="high",
+        is_new_session=True,
+        model="first-model",
+        project=tmp_path,
+        session_id="session-id",
+    )
+
+    with AsyncRuntime() as runtime:
+        client = runtime.call_sync(ClaudeChatClient, config)
+        try:
+            runtime.call(client.send, "first")
+            runtime.call_sync(
+                client.prepare,
+                ClaudeChatConfig(
+                    api_key=config.api_key,
+                    api_url=config.api_url,
+                    effort=config.effort,
+                    is_new_session=False,
+                    model="second-model",
+                    project=config.project,
+                    session_id=config.session_id,
+                ),
+            )
+            runtime.call(client.send, "second")
+        finally:
+            runtime.call(client.close)
+
+    assert [instance.options.model for instance in instances] == [
+        "first-model",
+        "second-model",
+    ]
+    assert closed_models == ["first-model", "second-model"]
 
 
 def test_server_info_falls_back_to_snapshot_while_turn_is_running(
