@@ -42,6 +42,7 @@ type PyWebviewApi = {
     permissionId: string,
     allowed: boolean,
     answers: ChatPermissionAnswers | null,
+    feedback: string | null,
   ) => Promise<boolean>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
@@ -208,6 +209,7 @@ export type ChatPermissionRequestEvent = {
   display_name: string;
   input: Record<string, unknown>;
   permission_id: string;
+  suggested_permission_mode?: Exclude<ChatPermissionMode, "plan">;
   title: string;
   tool_name: string;
   type: "permission_request";
@@ -328,6 +330,13 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
       && typeof value.input === "object"
       && value.input !== null
       && !Array.isArray(value.input)
+      && (
+        !("suggested_permission_mode" in value)
+        || value.suggested_permission_mode === "default"
+        || value.suggested_permission_mode === "acceptEdits"
+        || value.suggested_permission_mode === "auto"
+        || value.suggested_permission_mode === "bypassPermissions"
+      )
     );
   }
   if (value.type === "tool_complete") {
@@ -605,12 +614,18 @@ export async function respondChatPermission(
   permissionId: string,
   allowed: boolean,
   answers?: ChatPermissionAnswers,
+  feedback?: string,
 ): Promise<boolean> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.respond_chat_permission(permissionId, allowed, answers ?? null);
+  return api.respond_chat_permission(
+    permissionId,
+    allowed,
+    answers ?? null,
+    feedback?.trim() || null,
+  );
 }
 
 export async function getCurrentTheme(): Promise<string> {

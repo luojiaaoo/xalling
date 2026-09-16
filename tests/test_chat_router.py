@@ -14,6 +14,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     PermissionResultAllow,
     PermissionResultDeny,
+    PermissionUpdate,
     ResultMessage,
     StreamEvent,
     TextBlock,
@@ -733,6 +734,63 @@ def test_chat_router_waits_for_tool_permission_from_ui(
         str(uuid4()),
         allowed,
     )
+
+
+def test_exit_plan_mode_applies_and_exposes_suggested_mode() -> None:
+    router = ApplicationBridge()
+    events: list[dict[str, object]] = []
+    mode_update = PermissionUpdate(
+        type="setMode",
+        mode="default",
+        destination="session",
+    )
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
+            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
+            events.append(event)
+            assert router.respond_chat_permission(event["permission_id"], True)
+
+    router._window = WindowStub()
+    result = router._async_runtime.call(
+        router._request_tool_permission,
+        "ExitPlanMode",
+        {"plan": "Implement the approved plan."},
+        ToolPermissionContext(suggestions=[mode_update]),
+    )
+
+    assert isinstance(result, PermissionResultAllow)
+    assert result.updated_permissions == [mode_update]
+    assert events[0]["suggested_permission_mode"] == "default"
+
+
+def test_exit_plan_mode_returns_feedback_to_claude() -> None:
+    router = ApplicationBridge()
+    events: list[dict[str, object]] = []
+
+    class WindowStub:
+        def evaluate_js(self, script: str) -> None:
+            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
+            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
+            events.append(event)
+            assert router.respond_chat_permission(
+                event["permission_id"],
+                False,
+                feedback="请补充数据库迁移和回滚方案",
+            )
+
+    router._window = WindowStub()
+    result = router._async_runtime.call(
+        router._request_tool_permission,
+        "ExitPlanMode",
+        {"plan": "Implement the approved plan."},
+        ToolPermissionContext(),
+    )
+
+    assert isinstance(result, PermissionResultDeny)
+    assert result.message == "请补充数据库迁移和回滚方案"
+    assert events[0]["suggested_permission_mode"] == "default"
 
 
 def test_get_active_chat_hides_answered_permission_requests() -> None:

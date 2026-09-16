@@ -55,6 +55,7 @@ import {
   type ProjectFolder,
 } from "../bridge/client";
 import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
+import { ExitPlanModeDialog } from "./ExitPlanModeDialog";
 
 type TaskComposerProps = {
   busy?: boolean;
@@ -66,6 +67,7 @@ type TaskComposerProps = {
     request: ChatPermissionRequestEvent,
     allowed: boolean,
     answers?: ChatPermissionAnswers,
+    feedback?: string,
   ) => Promise<void>;
   onPermissionModeChange: (mode: ChatPermissionMode) => void;
   onProjectChange: (project: ProjectFolder | null) => void;
@@ -104,7 +106,7 @@ const effortValues = ["low", "medium", "high", "max"] as const;
 const permissionModeLabels: Record<ChatPermissionMode, string> = {
   default: "变更前确认",
   acceptEdits: "自动编辑",
-  plan: "计划模型",
+  plan: "计划模式",
   auto: "帮我批准",
   bypassPermissions: "完全访问",
 };
@@ -473,7 +475,6 @@ export function TaskComposer({
       })),
     }));
   const hasModels = modelOptions.length > 0;
-
   const handleModelChange: CascaderProps<ModelOption>["onChange"] = (value) => {
     const selection = value as string[];
     setSelectedModel(selection);
@@ -542,13 +543,14 @@ export function TaskComposer({
   const handleToolPermissionDecision = async (
     allowed: boolean,
     answers?: ChatPermissionAnswers,
+    feedback?: string,
   ) => {
     if (!permissionRequest || !onPermissionDecision || permissionDecision || stopping) {
       return;
     }
     setPermissionDecision(allowed ? "allow" : "deny");
     try {
-      await onPermissionDecision(permissionRequest, allowed, answers);
+      await onPermissionDecision(permissionRequest, allowed, answers, feedback);
     } catch (error) {
       const text = error instanceof Error && error.message.trim()
         ? error.message
@@ -635,6 +637,17 @@ export function TaskComposer({
           key={permissionRequest.permission_id}
           decision={permissionDecision}
           onDecision={handleToolPermissionDecision}
+          onStop={onStop}
+          request={permissionRequest}
+          stopping={stopping}
+        />
+      ) : permissionRequest?.tool_name === "ExitPlanMode" ? (
+        <ExitPlanModeDialog
+          key={permissionRequest.permission_id}
+          decision={permissionDecision}
+          onDecision={(allowed, feedback) => (
+            handleToolPermissionDecision(allowed, undefined, feedback)
+          )}
           onStop={onStop}
           request={permissionRequest}
           stopping={stopping}

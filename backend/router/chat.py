@@ -14,6 +14,7 @@ from claude_agent_sdk import (
     ClaudeSDKError,
     PermissionResultAllow,
     PermissionResultDeny,
+    PermissionUpdate,
     ToolPermissionContext,
 )
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -142,6 +143,7 @@ class _ChatPermissionDecision(BaseModel):
     permission_id: str
     allowed: bool
     answers: dict[str, str | list[str]] | None = None
+    feedback: str | None = None
 
     @field_validator("permission_id", mode="before")
     @classmethod
@@ -185,6 +187,18 @@ class _ChatPermissionDecision(BaseModel):
             normalized[question] = [item.strip() for item in answer]
         return normalized
 
+    @field_validator("feedback", mode="before")
+    @classmethod
+    def _validate_feedback(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise TypeError("计划反馈必须是字符串")
+        normalized = value.strip()
+        if len(normalized) > 20_000:
+            raise ValueError("计划反馈过长")
+        return normalized or None
+
 
 @dataclass(frozen=True)
 class _PermissionDecision:
@@ -192,6 +206,7 @@ class _PermissionDecision:
 
     allowed: bool
     answers: dict[str, str | list[str]] | None = None
+    feedback: str | None = None
 
 
 @dataclass
@@ -581,6 +596,7 @@ class ChatRouter(CommandRouter):
         permission_id: str,
         allowed: bool,
         answers: dict[str, str | list[str]] | None = None,
+        feedback: str | None = None,
     ) -> bool:
         """Resolve a pending SDK tool permission request from the Web UI."""
         try:
@@ -589,6 +605,7 @@ class ChatRouter(CommandRouter):
                     "permission_id": permission_id,
                     "allowed": allowed,
                     "answers": answers,
+                    "feedback": feedback,
                 }
             )
         except ValidationError as error:
@@ -598,6 +615,7 @@ class ChatRouter(CommandRouter):
         if pending is None:
             return False
         normalized_answers = self._validate_tool_answers(pending, decision)
+        normalized_feedback = self._validate_tool_feedback(pending, decision)
         future = pending.future
         if future.done():
             return False
@@ -605,6 +623,7 @@ class ChatRouter(CommandRouter):
             _PermissionDecision(
                 allowed=decision.allowed,
                 answers=normalized_answers,
+                feedback=normalized_feedback,
             )
         )
         return True
@@ -620,6 +639,27 @@ class ChatRouter(CommandRouter):
         """Pause a tool call until the matching Web UI request is answered."""
         permission_id = str(uuid4())
         decision = asyncio.get_running_loop().create_future()
+        mode_update = next(
+            (
+                suggestion
+                for suggestion in context.suggestions
+                if tool_name == "ExitPlanMode"
+                and suggestion.type == "setMode"
+                and suggestion.mode in {
+                    "default",
+                    "acceptEdits",
+                    "auto",
+                    "bypassPermissions",
+                }
+            ),
+            None,
+        )
+        if tool_name == "ExitPlanMode" and mode_update is None:
+            mode_update = PermissionUpdate(
+                type="setMode",
+                mode="default",
+                destination="session",
+            )
         self._pending_permissions[permission_id] = _PendingPermission(
             tool_name=tool_name,
             input_data=input_data,
@@ -637,6 +677,8 @@ class ChatRouter(CommandRouter):
             "description": (context.description or context.decision_reason or "此操作需要你的确认后才能继续。"),
             "blocked_path": context.blocked_path or "",
         }
+        if mode_update is not None:
+            event["suggested_permission_mode"] = mode_update.mode or "default"
         if not self._emit_chat_event(event, session_id=session_id):
             self._pending_permissions.pop(permission_id, None)
             return PermissionResultDeny(message="无法显示工具权限确认，已拒绝本次调用")
@@ -649,8 +691,26 @@ class ChatRouter(CommandRouter):
         if response.allowed:
             if tool_name == "AskUserQuestion":
                 return PermissionResultAllow(updated_input={**input_data, "answers": response.answers})
-            return PermissionResultAllow()
+            return PermissionResultAllow(
+                updated_permissions=[mode_update] if mode_update is not None else None,
+            )
+        if tool_name == "ExitPlanMode":
+            return PermissionResultDeny(
+                message=response.feedback or "用户选择继续规划，请继续完善当前计划。",
+            )
         return PermissionResultDeny(message="用户已拒绝本次工具调用")
+
+    @staticmethod
+    def _validate_tool_feedback(
+        pending: _PendingPermission,
+        decision: _ChatPermissionDecision,
+    ) -> str | None:
+        """Only a denied ExitPlanMode request may carry planning feedback."""
+        if decision.feedback is None:
+            return None
+        if pending.tool_name != "ExitPlanMode" or decision.allowed:
+            raise ValueError("只有继续规划时才能提交计划反馈")
+        return decision.feedback
 
     @staticmethod
     def _validate_tool_answers(

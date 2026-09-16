@@ -167,6 +167,44 @@ function errorText(error: unknown): string {
   return "发送失败，请检查模型配置后重试。";
 }
 
+function exitPlanText(event: ChatPermissionRequestEvent): string | null {
+  if (event.tool_name !== "ExitPlanMode") {
+    return null;
+  }
+  const plan = event.input.plan;
+  return typeof plan === "string" && plan.trim() ? plan.trim() : null;
+}
+
+function applyExitPlanToAssistant(
+  message: ConversationMessage,
+  event: ChatPermissionRequestEvent,
+): ConversationMessage {
+  const plan = exitPlanText(event);
+  if (!plan) {
+    return message;
+  }
+  const blockId = `exit-plan-${event.permission_id}`;
+  let trace = message.trace ?? [];
+  if (!trace.some((item) => item.key === blockId)) {
+    const metadata = {
+      block_id: blockId,
+      timestamp: Date.now(),
+    };
+    trace = applyChatStreamEvent(trace, { ...metadata, type: "output_start" });
+    trace = applyChatStreamEvent(trace, { ...metadata, type: "output_delta", text: plan });
+    trace = applyChatStreamEvent(trace, { ...metadata, type: "output_complete" });
+  }
+  return {
+    ...message,
+    content: message.content.includes(plan)
+      ? message.content
+      : message.content
+        ? `${message.content}\n\n${plan}`
+        : plan,
+    trace,
+  };
+}
+
 function applyEventToAssistant(
   message: ConversationMessage,
   event: ChatStreamEvent,
@@ -235,6 +273,7 @@ export function Workspace({
   const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
   const startedAtRef = useRef<number | null>(null);
   const stopRequestedRef = useRef(false);
+  const planScrollPendingRef = useRef(false);
   const copyFeedbackTimerRef = useRef<number | null>(null);
   const [copiedMessageKey, setCopiedMessageKey] = useState<string | null>(null);
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
@@ -257,6 +296,34 @@ export function Workspace({
           ? current
           : [...current, event]
       ));
+      const plan = exitPlanText(event);
+      if (plan) {
+        planScrollPendingRef.current = true;
+        setBusy(true);
+        setMessages((current) => {
+          let assistantKey = activeAssistantKeyRef.current;
+          let next = current;
+          if (!assistantKey || !current.some((item) => item.key === assistantKey)) {
+            assistantKey = `active-${sessionIdRef.current}`;
+            activeAssistantKeyRef.current = assistantKey;
+            next = [
+              ...current,
+              {
+                content: "",
+                expandedTraceItemKeys: [],
+                key: assistantKey,
+                loading: true,
+                role: "ai",
+                trace: [],
+                traceExpanded: false,
+              },
+            ];
+          }
+          return next.map((item) => (
+            item.key === assistantKey ? applyExitPlanToAssistant(item, event) : item
+          ));
+        });
+      }
       return;
     }
     if (event.type === "session_started") {
@@ -428,6 +495,11 @@ export function Workspace({
             }
             if (event.type === "permission_request") {
               permissions.push(event);
+              const plan = exitPlanText(event);
+              if (plan) {
+                planScrollPendingRef.current = true;
+                assistant = applyExitPlanToAssistant(assistant, event);
+              }
             } else if (event.type === "session_started") {
               sessionIdRef.current = event.session_id;
               startedAtRef.current = event.timestamp ?? Date.now();
@@ -537,12 +609,28 @@ export function Workspace({
   }, [busy]);
 
   useEffect(() => {
-    if (!busy) {
+    if (!busy || permissionRequests.length > 0) {
       return;
     }
     const scrollBox = chatScrollRef.current;
     scrollBox?.scrollTo({ top: scrollBox.scrollHeight, behavior: "smooth" });
-  }, [busy, messages, elapsedSeconds]);
+  }, [busy, messages, elapsedSeconds, permissionRequests]);
+
+  useEffect(() => {
+    if (!planScrollPendingRef.current) {
+      return undefined;
+    }
+    const frame = requestAnimationFrame(() => {
+      const plans = chatScrollRef.current?.querySelectorAll(".assistant-plan-output");
+      const target = plans?.item((plans?.length ?? 0) - 1);
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      planScrollPendingRef.current = false;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages]);
 
   // 搜索跳转：历史载入完成后，按序号数气泡，把命中气泡滚动置顶并短暂高亮
   useEffect(() => {
@@ -594,14 +682,19 @@ export function Workspace({
     request: ChatPermissionRequestEvent,
     allowed: boolean,
     answers?: ChatPermissionAnswers,
+    feedback?: string,
   ) => {
     const resolved = await respondChatPermission(
       request.permission_id,
       allowed,
       answers,
+      feedback,
     );
     if (!resolved) {
       throw new Error("权限请求已失效，请等待当前任务更新。");
+    }
+    if (allowed && request.tool_name === "ExitPlanMode") {
+      onPermissionModeChange(request.suggested_permission_mode ?? "default");
     }
     setPermissionRequests((current) => current.filter(
       (item) => item.permission_id !== request.permission_id,
@@ -808,6 +901,7 @@ export function Workspace({
     const streamingOutput = item.loading && lastTraceItem?.kind === "output"
       ? lastTraceItem
       : undefined;
+    const showingPlan = streamingOutput?.key.startsWith("exit-plan-") ?? false;
     const externalOutputKey = item.loading ? streamingOutput?.key : item.finalOutputKey;
     const responseContent = item.loading ? streamingOutput?.content : item.content;
 
@@ -889,10 +983,16 @@ export function Workspace({
             : (
                 <>
                   {responseContent && (
-                    <ChatMarkdown
-                      content={responseContent}
-                      streaming={Boolean(item.loading && streamingOutput?.status === "running")}
-                    />
+                    showingPlan ? (
+                      <div className="assistant-plan-output">
+                        <ChatMarkdown content={responseContent} streaming={false} />
+                      </div>
+                    ) : (
+                      <ChatMarkdown
+                        content={responseContent}
+                        streaming={Boolean(item.loading && streamingOutput?.status === "running")}
+                      />
+                    )
                   )}
                   {item.status === "abort" && (
                     <div className="chat-message-stopped">已停止生成</div>
