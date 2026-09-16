@@ -100,7 +100,7 @@ async def _provider_settings_file(
         "includeCoAuthoredBy": False,
     }
     if config.max_context_tokens == 0:
-        settings["env"]["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] = "1"
+        settings["env"]["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] = "1" # https://github.com/farion1231/cc-switch/issues/6221
     elif config.max_context_tokens is not None:
         settings["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(
             config.max_context_tokens
