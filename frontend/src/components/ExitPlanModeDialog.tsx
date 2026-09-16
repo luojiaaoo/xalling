@@ -11,6 +11,7 @@ import type {
   ChatPermissionMode,
   ChatPermissionRequestEvent,
 } from "../bridge/client";
+import { ChatMarkdown } from "./ChatMarkdown";
 
 type ExitPlanModeDialogProps = {
   decision: "allow" | "deny" | null;
@@ -37,6 +38,8 @@ export function ExitPlanModeDialog({
   const [feedback, setFeedback] = useState("");
   const nextMode = request.suggested_permission_mode ?? "default";
   const disabled = decision !== null || stopping;
+  const rawPlan = request.input.plan;
+  const plan = typeof rawPlan === "string" ? rawPlan.trim() : "";
 
   return (
     <section
@@ -57,6 +60,17 @@ export function ExitPlanModeDialog({
           计划模式 <ArrowRightOutlined /> {permissionModeLabels[nextMode]}
         </span>
       </div>
+      {plan && (
+        <section className="exit-plan-mode-plan" aria-label="待执行计划">
+          <div className="exit-plan-mode-plan-heading">
+            <FileTextOutlined />
+            <span>执行计划</span>
+          </div>
+          <div className="exit-plan-mode-plan-content">
+            <ChatMarkdown content={plan} streaming={false} />
+          </div>
+        </section>
+      )}
       <Input.TextArea
         aria-label="告诉 Claude 如何继续规划"
         autoSize={{ minRows: 2, maxRows: 4 }}

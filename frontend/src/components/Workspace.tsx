@@ -29,7 +29,9 @@ import { pickQuote } from "../quotes";
 import {
   AgentTrace,
   applyChatStreamEvent,
+  applyExitPlanPermission,
   finishAgentTrace,
+  stripExitPlanContent,
   type AgentTraceItem,
 } from "./AgentTrace";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -167,44 +169,6 @@ function errorText(error: unknown): string {
   return "发送失败，请检查模型配置后重试。";
 }
 
-function exitPlanText(event: ChatPermissionRequestEvent): string | null {
-  if (event.tool_name !== "ExitPlanMode") {
-    return null;
-  }
-  const plan = event.input.plan;
-  return typeof plan === "string" && plan.trim() ? plan.trim() : null;
-}
-
-function applyExitPlanToAssistant(
-  message: ConversationMessage,
-  event: ChatPermissionRequestEvent,
-): ConversationMessage {
-  const plan = exitPlanText(event);
-  if (!plan) {
-    return message;
-  }
-  const blockId = `exit-plan-${event.permission_id}`;
-  let trace = message.trace ?? [];
-  if (!trace.some((item) => item.key === blockId)) {
-    const metadata = {
-      block_id: blockId,
-      timestamp: Date.now(),
-    };
-    trace = applyChatStreamEvent(trace, { ...metadata, type: "output_start" });
-    trace = applyChatStreamEvent(trace, { ...metadata, type: "output_delta", text: plan });
-    trace = applyChatStreamEvent(trace, { ...metadata, type: "output_complete" });
-  }
-  return {
-    ...message,
-    content: message.content.includes(plan)
-      ? message.content
-      : message.content
-        ? `${message.content}\n\n${plan}`
-        : plan,
-    trace,
-  };
-}
-
 function applyEventToAssistant(
   message: ConversationMessage,
   event: ChatStreamEvent,
@@ -216,14 +180,15 @@ function applyEventToAssistant(
   ) && isTopLevelEvent
     && !trace.some((traceItem) => traceItem.key === event.block_id);
   const separator = startsNewOutput && message.content ? "\n\n" : "";
-  const content = event.type === "output_delta" && isTopLevelEvent
+  const nextContent = event.type === "output_delta" && isTopLevelEvent
     ? `${message.content}${separator}${event.text}`
     : `${message.content}${separator}`;
+  const nextTrace = applyChatStreamEvent(trace, event);
   return {
     ...message,
-    content,
+    content: stripExitPlanContent(nextContent, nextTrace),
     loading: true,
-    trace: applyChatStreamEvent(trace, event),
+    trace: nextTrace,
   };
 }
 
@@ -273,7 +238,6 @@ export function Workspace({
   const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
   const startedAtRef = useRef<number | null>(null);
   const stopRequestedRef = useRef(false);
-  const planScrollPendingRef = useRef(false);
   const copyFeedbackTimerRef = useRef<number | null>(null);
   const [copiedMessageKey, setCopiedMessageKey] = useState<string | null>(null);
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
@@ -296,33 +260,28 @@ export function Workspace({
           ? current
           : [...current, event]
       ));
-      const plan = exitPlanText(event);
-      if (plan) {
-        planScrollPendingRef.current = true;
-        setBusy(true);
-        setMessages((current) => {
-          let assistantKey = activeAssistantKeyRef.current;
-          let next = current;
-          if (!assistantKey || !current.some((item) => item.key === assistantKey)) {
-            assistantKey = `active-${sessionIdRef.current}`;
-            activeAssistantKeyRef.current = assistantKey;
-            next = [
-              ...current,
-              {
-                content: "",
-                expandedTraceItemKeys: [],
-                key: assistantKey,
-                loading: true,
-                role: "ai",
-                trace: [],
-                traceExpanded: false,
-              },
-            ];
+      if (event.tool_name === "ExitPlanMode") {
+        setMessages((current) => current.map((item) => {
+          if (item.key !== activeAssistantKeyRef.current) {
+            return item;
           }
-          return next.map((item) => (
-            item.key === assistantKey ? applyExitPlanToAssistant(item, event) : item
-          ));
-        });
+          const update = applyExitPlanPermission(item.trace ?? [], event);
+          if (!update.expandedItemKeys.length) {
+            return item;
+          }
+          return {
+            ...item,
+            expandedTraceItemKeys: [
+              ...new Set([
+                ...(item.expandedTraceItemKeys ?? []),
+                ...update.expandedItemKeys,
+              ]),
+            ],
+            content: stripExitPlanContent(item.content, update.items),
+            trace: update.items,
+            traceExpanded: true,
+          };
+        }));
       }
       return;
     }
@@ -461,7 +420,7 @@ export function Workspace({
             [],
           );
           return {
-            content: message.content,
+            content: stripExitPlanContent(message.content, trace),
             expandedTraceItemKeys: [],
             finalOutputKey: message.final_output_block_id ?? undefined,
             key: `history-${message.key}`,
@@ -495,10 +454,20 @@ export function Workspace({
             }
             if (event.type === "permission_request") {
               permissions.push(event);
-              const plan = exitPlanText(event);
-              if (plan) {
-                planScrollPendingRef.current = true;
-                assistant = applyExitPlanToAssistant(assistant, event);
+              const update = applyExitPlanPermission(assistant.trace ?? [], event);
+              if (update.expandedItemKeys.length) {
+                assistant = {
+                  ...assistant,
+                  expandedTraceItemKeys: [
+                    ...new Set([
+                      ...(assistant.expandedTraceItemKeys ?? []),
+                      ...update.expandedItemKeys,
+                    ]),
+                  ],
+                  content: stripExitPlanContent(assistant.content, update.items),
+                  trace: update.items,
+                  traceExpanded: true,
+                };
               }
             } else if (event.type === "session_started") {
               sessionIdRef.current = event.session_id;
@@ -615,22 +584,6 @@ export function Workspace({
     const scrollBox = chatScrollRef.current;
     scrollBox?.scrollTo({ top: scrollBox.scrollHeight, behavior: "smooth" });
   }, [busy, messages, elapsedSeconds, permissionRequests]);
-
-  useEffect(() => {
-    if (!planScrollPendingRef.current) {
-      return undefined;
-    }
-    const frame = requestAnimationFrame(() => {
-      const plans = chatScrollRef.current?.querySelectorAll(".assistant-plan-output");
-      const target = plans?.item((plans?.length ?? 0) - 1);
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      planScrollPendingRef.current = false;
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [messages]);
 
   // 搜索跳转：历史载入完成后，按序号数气泡，把命中气泡滚动置顶并短暂高亮
   useEffect(() => {
@@ -901,7 +854,6 @@ export function Workspace({
     const streamingOutput = item.loading && lastTraceItem?.kind === "output"
       ? lastTraceItem
       : undefined;
-    const showingPlan = streamingOutput?.key.startsWith("exit-plan-") ?? false;
     const externalOutputKey = item.loading ? streamingOutput?.key : item.finalOutputKey;
     const responseContent = item.loading ? streamingOutput?.content : item.content;
 
@@ -983,16 +935,10 @@ export function Workspace({
             : (
                 <>
                   {responseContent && (
-                    showingPlan ? (
-                      <div className="assistant-plan-output">
-                        <ChatMarkdown content={responseContent} streaming={false} />
-                      </div>
-                    ) : (
-                      <ChatMarkdown
-                        content={responseContent}
-                        streaming={Boolean(item.loading && streamingOutput?.status === "running")}
-                      />
-                    )
+                    <ChatMarkdown
+                      content={responseContent}
+                      streaming={Boolean(item.loading && streamingOutput?.status === "running")}
+                    />
                   )}
                   {item.status === "abort" && (
                     <div className="chat-message-stopped">已停止生成</div>

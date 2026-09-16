@@ -1,13 +1,17 @@
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
+  FileTextOutlined,
   LoadingOutlined,
   MessageOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import { Think, ThoughtChain } from "@ant-design/x";
 
-import type { ChatStreamEvent } from "../bridge/client";
+import type {
+  ChatPermissionRequestEvent,
+  ChatStreamEvent,
+} from "../bridge/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type TraceStatus = "error" | "running" | "success";
@@ -24,6 +28,7 @@ type ContentTraceItem = {
 type ToolCall = {
   key: string;
   name: string;
+  plan?: string;
   status: TraceStatus;
   summary: string;
   trace: AgentTraceItem[];
@@ -132,17 +137,25 @@ function applyChatStreamEventAtLevel(
   }
 
   if (event.type === "tool_start") {
+    const previousItem = items.at(-1);
+    const plan = (
+      event.name === "ExitPlanMode"
+      && previousItem?.kind === "output"
+      && previousItem.content.trim()
+    ) || undefined;
+    const sourceItems = plan ? items.slice(0, -1) : items;
     const toolCall: ToolCall = {
       key: event.tool_id,
       name: event.name,
+      plan,
       status: "running",
       summary: event.summary,
       trace: [],
     };
-    const groupIndex = items.findIndex((item) => item.key === event.group_id);
+    const groupIndex = sourceItems.findIndex((item) => item.key === event.group_id);
     if (groupIndex === -1) {
       return [
-        ...items,
+        ...sourceItems,
         {
           calls: [toolCall],
           key: event.group_id,
@@ -152,7 +165,7 @@ function applyChatStreamEventAtLevel(
         },
       ];
     }
-    return items.map((item, index) => {
+    return sourceItems.map((item, index) => {
       if (index !== groupIndex || item.kind !== "tools") {
         return item;
       }
@@ -248,6 +261,71 @@ export function applyChatStreamEvent(
   return applyChatStreamEventAtLevel(items, event);
 }
 
+type ExitPlanPermissionUpdate = {
+  expandedItemKeys: string[];
+  items: AgentTraceItem[];
+};
+
+export function applyExitPlanPermission(
+  items: AgentTraceItem[],
+  event: ChatPermissionRequestEvent,
+): ExitPlanPermissionUpdate {
+  const rawPlan = event.tool_name === "ExitPlanMode" ? event.input.plan : null;
+  const plan = typeof rawPlan === "string" ? rawPlan.trim() : "";
+  if (!plan) {
+    return { expandedItemKeys: [], items };
+  }
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind !== "tools") {
+      continue;
+    }
+    let callIndex = -1;
+    for (let candidateIndex = item.calls.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
+      if (item.calls[candidateIndex].name === "ExitPlanMode") {
+        callIndex = candidateIndex;
+        break;
+      }
+    }
+    if (callIndex === -1) {
+      continue;
+    }
+    const call = item.calls[callIndex];
+    const calls = item.calls.map((candidate, candidateIndex) => (
+      candidateIndex === callIndex ? { ...candidate, plan } : candidate
+    ));
+    return {
+      expandedItemKeys: [item.key, call.key],
+      items: items.map((candidate, candidateIndex) => (
+        candidateIndex === index ? { ...item, calls } : candidate
+      )),
+    };
+  }
+  return { expandedItemKeys: [], items };
+}
+
+export function stripExitPlanContent(
+  content: string,
+  items: AgentTraceItem[],
+): string {
+  let result = content;
+  for (const item of items) {
+    if (item.kind !== "tools") {
+      continue;
+    }
+    for (const call of item.calls) {
+      if (call.name !== "ExitPlanMode" || !call.plan) {
+        continue;
+      }
+      const planIndex = result.indexOf(call.plan);
+      if (planIndex !== -1) {
+        result = `${result.slice(0, planIndex)}${result.slice(planIndex + call.plan.length)}`;
+      }
+    }
+  }
+  return result.trim();
+}
+
 export function finishAgentTrace(
   items: AgentTraceItem[],
   status: "error" | "success",
@@ -283,6 +361,7 @@ function toolLabel(name: string): string {
     WebFetch: "读取网页",
     WebSearch: "搜索网页",
     Write: "写入文件",
+    ExitPlanMode: "确认计划",
   };
   return labels[name] ?? "调用工具";
 }
@@ -391,12 +470,25 @@ function TraceTimeline({
             <ThoughtChain
               expandedKeys={expandedCallKeys}
               items={item.calls.map((call) => {
-                const expandable = isAgentTool(call.name) || call.trace.length > 0;
+                const expandable = (
+                  isAgentTool(call.name)
+                  || call.trace.length > 0
+                  || Boolean(call.plan)
+                );
                 return {
                   blink: call.status === "running",
                   collapsible: expandable,
                   content: expandable ? (
                     <div className="agent-subtrace">
+                      {call.plan && (
+                        <section className="agent-tool-plan">
+                          <div className="agent-tool-plan-heading">
+                            <FileTextOutlined />
+                            <span>执行计划</span>
+                          </div>
+                          <ChatMarkdown content={call.plan} streaming={false} />
+                        </section>
+                      )}
                       {call.trace.length ? (
                         <TraceTimeline
                           expandedItemKeys={expandedItemKeys}
@@ -406,7 +498,7 @@ function TraceTimeline({
                           onItemExpandedChange={onItemExpandedChange}
                           showDurations={showDurations}
                         />
-                      ) : (
+                      ) : !call.plan ? (
                         <div className="agent-subtrace-empty">
                           {call.status === "running" && <LoadingOutlined spin />}
                           <span>
@@ -415,7 +507,7 @@ function TraceTimeline({
                               : "子代理没有返回可展示的内部轨迹"}
                           </span>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   ) : undefined,
                   description: (
@@ -435,7 +527,7 @@ function TraceTimeline({
               line="solid"
               onExpand={(nextExpandedKeys) => {
                 for (const call of item.calls) {
-                  if (!isAgentTool(call.name) && !call.trace.length) {
+                  if (!isAgentTool(call.name) && !call.trace.length && !call.plan) {
                     continue;
                   }
                   const wasExpanded = expandedCallKeys.includes(call.key);
