@@ -220,6 +220,7 @@ class ClaudeChatClient:
                             cwd=config.project,
                             effort=config.effort,
                             env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling/0.1.0"},
+                            forward_subagent_text=True,
                             include_partial_messages=True,
                             max_turns=200,
                             model=config.model,

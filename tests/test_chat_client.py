@@ -9,6 +9,8 @@ import pytest
 from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
+    TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -77,6 +79,33 @@ def test_chat_trace_keeps_parent_agent_running_during_nested_tool_results() -> N
         )
     )
 
+    assert events == [
+        {
+            "type": "tool_start",
+            "group_id": "tools-message-1",
+            "tool_id": "agent-tool",
+            "name": "Agent",
+            "summary": "description: check dependencies",
+        }
+    ]
+
+    trace.consume(
+        AssistantMessage(
+            content=[
+                ThinkingBlock(thinking="Inspecting the dependency tree", signature="sig"),
+                TextBlock(text="Found the version constraint."),
+                ToolUseBlock(
+                    id="nested-tool",
+                    name="Read",
+                    input={"file_path": "package.json"},
+                ),
+            ],
+            model="claude-sonnet",
+            parent_tool_use_id="agent-tool",
+            message_id="nested-message-1",
+            uuid="nested-message-uuid-1",
+        )
+    )
     trace.consume(
         UserMessage(
             content=[
@@ -90,16 +119,65 @@ def test_chat_trace_keeps_parent_agent_running_during_nested_tool_results() -> N
         )
     )
 
-    assert events == [
+    assert events[1:4] == [
+        {
+            "type": "thinking_start",
+            "block_id": "nested-message-uuid-1-block-0",
+            "parent_tool_id": "agent-tool",
+        },
+        {
+            "type": "thinking_delta",
+            "block_id": "nested-message-uuid-1-block-0",
+            "text": "Inspecting the dependency tree",
+            "parent_tool_id": "agent-tool",
+        },
+        {
+            "type": "thinking_complete",
+            "block_id": "nested-message-uuid-1-block-0",
+            "parent_tool_id": "agent-tool",
+        },
+    ]
+    assert events[4:7] == [
+        {
+            "type": "output_start",
+            "block_id": "nested-message-uuid-1-block-1",
+            "parent_tool_id": "agent-tool",
+        },
+        {
+            "type": "output_delta",
+            "block_id": "nested-message-uuid-1-block-1",
+            "text": "Found the version constraint.",
+            "parent_tool_id": "agent-tool",
+        },
+        {
+            "type": "output_complete",
+            "block_id": "nested-message-uuid-1-block-1",
+            "parent_tool_id": "agent-tool",
+        },
+    ]
+    assert events[7:] == [
         {
             "type": "tool_start",
-            "group_id": "tools-message-1",
-            "tool_id": "agent-tool",
-            "name": "Agent",
-            "summary": "description: check dependencies",
-        }
+            "group_id": "tools-nested-message-1",
+            "tool_id": "nested-tool",
+            "name": "Read",
+            "summary": "file_path: package.json",
+            "parent_tool_id": "agent-tool",
+        },
+        {
+            "type": "tool_complete",
+            "tool_id": "nested-tool",
+            "status": "success",
+            "parent_tool_id": "agent-tool",
+        },
     ]
+    assert not any(
+        event.get("type") == "tool_complete"
+        and event.get("tool_id") == "agent-tool"
+        for event in events
+    )
 
+    event_count = len(events)
     trace.consume(
         UserMessage(
             content="parent id without an explicit result block",
@@ -108,7 +186,7 @@ def test_chat_trace_keeps_parent_agent_running_during_nested_tool_results() -> N
         )
     )
 
-    assert len(events) == 1
+    assert len(events) == event_count
 
     trace.consume(
         UserMessage(
@@ -128,6 +206,51 @@ def test_chat_trace_keeps_parent_agent_running_during_nested_tool_results() -> N
         "tool_id": "agent-tool",
         "status": "success",
     }
+
+
+def test_chat_trace_separates_split_subagent_blocks_with_same_message_id() -> None:
+    events = []
+    trace = ChatTrace(events.append)
+    trace.consume(
+        AssistantMessage(
+            content=[
+                ToolUseBlock(
+                    id="agent-tool",
+                    name="Agent",
+                    input={"description": "plan the page"},
+                )
+            ],
+            model="claude-sonnet",
+            message_id="main-message",
+        )
+    )
+    trace.consume(
+        AssistantMessage(
+            content=[ThinkingBlock(thinking="Inspecting", signature="sig")],
+            model="claude-sonnet",
+            parent_tool_use_id="agent-tool",
+            message_id="shared-subagent-message",
+            uuid="subagent-thinking-uuid",
+        )
+    )
+    trace.consume(
+        AssistantMessage(
+            content=[TextBlock(text="Here is the plan.")],
+            model="claude-sonnet",
+            parent_tool_use_id="agent-tool",
+            message_id="shared-subagent-message",
+            uuid="subagent-output-uuid",
+        )
+    )
+
+    thinking_start = next(
+        event for event in events if event["type"] == "thinking_start"
+    )
+    output_start = next(event for event in events if event["type"] == "output_start")
+
+    assert thinking_start["block_id"] == "subagent-thinking-uuid-block-0"
+    assert output_start["block_id"] == "subagent-output-uuid-block-0"
+    assert output_start["block_id"] != thinking_start["block_id"]
 
 
 def test_discover_plugins_loads_supported_user_directories(

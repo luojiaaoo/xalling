@@ -265,6 +265,7 @@ type ChatStreamEventPayload =
 
 export type ChatStreamEvent = ChatStreamEventPayload & {
   event_index?: number;
+  parent_tool_id?: string;
   session_id?: string;
   timestamp?: number;
 };
@@ -288,6 +289,12 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
   if (
     "timestamp" in value
     && (typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp))
+  ) {
+    return false;
+  }
+  if (
+    "parent_tool_id" in value
+    && typeof value.parent_tool_id !== "string"
   ) {
     return false;
   }

@@ -255,6 +255,7 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
     assert options.resume is None
     assert options.session_id == session_id
     assert options.setting_sources == ["user", "project", "local"]
+    assert options.forward_subagent_text is True
     assert options.include_partial_messages is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
     expected_settings = {

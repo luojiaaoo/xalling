@@ -160,6 +160,7 @@ html[data-theme="dark"] .agent-trace-header { color: rgba(255, 255, 255, .48) !i
 html[data-theme="dark"] .agent-trace-content, html[data-theme="dark"] .agent-trace-thinking .ant-think-content, html[data-theme="dark"] .agent-trace-tools .ant-think-content { border-left-color: rgba(255, 255, 255, .1); }
 html[data-theme="dark"] .agent-trace-output-title, html[data-theme="dark"] .agent-trace-empty { color: rgba(255, 255, 255, .44); }
 html[data-theme="dark"] .agent-tool-description code { color: rgba(255, 255, 255, .72); background: rgba(255, 255, 255, .07); }
+html[data-theme="dark"] .agent-subtrace { background: rgba(255, 255, 255, .025); }
 html[data-theme="dark"] .user-bubble .ant-bubble-content { color: rgba(255, 255, 255, .88); border-color: #3b3b3b; background: #242424; }
 html[data-theme="dark"] .chat-markdown { color: rgba(255, 255, 255, .84); }
 html[data-theme="dark"] .chat-markdown h1, html[data-theme="dark"] .chat-markdown h2, html[data-theme="dark"] .chat-markdown h3, html[data-theme="dark"] .chat-markdown h4 { color: rgba(255, 255, 255, .92); }
@@ -772,6 +773,11 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .agent-trace-output-title { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: #777883; font-size: 12px; }
 .agent-trace-output .chat-markdown { font-size: 13px; }
 .agent-trace-tools .ant-thought-chain { padding-top: 2px; }
+.agent-subtrace { min-width: 0; margin-top: 7px; padding: 11px 12px; border-radius: 8px; background: rgba(109, 93, 252, .035); }
+.agent-trace-timeline-nested { gap: 12px; }
+.agent-trace-timeline-nested .agent-trace-output-title { margin-bottom: 6px; }
+.agent-trace-timeline-nested .chat-markdown { color: #686974; font-size: 12px; }
+.agent-subtrace-empty { display: flex; align-items: center; gap: 7px; color: #92939d; font-size: 12px; }
 .agent-tool-description { display: inline-flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
 .agent-tool-description code { max-width: 100%; padding: 1px 5px; overflow: hidden; color: #595a66; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; background: #eeeeF3; }
 .agent-tool-status { font-size: 11px; }

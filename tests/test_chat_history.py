@@ -303,7 +303,7 @@ def test_chat_history_merges_split_tool_round_trip_into_one_assistant_turn(
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assistant = messages[1]
     assert assistant["content"] == "文件已删除。"
-    assert assistant["final_output_block_id"] == "message-final-block-0"
+    assert assistant["final_output_block_id"] == "final-1-block-0"
     trace_events = assistant["trace_events"]
     assert isinstance(trace_events, list)
     assert [event["type"] for event in trace_events] == [
@@ -316,6 +316,306 @@ def test_chat_history_merges_split_tool_round_trip_into_one_assistant_turn(
         "output_delta",
         "output_complete",
     ]
+
+
+def test_history_restores_expandable_subagent_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_id = str(uuid4())
+    session = SDKSessionInfo(
+        session_id=session_id,
+        summary="委派检查",
+        last_modified=1_789_000_000_000,
+        cwd=r"C:\work\xalling",
+    )
+    raw_messages = [
+        SessionMessage(
+            type="user",
+            uuid="user-1",
+            session_id=session_id,
+            message={"content": "检查依赖"},
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="assistant-agent",
+            session_id=session_id,
+            message={
+                "id": "main-agent-message",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "agent-tool",
+                        "name": "Agent",
+                        "input": {"description": "检查依赖"},
+                    }
+                ],
+            },
+        ),
+        SessionMessage(
+            type="user",
+            uuid="agent-result",
+            session_id=session_id,
+            message={
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "agent-tool",
+                        "content": "done",
+                        "is_error": False,
+                    }
+                ]
+            },
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="assistant-final",
+            session_id=session_id,
+            message={
+                "id": "main-final-message",
+                "content": [{"type": "text", "text": "依赖检查完成。"}],
+            },
+        ),
+    ]
+    subagent_messages = [
+        SessionMessage(
+            type="assistant",
+            uuid="subagent-thinking",
+            session_id=session_id,
+            parent_tool_use_id="agent-tool",
+            message={
+                "id": "subagent-message",
+                "content": [{"type": "thinking", "thinking": "读取依赖配置"}],
+            },
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="subagent-output",
+            session_id=session_id,
+            parent_tool_use_id="agent-tool",
+            message={
+                "id": "subagent-message",
+                "content": [{"type": "text", "text": "正在检查 package.json。"}],
+            },
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="subagent-tool",
+            session_id=session_id,
+            parent_tool_use_id="agent-tool",
+            message={
+                "id": "subagent-message",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "nested-read",
+                        "name": "Read",
+                        "input": {"file_path": "package.json"},
+                    }
+                ],
+            },
+        ),
+        SessionMessage(
+            type="user",
+            uuid="subagent-tool-result",
+            session_id=session_id,
+            parent_tool_use_id="agent-tool",
+            message={
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "nested-read",
+                        "content": "{}",
+                        "is_error": False,
+                    }
+                ]
+            },
+        ),
+    ]
+    monkeypatch.setattr(
+        "backend.chat.history.get_session_info",
+        lambda requested_id: session if requested_id == session_id else None,
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.get_session_messages",
+        lambda requested_id: raw_messages if requested_id == session_id else [],
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.list_subagents",
+        lambda requested_id, directory=None: ["subagent-1"],
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.get_subagent_messages",
+        lambda requested_id, agent_id, directory=None: subagent_messages,
+    )
+
+    assistant = ClaudeChatHistory().get_session(session_id)["messages"][1]
+
+    assert assistant["content"] == "依赖检查完成。"
+    trace_events = assistant["trace_events"]
+    assert isinstance(trace_events, list)
+    assert [event["type"] for event in trace_events] == [
+        "tool_start",
+        "thinking_start",
+        "thinking_delta",
+        "thinking_complete",
+        "output_start",
+        "output_delta",
+        "output_complete",
+        "tool_start",
+        "tool_complete",
+        "tool_complete",
+        "output_start",
+        "output_delta",
+        "output_complete",
+    ]
+    assert all(
+        event.get("parent_tool_id") == "agent-tool"
+        for event in trace_events[1:9]
+    )
+    thinking_start = next(
+        event for event in trace_events if event["type"] == "thinking_start"
+    )
+    output_start = next(
+        event for event in trace_events if event["type"] == "output_start"
+    )
+    assert thinking_start["block_id"] != output_start["block_id"]
+    assert "parent_tool_id" not in trace_events[0]
+    assert "parent_tool_id" not in trace_events[9]
+
+
+def test_history_deduplicates_and_merges_subagent_token_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_id = str(uuid4())
+    session = SDKSessionInfo(
+        session_id=session_id,
+        summary="统计 Token",
+        last_modified=1_789_000_000_000,
+        cwd=r"C:\work\xalling",
+    )
+    raw_messages = [
+        SessionMessage(
+            type="user",
+            uuid="user-1",
+            session_id=session_id,
+            message={"content": "检查项目"},
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="main-thinking",
+            session_id=session_id,
+            message={
+                "id": "main-message-1",
+                "model": "qwen-flash",
+                "usage": {
+                    "input_tokens": 6,
+                    "output_tokens": 100,
+                    "cache_read_input_tokens": 20,
+                    "cache_creation_input_tokens": 30,
+                },
+                "content": [{"type": "thinking", "thinking": "分析"}],
+            },
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="main-agent",
+            session_id=session_id,
+            message={
+                "id": "main-message-1",
+                "model": "qwen-flash",
+                "usage": {
+                    "input_tokens": 6,
+                    "output_tokens": 100,
+                    "cache_read_input_tokens": 20,
+                    "cache_creation_input_tokens": 30,
+                },
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "agent-tool",
+                        "name": "Agent",
+                        "input": {"description": "检查依赖"},
+                    }
+                ],
+            },
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="main-final",
+            session_id=session_id,
+            message={
+                "id": "main-message-2",
+                "model": "qwen-flash",
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 6,
+                    "output_tokens": 200,
+                    "cache_read_input_tokens": 40,
+                    "cache_creation_input_tokens": 50,
+                },
+                "content": [{"type": "text", "text": "完成"}],
+            },
+        ),
+    ]
+    subagent_messages = [
+        SessionMessage(
+            type="assistant",
+            uuid="subagent-partial",
+            session_id=session_id,
+            parent_tool_use_id="agent-tool",
+            message={
+                "id": "subagent-message",
+                "model": "qwen-flash",
+                "usage": {"input_tokens": 17_000, "output_tokens": 0},
+                "content": [{"type": "thinking", "thinking": "读取依赖"}],
+            },
+        ),
+        SessionMessage(
+            type="assistant",
+            uuid="subagent-final",
+            session_id=session_id,
+            parent_tool_use_id="agent-tool",
+            message={
+                "id": "subagent-message",
+                "model": "qwen-flash",
+                "usage": {
+                    "input_tokens": 6,
+                    "output_tokens": 300,
+                    "cache_read_input_tokens": 60,
+                    "cache_creation_input_tokens": 70,
+                },
+                "content": [{"type": "text", "text": "依赖正常"}],
+            },
+        ),
+    ]
+    monkeypatch.setattr(
+        "backend.chat.history.get_session_info",
+        lambda requested_id: session if requested_id == session_id else None,
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.get_session_messages",
+        lambda requested_id: raw_messages if requested_id == session_id else [],
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.list_subagents",
+        lambda requested_id, directory=None: ["subagent-1"],
+    )
+    monkeypatch.setattr(
+        "backend.chat.history.get_subagent_messages",
+        lambda requested_id, agent_id, directory=None: subagent_messages,
+    )
+
+    assistant = ClaudeChatHistory().get_session(session_id)["messages"][1]
+
+    assert assistant["usage"] == {
+        "input_tokens": 18,
+        "output_tokens": 600,
+        "cache_read_input_tokens": 120,
+        "cache_creation_input_tokens": 150,
+        "num_turns": 3,
+        "model_name": "qwen-flash",
+        "stop_reason": "end_turn",
+    }
 
 
 def test_history_search_matches_title_and_message_text(

@@ -33,15 +33,18 @@ class ChatTrace:
         self._current_stream_message_id: str | None = None
         self._latest_output_block_id: str | None = None
         self._model_names: list[str] = []
-        self._running_tool_ids: set[str] = set()
+        self._tool_parent_ids: dict[str, str | None] = {}
         self._result: ResultMessage | None = None
 
     def consume(self, message: object) -> None:
         """Consume one SDK message and update the trace state."""
         if isinstance(message, StreamEvent):
             self._consume_stream_event(message.event)
-        elif isinstance(message, AssistantMessage) and message.parent_tool_use_id is None:
-            self._consume_assistant_message(message)
+        elif isinstance(message, AssistantMessage):
+            if message.parent_tool_use_id is None:
+                self._consume_assistant_message(message)
+            else:
+                self._consume_nested_assistant_message(message)
         elif isinstance(message, UserMessage):
             self._consume_user_message(message)
         elif isinstance(message, ResultMessage):
@@ -185,16 +188,47 @@ class ChatTrace:
             elif isinstance(block, ThinkingBlock):
                 self._complete_block(block_id, "thinking", block.thinking)
             elif isinstance(block, (ToolUseBlock, ServerToolUseBlock)):
-                self._running_tool_ids.add(block.id)
-                self._emit(
-                    {
-                        "type": "tool_start",
-                        "group_id": tool_group_id,
-                        "tool_id": block.id,
-                        "name": block.name,
-                        "summary": summarize_tool_input(block.input),
-                    }
+                self._emit_tool_start(block, tool_group_id, None)
+            elif isinstance(block, ToolResultBlock):
+                self._emit_tool_complete(block.tool_use_id, block.is_error)
+            elif isinstance(block, ServerToolResultBlock):
+                self._emit_tool_complete(block.tool_use_id, False)
+
+    def _consume_nested_assistant_message(self, message: AssistantMessage) -> None:
+        """Emit a subagent message under the Agent tool that spawned it."""
+        parent_tool_id = message.parent_tool_use_id
+        if parent_tool_id is None:
+            return
+
+        self._assistant_message_number += 1
+        message_id = message.message_id or (
+            f"nested-{parent_tool_id}-{self._assistant_message_number}"
+        )
+        content_message_id = message.uuid or (
+            f"nested-{parent_tool_id}-{self._assistant_message_number}"
+        )
+        tool_group_id = f"tools-{message_id}"
+
+        for block_index, block in enumerate(message.content):
+            # Multiple AssistantMessage objects from one API turn may share a
+            # message_id. Their SDK message UUIDs remain unique.
+            block_id = f"{content_message_id}-block-{block_index}"
+            if isinstance(block, TextBlock):
+                self._emit_nested_block(
+                    block_id,
+                    "output",
+                    block.text,
+                    parent_tool_id,
                 )
+            elif isinstance(block, ThinkingBlock):
+                self._emit_nested_block(
+                    block_id,
+                    "thinking",
+                    block.thinking,
+                    parent_tool_id,
+                )
+            elif isinstance(block, (ToolUseBlock, ServerToolUseBlock)):
+                self._emit_tool_start(block, tool_group_id, parent_tool_id)
             elif isinstance(block, ToolResultBlock):
                 self._emit_tool_complete(block.tool_use_id, block.is_error)
             elif isinstance(block, ServerToolResultBlock):
@@ -239,17 +273,69 @@ class ChatTrace:
             self._completed_blocks.add(block_id)
             self._emit({"type": f"{kind}_complete", "block_id": block_id})
 
-    def _emit_tool_complete(self, tool_id: str, is_error: bool) -> None:
-        if tool_id not in self._running_tool_ids:
-            return
-        self._running_tool_ids.remove(tool_id)
+    def _emit_nested_block(
+        self,
+        block_id: str,
+        kind: str,
+        content: str,
+        parent_tool_id: str,
+    ) -> None:
+        """Emit one complete subagent content block without affecting the reply."""
         self._emit(
             {
-                "type": "tool_complete",
-                "tool_id": tool_id,
-                "status": "error" if is_error else "success",
+                "type": f"{kind}_start",
+                "block_id": block_id,
+                "parent_tool_id": parent_tool_id,
             }
         )
+        if content:
+            self._emit(
+                {
+                    "type": f"{kind}_delta",
+                    "block_id": block_id,
+                    "text": content,
+                    "parent_tool_id": parent_tool_id,
+                }
+            )
+        self._emit(
+            {
+                "type": f"{kind}_complete",
+                "block_id": block_id,
+                "parent_tool_id": parent_tool_id,
+            }
+        )
+
+    def _emit_tool_start(
+        self,
+        block: ToolUseBlock | ServerToolUseBlock,
+        group_id: str,
+        parent_tool_id: str | None,
+    ) -> None:
+        """Track a tool and emit its position in the nested trace tree."""
+        self._tool_parent_ids[block.id] = parent_tool_id
+        event: ChatEvent = {
+            "type": "tool_start",
+            "group_id": group_id,
+            "tool_id": block.id,
+            "name": block.name,
+            "summary": summarize_tool_input(block.input),
+        }
+        if parent_tool_id is not None:
+            event["parent_tool_id"] = parent_tool_id
+        self._emit(event)
+
+    def _emit_tool_complete(self, tool_id: str, is_error: bool | None) -> None:
+        if tool_id not in self._tool_parent_ids:
+            return
+        parent_tool_id = self._tool_parent_ids.pop(tool_id)
+        event: ChatEvent = {
+            "type": "tool_complete",
+            "tool_id": tool_id,
+            "status": "error" if is_error else "success",
+        }
+        if parent_tool_id is not None:
+            event["parent_tool_id"] = parent_tool_id
+        self._emit(event)
 
     def _emit(self, event: ChatEvent) -> None:
         if self._on_event is not None:

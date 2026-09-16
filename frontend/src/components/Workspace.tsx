@@ -172,11 +172,13 @@ function applyEventToAssistant(
   event: ChatStreamEvent,
 ): ConversationMessage {
   const trace = message.trace ?? [];
+  const isTopLevelEvent = event.parent_tool_id === undefined;
   const startsNewOutput = (
     event.type === "output_start" || event.type === "output_delta"
-  ) && !trace.some((traceItem) => traceItem.key === event.block_id);
+  ) && isTopLevelEvent
+    && !trace.some((traceItem) => traceItem.key === event.block_id);
   const separator = startsNewOutput && message.content ? "\n\n" : "";
-  const content = event.type === "output_delta"
+  const content = event.type === "output_delta" && isTopLevelEvent
     ? `${message.content}${separator}${event.text}`
     : `${message.content}${separator}`;
   return {
@@ -282,7 +284,6 @@ export function Workspace({
               loading: false,
               status: stopped ? "abort" : "success",
               trace: finishAgentTrace(item.trace ?? [], "success", event.timestamp),
-              traceExpanded: false,
               usage: reply.usage,
               workingSeconds,
             }
@@ -684,7 +685,6 @@ export function Workspace({
                 loading: false,
                 status: stopped ? "abort" : "success",
                 trace: finishAgentTrace(item.trace ?? [], "success"),
-                traceExpanded: false,
                 usage: reply.usage,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
@@ -702,7 +702,6 @@ export function Workspace({
                 loading: false,
                 status: stopped ? "abort" : "error",
                 trace: finishAgentTrace(item.trace ?? [], stopped ? "success" : "error"),
-                traceExpanded: false,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
             : item
