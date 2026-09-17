@@ -19,6 +19,7 @@ def test_package_exports_are_available() -> None:
         "ChatEvent",
         "ChatResult",
         "ClaudeChatClient",
+        "ClaudeChatHistory",
         "EventData",
         "EventHandler",
         "EventName",
@@ -31,6 +32,7 @@ def test_package_exports_are_available() -> None:
         "PlanApprovalMode",
         "SpecialEventData",
         "TurnUsage",
+        "assemble_session_messages",
     }
     assert ClaudeChatClient.__module__ == "backend.claude_chat_client.client"
     assert ChatEvent.__module__ == "backend.claude_chat_client.models"

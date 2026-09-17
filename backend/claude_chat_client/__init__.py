@@ -5,6 +5,7 @@ transports while keeping SDK message adaptation and usage accounting internal.
 """
 
 from .client import ClaudeChatClient
+from .history import ClaudeChatHistory, assemble_session_messages
 from .models import (
     AskUserAnswer,
     AskUserQuestionCompletedData,
@@ -36,6 +37,7 @@ __all__ = [
     "ChatEvent",
     "ChatResult",
     "ClaudeChatClient",
+    "ClaudeChatHistory",
     "EventData",
     "EventHandler",
     "EventName",
@@ -48,4 +50,5 @@ __all__ = [
     "PlanApprovalMode",
     "SpecialEventData",
     "TurnUsage",
+    "assemble_session_messages",
 ]
