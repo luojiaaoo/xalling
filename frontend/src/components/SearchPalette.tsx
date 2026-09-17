@@ -30,9 +30,20 @@ function renderSearchSnippet(snippet: string, query: string): ReactNode {
 
 type SearchPaletteProps = {
   onClose: () => void;
-  onOpenResult: (sessionId: string, messageKey: string | null) => void;
+  onOpenResult: (sessionId: string, bubbleKey: string | null) => void;
   currentSessionId?: string | null;
 };
+
+function resultBubbleKey(match: ChatSearchMatch): string | null {
+  if (!match.turn_id || !match.role) {
+    return null;
+  }
+  return `turn-${match.turn_id}-${match.role === "assistant" ? "assistant" : "user"}`;
+}
+
+function projectName(path: string | null): string {
+  return path?.split(/[\\/]/).filter(Boolean).at(-1) ?? "未知工作区";
+}
 
 /** 居中悬浮的会话搜索面板：输入即搜，↑↓ 选择，Enter 打开并定位到消息气泡。 */
 export function SearchPalette({ onClose, onOpenResult, currentSessionId = null }: SearchPaletteProps) {
@@ -107,7 +118,7 @@ export function SearchPalette({ onClose, onOpenResult, currentSessionId = null }
       event.preventDefault();
       const match = orderedResults[activeIndex];
       if (match) {
-        onOpenResult(match.session_id, match.message_key);
+        onOpenResult(match.session_id, resultBubbleKey(match));
       }
     } else if (event.key === "Escape") {
       onClose();
@@ -145,12 +156,12 @@ export function SearchPalette({ onClose, onOpenResult, currentSessionId = null }
           )}
           {orderedResults.map((match, index) => (
             <button
-              key={`${match.session_id}:${match.message_key ?? "title"}`}
+              key={`${match.session_id}:${match.event_id ?? "title"}`}
               className={`search-result-row${
                 index === activeIndex ? " search-result-row-active" : ""
               }`}
               type="button"
-              onClick={() => onOpenResult(match.session_id, match.message_key)}
+              onClick={() => onOpenResult(match.session_id, resultBubbleKey(match))}
               onMouseEnter={() => setActiveIndex(index)}
             >
               <span className="search-result-title-row">
@@ -159,7 +170,9 @@ export function SearchPalette({ onClose, onOpenResult, currentSessionId = null }
                   {match.session_id === currentSessionId && (
                     <em className="search-result-tag search-result-tag-current">当前会话</em>
                   )}
-                  <em className="search-result-tag search-result-tag-project">{match.project_name}</em>
+                  <em className="search-result-tag search-result-tag-project">
+                    {projectName(match.cwd)}
+                  </em>
                 </span>
               </span>
               <span className="search-result-snippet">

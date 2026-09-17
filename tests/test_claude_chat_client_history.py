@@ -55,7 +55,9 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
     assert len(text_deltas) == 1
     assert text_deltas[0].data == {
         "stream_uuid": "assistant-1",
+        "message_id": "message-assistant-1",
         "raw_type": "content_block_delta",
+        "block_id": "message-assistant-1:1",
         "index": 1,
         "text": "检查完成",
     }
@@ -68,7 +70,9 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
     assert len(tool_deltas) == 1
     assert tool_deltas[0].data == {
         "stream_uuid": "assistant-1",
+        "message_id": "message-assistant-1",
         "raw_type": "content_block_delta",
+        "block_id": "message-assistant-1:2",
         "index": 2,
         "tool_id": "tool-1",
         "name": "Read",

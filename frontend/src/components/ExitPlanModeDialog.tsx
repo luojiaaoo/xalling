@@ -36,14 +36,19 @@ export function ExitPlanModeDialog({
   stopping = false,
 }: ExitPlanModeDialogProps) {
   const [feedback, setFeedback] = useState("");
-  const nextMode = request.suggested_permission_mode ?? "default";
+  const rawMode = request.data.suggestions.find((item) => item.type === "setMode")?.mode;
+  const nextMode: Exclude<ChatPermissionMode, "plan"> = (
+    rawMode === "acceptEdits"
+    || rawMode === "auto"
+    || rawMode === "bypassPermissions"
+  ) ? rawMode : "default";
   const disabled = decision !== null || stopping;
-  const rawPlan = request.input.plan;
+  const rawPlan = request.data.tool_input.plan;
   const plan = typeof rawPlan === "string" ? rawPlan.trim() : "";
 
   return (
     <section
-      aria-labelledby={`exit-plan-mode-title-${request.permission_id}`}
+      aria-labelledby={`exit-plan-mode-title-${request.data.request_id}`}
       aria-modal="true"
       className="tool-permission-dialog exit-plan-mode-dialog"
       role="dialog"
@@ -51,7 +56,7 @@ export function ExitPlanModeDialog({
       <div className="tool-permission-heading">
         <span className="tool-permission-icon"><FileTextOutlined /></span>
         <div className="tool-permission-copy">
-          <strong id={`exit-plan-mode-title-${request.permission_id}`}>
+          <strong id={`exit-plan-mode-title-${request.data.request_id}`}>
             计划已准备好
           </strong>
           <span>确认后，Claude 将退出计划模式并开始执行。</span>

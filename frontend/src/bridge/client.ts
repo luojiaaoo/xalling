@@ -118,102 +118,65 @@ export type ChatPermissionMode =
   | "bypassPermissions";
 
 export type ChatUsage = {
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
-  input_tokens?: number;
-  model_name?: string | null;
-  num_turns?: number;
-  output_tokens?: number;
-  stop_reason?: string;
+  actual_turns: number;
+  actual_turns_this_request: number;
+  by_model: Record<string, {
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    web_search_requests: number;
+  }>;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  input_tokens: number;
+  model: string | null;
+  models: string[];
+  output_tokens: number;
+  sdk_results_this_request: number;
+  stop_reason: string | null;
+  terminal_reason: string | null;
+  total_cost_usd: number;
+  user_turns: number;
 };
 
 export type ChatReply = {
   content: string;
-  final_output_block_id: string | null;
+  duration_api_ms: number;
+  duration_ms: number;
+  errors: string[];
+  is_error: boolean;
   session_id: string;
-  stopped?: boolean;
+  subtype: string;
   usage: ChatUsage;
 };
 
 export type ChatSessionSummary = {
   created_at: number | null;
+  custom_title: string | null;
+  cwd: string | null;
+  file_size: number | null;
+  first_prompt: string | null;
+  git_branch: string | null;
   last_modified: number;
-  project_name: string;
-  project_path: string;
   running?: boolean;
   session_id: string;
+  summary: string;
+  tag: string | null;
   title: string;
 };
 
-/** 一条搜索命中：定位到某个会话里的某条消息气泡（标题命中时 message_key 为空） */
+/** 一条搜索命中：turn_id + role 可直接定位到统一事件生成的气泡。 */
 export type ChatSearchMatch = ChatSessionSummary & {
-  message_key: string | null;
+  event_id: string | null;
   role: "user" | "assistant" | null;
   snippet: string;
+  turn_id: string | null;
 };
-
-type ChatHistoryUserMessage = {
-  content: string;
-  key: string;
-  role: "user";
-};
-
-type ChatHistoryAssistantMessage = {
-  content: string;
-  final_output_block_id: string | null;
-  key: string;
-  role: "assistant";
-  trace_events: ChatStreamEvent[];
-  usage?: ChatUsage;
-};
-
-export type ChatHistoryMessage =
-  | ChatHistoryUserMessage
-  | ChatHistoryAssistantMessage;
 
 export type ChatSessionHistory = ChatSessionSummary & {
-  messages: ChatHistoryMessage[];
-};
-
-type ChatContentEvent = {
-  block_id: string;
-  type:
-    | "thinking_start"
-    | "thinking_complete"
-    | "output_start"
-    | "output_complete";
-};
-
-type ChatContentDeltaEvent = {
-  block_id: string;
-  text: string;
-  type: "thinking_delta" | "output_delta";
-};
-
-type ChatToolStartEvent = {
-  group_id: string;
-  name: string;
-  summary: string;
-  tool_id: string;
-  type: "tool_start";
-};
-
-type ChatToolCompleteEvent = {
-  status: "error" | "success";
-  tool_id: string;
-  type: "tool_complete";
-};
-
-export type ChatPermissionRequestEvent = {
-  blocked_path: string;
-  description: string;
-  display_name: string;
-  input: Record<string, unknown>;
-  permission_id: string;
-  suggested_permission_mode?: Exclude<ChatPermissionMode, "plan">;
-  title: string;
-  tool_name: string;
-  type: "permission_request";
+  events: ChatStreamEvent[];
 };
 
 export type ChatUserQuestionOption = {
@@ -230,47 +193,39 @@ export type ChatUserQuestion = {
 
 export type ChatPermissionAnswers = Record<string, string | string[]>;
 
-type ChatCompleteEvent = {
-  reply: ChatReply;
-  type: "chat_complete";
+export type ChatStreamEvent = {
+  created_at: string;
+  data: Record<string, unknown>;
+  event: string;
+  id: string;
+  parent_tool_use_id: string | null;
+  session_id: string | null;
+  turn_id: string;
 };
 
-type ChatErrorEvent = {
-  message: string;
-  type: "chat_error";
-};
-
-type ChatSessionStartedEvent = {
-  session_id: string;
-  type: "session_started";
-};
-
-export type ChatAskUserQuestionRequestEvent = Omit<
-  ChatPermissionRequestEvent,
-  "input" | "tool_name"
-> & {
-  input: {
-    answers?: ChatPermissionAnswers | null;
-    questions: ChatUserQuestion[];
+export type ChatPermissionRequestEvent = ChatStreamEvent & {
+  data: {
+    blocked_path: string | null;
+    description: string | null;
+    display_name: string | null;
+    request_id: string;
+    suggestions: Record<string, unknown>[];
+    title: string | null;
+    tool_id: string | null;
+    tool_input: Record<string, unknown>;
+    tool_name: string;
   };
-  tool_name: "AskUserQuestion";
+  event: "permission.requested";
 };
 
-type ChatStreamEventPayload =
-  | ChatContentEvent
-  | ChatContentDeltaEvent
-  | ChatToolStartEvent
-  | ChatToolCompleteEvent
-  | ChatPermissionRequestEvent
-  | ChatCompleteEvent
-  | ChatErrorEvent
-  | ChatSessionStartedEvent;
-
-export type ChatStreamEvent = ChatStreamEventPayload & {
-  event_index?: number;
-  parent_tool_id?: string;
-  session_id?: string;
-  timestamp?: number;
+export type ChatAskUserQuestionRequestEvent = ChatPermissionRequestEvent & {
+  data: ChatPermissionRequestEvent["data"] & {
+    tool_input: {
+      answers?: ChatPermissionAnswers | null;
+      questions: ChatUserQuestion[];
+    };
+    tool_name: "AskUserQuestion";
+  };
 };
 
 export type ActiveChat = {
@@ -281,107 +236,40 @@ export type ActiveChat = {
 const CHAT_STREAM_EVENT = "xalling:chat-event";
 
 function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !("type" in value)
-    || typeof value.type !== "string"
-  ) {
-    return false;
-  }
-  if (
-    "timestamp" in value
-    && (typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp))
-  ) {
-    return false;
-  }
-  if (
-    "parent_tool_id" in value
-    && typeof value.parent_tool_id !== "string"
-  ) {
-    return false;
-  }
-  if (value.type === "tool_start") {
-    return (
-      "group_id" in value
-      && typeof value.group_id === "string"
-      && "tool_id" in value
-      && typeof value.tool_id === "string"
-      && "name" in value
-      && typeof value.name === "string"
-      && "summary" in value
-      && typeof value.summary === "string"
+  return typeof value === "object"
+    && value !== null
+    && "id" in value
+    && typeof value.id === "string"
+    && "event" in value
+    && typeof value.event === "string"
+    && "turn_id" in value
+    && typeof value.turn_id === "string"
+    && "data" in value
+    && typeof value.data === "object"
+    && value.data !== null
+    && !Array.isArray(value.data)
+    && "created_at" in value
+    && typeof value.created_at === "string"
+    && "session_id" in value
+    && (value.session_id === null || typeof value.session_id === "string")
+    && "parent_tool_use_id" in value
+    && (
+      value.parent_tool_use_id === null
+      || typeof value.parent_tool_use_id === "string"
     );
-  }
-  if (value.type === "permission_request") {
-    return (
-      "permission_id" in value
-      && typeof value.permission_id === "string"
-      && "tool_name" in value
-      && typeof value.tool_name === "string"
-      && "title" in value
-      && typeof value.title === "string"
-      && "display_name" in value
-      && typeof value.display_name === "string"
-      && "description" in value
-      && typeof value.description === "string"
-      && "blocked_path" in value
-      && typeof value.blocked_path === "string"
-      && "input" in value
-      && typeof value.input === "object"
-      && value.input !== null
-      && !Array.isArray(value.input)
-      && (
-        !("suggested_permission_mode" in value)
-        || value.suggested_permission_mode === "default"
-        || value.suggested_permission_mode === "acceptEdits"
-        || value.suggested_permission_mode === "auto"
-        || value.suggested_permission_mode === "bypassPermissions"
-      )
-    );
-  }
-  if (value.type === "tool_complete") {
-    return (
-      "tool_id" in value
-      && typeof value.tool_id === "string"
-      && "status" in value
-      && (value.status === "success" || value.status === "error")
-    );
-  }
-  if (value.type === "chat_complete") {
-    return (
-      "reply" in value
-      && typeof value.reply === "object"
-      && value.reply !== null
-      && "content" in value.reply
-      && typeof value.reply.content === "string"
-      && "session_id" in value.reply
-      && typeof value.reply.session_id === "string"
-    );
-  }
-  if (value.type === "chat_error") {
-    return "message" in value && typeof value.message === "string";
-  }
-  if (value.type === "session_started") {
-    return "session_id" in value && typeof value.session_id === "string";
-  }
-  if (
-    value.type === "thinking_delta"
-    || value.type === "output_delta"
-  ) {
-    return (
-      "block_id" in value
-      && typeof value.block_id === "string"
-      && "text" in value
-      && typeof value.text === "string"
-    );
-  }
-  return (
-    value.type === "thinking_start"
-    || value.type === "thinking_complete"
-    || value.type === "output_start"
-    || value.type === "output_complete"
-  ) && "block_id" in value && typeof value.block_id === "string";
+}
+
+export function isPermissionRequestEvent(
+  event: ChatStreamEvent,
+): event is ChatPermissionRequestEvent {
+  const data = event.data;
+  return event.event === "permission.requested"
+    && typeof data.request_id === "string"
+    && typeof data.tool_name === "string"
+    && typeof data.tool_input === "object"
+    && data.tool_input !== null
+    && !Array.isArray(data.tool_input)
+    && Array.isArray(data.suggestions);
 }
 
 function isUserQuestionOption(value: unknown): value is ChatUserQuestionOption {
@@ -410,8 +298,8 @@ function isUserQuestion(value: unknown): value is ChatUserQuestion {
 export function isAskUserQuestionRequest(
   request: ChatPermissionRequestEvent,
 ): request is ChatAskUserQuestionRequestEvent {
-  const questions = request.input.questions;
-  return request.tool_name === "AskUserQuestion"
+  const questions = request.data.tool_input.questions;
+  return request.data.tool_name === "AskUserQuestion"
     && Array.isArray(questions)
     && questions.length > 0
     && questions.length <= 4

@@ -1,60 +1,51 @@
-import asyncio
 import json
-import platform
-from collections.abc import AsyncIterator, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterator
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
-from threading import Event, get_ident
-from typing import Self
+from typing import Any
 from uuid import uuid4
 
 import pytest
-from claude_agent_sdk import (
-    AssistantMessage,
-    ClaudeAgentOptions,
-    PermissionResultAllow,
-    PermissionResultDeny,
-    PermissionUpdate,
-    ResultMessage,
-    StreamEvent,
-    TextBlock,
-    ThinkingBlock,
-    ToolPermissionContext,
-    ToolResultBlock,
-    ToolUseBlock,
-    UserMessage,
-)
+from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
+from backend.claude_chat_client import (
+    ChatEvent,
+    ChatResult,
+    ChatSearchMatch,
+    ChatSessionInfo,
+    ChatSessionSnapshot,
+    TurnUsage,
+)
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
+from backend.router._claude_options import (
+    ClaudeConnectionConfig,
+    _agent_options,
+    _provider_settings,
+    discover_plugins,
+)
 from backend.router.chat import (
     _ActiveChat,
     _ChatMessageRequest,
-    _PendingPermission,
     _validate_leading_slash,
 )
 from main import ApplicationBridge
 
 
-@pytest.fixture(autouse=True)
-def close_persistent_chat_clients(
+@pytest.fixture
+def bridge_factory(
     monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[None]:
+) -> Iterator[Callable[[], ApplicationBridge]]:
     bridges: list[ApplicationBridge] = []
-    original_init = ApplicationBridge.__init__
-
-    def tracked_init(
-        self: ApplicationBridge,
-        *args: object,
-        **kwargs: object,
-    ) -> None:
-        original_init(self, *args, **kwargs)
-        bridges.append(self)
-
-    monkeypatch.setattr(ApplicationBridge, "__init__", tracked_init)
-    monkeypatch.setattr("backend.chat.client.discover_plugins", lambda **_: [])
     monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
-    yield
+
+    def create() -> ApplicationBridge:
+        bridge = ApplicationBridge()
+        bridges.append(bridge)
+        return bridge
+
+    yield create
     for bridge in bridges:
         bridge._close_bridge()
 
@@ -76,7 +67,64 @@ def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(CurrentConfig.model_config, "toml_file", current_path)
 
 
-def test_leading_slash_validation_blocks_only_disallowed_leading_names(
+def usage(*, terminal_reason: str | None = None) -> TurnUsage:
+    return TurnUsage(
+        user_turns=1,
+        actual_turns=1,
+        actual_turns_this_request=1,
+        sdk_results_this_request=1,
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=2,
+        cache_creation_input_tokens=1,
+        model="claude-sonnet",
+        models=("claude-sonnet",),
+        stop_reason="end_turn",
+        terminal_reason=terminal_reason,
+        total_cost_usd=0.01,
+        by_model={},
+    )
+
+
+def result(session_id: str) -> ChatResult:
+    return ChatResult(
+        content="完成了",
+        session_id=session_id,
+        usage=usage(),
+        is_error=False,
+        subtype="success",
+    )
+
+
+def connection_config(tmp_path: Path, session_id: str) -> ClaudeConnectionConfig:
+    return ClaudeConnectionConfig(
+        api_key="secret",
+        api_url="https://api.example.com",
+        effort="high",
+        is_new_session=True,
+        max_context_tokens=None,
+        model="claude-sonnet",
+        permission_mode="default",
+        project=tmp_path,
+        session_id=session_id,
+    )
+
+
+def event(
+    name: str,
+    *,
+    turn_id: str = "turn-1",
+    data: dict[str, Any] | None = None,
+) -> ChatEvent:
+    return ChatEvent(
+        id=str(uuid4()),
+        event=name,  # type: ignore[arg-type]
+        turn_id=turn_id,
+        data=data or {},
+    )
+
+
+def test_leading_slash_validation_blocks_disallowed_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -92,135 +140,113 @@ def test_leading_slash_validation_blocks_only_disallowed_leading_names(
         _validate_leading_slash("/clear", {})
 
 
-def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_xalling_claude_options_preserve_provider_and_session_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_id = str(uuid4())
+    config = connection_config(tmp_path, session_id)
+    config = replace(
+        config,
+        is_new_session=False,
+        max_context_tokens=0,
+    )
+    monkeypatch.setattr("backend.router._claude_options.platform.system", lambda: "Windows")
+    settings = _provider_settings(config)
+    settings_path = tmp_path / "settings.json"
+    options = _agent_options(config, settings_path)
+
+    assert settings["env"]["ANTHROPIC_AUTH_TOKEN"] == "secret"
+    assert settings["env"]["ANTHROPIC_BASE_URL"] == "https://api.example.com"
+    assert settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] == "1"
+    assert settings["env"]["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] == "1"
+    assert settings["defaultShell"] == "powershell"
+    assert options.resume == session_id
+    assert options.session_id is None
+    assert options.settings == str(settings_path)
+    assert options.model == "claude-sonnet"
+
+
+def test_discover_plugins_includes_existing_user_and_project_roots(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    (home / ".agents").mkdir(parents=True)
+    (project / ".agents").mkdir(parents=True)
+
+    plugins = discover_plugins(home=home, project=project)
+
+    assert plugins == [
+        {"type": "local", "path": str((home / ".agents").resolve())},
+        {"type": "local", "path": str((project / ".agents").resolve())},
+    ]
+
+
+def test_chat_router_streams_public_events_and_returns_public_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
     configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
-    captured: dict[str, object] = {}
-    scripts: list[str] = []
+    captured_configs: list[ClaudeConnectionConfig] = []
+    closed: list[bool] = []
 
-    class FakeClaudeSDKClient:
-        def __init__(self, options: ClaudeAgentOptions) -> None:
-            captured["options"] = options
-            self._options = options
+    class StubClient:
+        pending_permission_ids: tuple[str, ...] = ()
 
-        async def __aenter__(self) -> Self:
-            assert self._options.settings is not None
-            settings_path = Path(self._options.settings)
-            captured["settings_path"] = settings_path
-            captured["flag_settings"] = json.loads(settings_path.read_text(encoding="utf-8"))
-            return self
+        async def get_server_info(self) -> dict[str, Any]:
+            return {}
 
-        async def __aexit__(self, *args: object) -> None:
+        async def send(
+            self,
+            prompt: str,
+            *,
+            session_id: str,
+            on_event: Callable[[ChatEvent], object],
+            empty_result_content: str | None,
+        ) -> ChatResult:
+            assert prompt == "检查项目"
+            assert empty_result_content is None
+            on_event(event("turn.started"))
+            on_event(
+                event(
+                    "assistant.reply.delta",
+                    data={"stream_uuid": "message-1", "index": 0, "text": "完成了"},
+                )
+            )
+            reply = result(session_id)
+            on_event(
+                event(
+                    "turn.completed",
+                    data={"content": reply.content, "usage": reply.usage.to_dict()},
+                )
+            )
+            return reply
+
+        async def request_stop(self) -> None:
             return None
 
-        async def query(self, prompt: str) -> None:
-            captured["prompt"] = prompt
+    @asynccontextmanager
+    async def configured(config: ClaudeConnectionConfig):
+        captured_configs.append(config)
+        try:
+            yield StubClient()
+        finally:
+            closed.append(True)
 
-        async def receive_response(
-            self,
-        ) -> AsyncIterator[StreamEvent | AssistantMessage | UserMessage | ResultMessage]:
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={"type": "message_start", "message": {"id": "message-1"}},
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={
-                    "type": "content_block_start",
-                    "index": 0,
-                    "content_block": {"type": "thinking", "thinking": ""},
-                },
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {"type": "thinking_delta", "thinking": "先检查"},
-                },
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={"type": "content_block_stop", "index": 0},
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={
-                    "type": "content_block_start",
-                    "index": 1,
-                    "content_block": {"type": "text", "text": ""},
-                },
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={
-                    "type": "content_block_delta",
-                    "index": 1,
-                    "delta": {"type": "text_delta", "text": "完成"},
-                },
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={
-                    "type": "content_block_delta",
-                    "index": 1,
-                    "delta": {"type": "text_delta", "text": "了"},
-                },
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={"type": "content_block_stop", "index": 1},
-            )
-            yield AssistantMessage(
-                content=[
-                    ThinkingBlock(thinking="先检查", signature="signature"),
-                    TextBlock(text="完成了"),
-                    ToolUseBlock(
-                        id="tool-1",
-                        name="Read",
-                        input={"file_path": "README.md"},
-                    ),
-                ],
-                model="claude-sonnet",
-                message_id="message-1",
-            )
-            yield UserMessage(
-                content=[
-                    ToolResultBlock(
-                        tool_use_id="tool-1",
-                        content="不应发送到 UI 的工具结果",
-                        is_error=False,
-                    )
-                ]
-            )
-            yield ResultMessage(
-                subtype="success",
-                duration_ms=1,
-                duration_api_ms=1,
-                is_error=False,
-                num_turns=1,
-                session_id=session_id,
-                result="完成了",
-            )
+    monkeypatch.setattr("backend.router.chat.configured_claude_client", configured)
+    scripts: list[str] = []
 
     class WindowStub:
         def evaluate_js(self, script: str) -> None:
             scripts.append(script)
 
-    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-
-    router = ApplicationBridge()
+    router = bridge_factory()
     router._window = WindowStub()
+    monkeypatch.setattr(router._history, "has_session", lambda _session_id: False)
+
     reply = router.send_chat_message(
         "检查项目",
         str(tmp_path),
@@ -229,796 +255,433 @@ def test_chat_router_uses_claude_sdk_client_streams_and_returns_session(
         "acceptEdits",
     )
 
-    assert reply == {
-        "content": "完成了",
-        "final_output_block_id": "message-1-block-1",
-        "session_id": session_id,
-        "usage": {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_input_tokens": 0,
-            "cache_creation_input_tokens": 0,
-            "num_turns": 1,
-            "model_name": "claude-sonnet",
-            "stop_reason": "success",
+    assert reply == result(session_id).to_dict()
+    assert captured_configs[0].session_id == session_id
+    assert captured_configs[0].permission_mode == "acceptEdits"
+    assert captured_configs[0].project == tmp_path.resolve()
+    details = [
+        json.loads(
+            script.removeprefix(
+                "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
+            ).removesuffix("}));")
+        )
+        for script in scripts
+    ]
+    assert [item["event"] for item in details] == [
+        "turn.started",
+        "assistant.reply.delta",
+        "turn.completed",
+    ]
+    assert all(item["session_id"] == session_id for item in details)
+    assert all("type" not in item for item in details)
+    assert not closed
+
+
+def test_chat_router_lists_new_history_models_and_merges_running_session(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    running_id = str(uuid4())
+    persisted_id = str(uuid4())
+    router = bridge_factory()
+    router._history.list_sessions = lambda: [
+        ChatSessionInfo(
+            session_id=persisted_id,
+            title="Persisted",
+            summary="Persisted",
+            last_modified=100,
+            cwd=str(tmp_path),
+        )
+    ]
+
+    class StubClient:
+        pending_permission_ids: tuple[str, ...] = ()
+
+        async def request_stop(self) -> None:
+            return None
+
+    router._active_chats[running_id] = _ActiveChat(
+        client=StubClient(),  # type: ignore[arg-type]
+        config=connection_config(tmp_path, running_id),
+        resources=AsyncExitStack(),
+        events=[],
+        metadata={
+            "session_id": running_id,
+            "title": "Running",
+            "summary": "Running",
+            "cwd": str(tmp_path),
+            "last_modified": 200,
+            "created_at": 200,
         },
-    }
-    assert captured["prompt"] == "检查项目"
-    options = captured["options"]
-    assert isinstance(options, ClaudeAgentOptions)
-    assert options.cwd == tmp_path.resolve()
-    assert options.model == "claude-sonnet"
-    assert options.tools == {"type": "preset", "preset": "claude_code"}
-    assert options.allowed_tools == []
-    assert options.disallowed_tools == []
-    assert options.permission_mode == "acceptEdits"
-    assert options.can_use_tool is not None
-    assert options.resume is None
-    assert options.session_id == session_id
-    assert options.setting_sources == ["user", "project", "local"]
-    assert options.forward_subagent_text is True
-    assert options.include_partial_messages is True
-    assert options.thinking == {"type": "adaptive", "display": "summarized"}
-    expected_settings = {
-        "env": {
-            "ANTHROPIC_AUTH_TOKEN": "secret",
-            "ANTHROPIC_BASE_URL": "https://api.example.com",
-            "ANTHROPIC_MODEL": "claude-sonnet",
-            "ANTHROPIC_DEFAULT_MODEL": "claude-sonnet",
-            "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-sonnet",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-sonnet",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet",
-            "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet",
-            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
-            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-            "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
-        },
-        "alwaysThinkingEnabled": True,
-        "cleanupPeriodDays": 60,
-        "includeCoAuthoredBy": False,
-    }
-    if platform.system() == "Windows":
-        expected_settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] = "1"
-        expected_settings["defaultShell"] = "powershell"
-    assert captured["flag_settings"] == expected_settings
-    assert not Path(captured["settings_path"]).exists()
-    assert "ANTHROPIC_BASE_URL" not in options.env
-    assert "ANTHROPIC_AUTH_TOKEN" not in options.env
-    assert "ANTHROPIC_MODEL" not in options.env
-    assert len(scripts) == 11
-    assert all(f'"session_id":"{session_id}"' in script for script in scripts)
-    assert '"type":"session_started"' in scripts[0]
-    assert all('"timestamp":' in script for script in scripts)
-    trace_scripts = scripts[1:-1]
-    assert '"type":"thinking_start"' in trace_scripts[0]
-    assert '"type":"thinking_delta"' in trace_scripts[1]
-    assert '"type":"output_delta"' in trace_scripts[4]
-    assert '"text":"\\u5b8c\\u6210"' in trace_scripts[4]
-    assert sum('"type":"output_start"' in script for script in trace_scripts) == 1
-    assert '"type":"tool_start"' in trace_scripts[7]
-    assert '"name":"Read"' in trace_scripts[7]
-    assert '"summary":"file_path: README.md"' in trace_scripts[7]
-    assert '"type":"tool_complete"' in trace_scripts[8]
-    assert '"status":"success"' in trace_scripts[8]
-    assert all('"content":' not in script for script in trace_scripts)
-    assert '"type":"chat_complete"' in scripts[-1]
-
-
-def test_chat_router_passes_resume_session_to_sdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    configure_model(tmp_path, monkeypatch)
-    session_id = str(uuid4())
-    captured: dict[str, object] = {}
-
-    class FakeClaudeSDKClient:
-        def __init__(self, options: ClaudeAgentOptions) -> None:
-            captured["resume"] = options.resume
-            captured["session_id"] = options.session_id
-            captured["permission_mode"] = options.permission_mode
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def query(self, prompt: str) -> None:
-            captured["prompt"] = prompt
-
-        async def receive_response(self) -> AsyncIterator[ResultMessage]:
-            yield ResultMessage(
-                subtype="success",
-                duration_ms=1,
-                duration_api_ms=1,
-                is_error=False,
-                num_turns=1,
-                session_id=session_id,
-                result=str(captured["prompt"]),
-            )
-
-    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-
-    router = ApplicationBridge()
-    monkeypatch.setattr(router._history, "has_session", lambda _session_id: True)
-    router.send_chat_message("继续", str(tmp_path), session_id, "medium")
-
-    assert captured["resume"] == session_id
-    assert captured["session_id"] is None
-    assert captured["permission_mode"] == "default"
-
-
-def test_chat_router_retains_session_clients_after_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    configure_model(tmp_path, monkeypatch)
-    session_ids = {"first": str(uuid4()), "second": str(uuid4())}
-    started = {prompt: Event() for prompt in session_ids}
-    session_started = {prompt: Event() for prompt in session_ids}
-    release = {prompt: Event() for prompt in session_ids}
-    runtime_thread_ids: set[int] = set()
-
-    class FakeClaudeSDKClient:
-        def __init__(self, options: ClaudeAgentOptions) -> None:
-            self._prompt = ""
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def query(self, prompt: str) -> None:
-            self._prompt = prompt
-            runtime_thread_ids.add(get_ident())
-            started[prompt].set()
-
-        async def receive_response(
-            self,
-        ) -> AsyncIterator[StreamEvent | ResultMessage]:
-            yield StreamEvent(
-                uuid=f"message-{self._prompt}",
-                session_id=session_ids[self._prompt],
-                event={
-                    "type": "message_start",
-                    "message": {"id": f"message-{self._prompt}"},
-                },
-            )
-            session_started[self._prompt].set()
-            await asyncio.to_thread(release[self._prompt].wait, 2)
-            yield ResultMessage(
-                subtype="success",
-                duration_ms=1,
-                duration_api_ms=1,
-                is_error=False,
-                num_turns=1,
-                session_id=session_ids[self._prompt],
-                result=self._prompt,
-            )
-
-    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-
-    router = ApplicationBridge()
-    monkeypatch.setattr(router._history, "list_sessions", list)
-
-    def missing_history(_session_id: str) -> dict[str, object]:
-        raise ValueError("missing")
-
-    monkeypatch.setattr(router._history, "get_session", missing_history)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            prompt: executor.submit(
-                router.send_chat_message,
-                prompt,
-                str(tmp_path),
-                session_id,
-                "high",
-                "default",
-            )
-            for prompt, session_id in session_ids.items()
-        }
-        assert all(event.wait(timeout=2) for event in started.values())
-        assert all(event.wait(timeout=2) for event in session_started.values())
-
-        active_running = router.get_active_chat(session_ids["first"])
-        assert active_running is not None
-        assert active_running["session_id"] == session_ids["first"]
-        assert active_running["events"][0]["type"] == "session_started"
-        assert isinstance(active_running["events"][0]["timestamp"], int)
-        visible_sessions = router.list_chat_sessions()
-        visible_session_ids = {session["session_id"] for session in visible_sessions}
-        assert visible_session_ids == set(session_ids.values())
-        assert all(session["running"] is True for session in visible_sessions)
-        active_history = router.get_chat_session(session_ids["first"])
-        assert active_history["messages"][0]["content"] == "first"
-
-        release["first"].set()
-        assert futures["first"].result(timeout=2)["content"] == "first"
-        assert router.get_active_chat(session_ids["first"]) is None
-        assert router._active_chats[session_ids["first"]].cleanup_task is not None
-        session_states = {
-            session["session_id"]: session["running"]
-            for session in router.list_chat_sessions()
-        }
-        assert session_ids["first"] not in session_states
-        assert session_states[session_ids["second"]] is True
-
-        release["second"].set()
-        assert futures["second"].result(timeout=2)["content"] == "second"
-
-    assert set(router._active_chats) == set(session_ids.values())
-    assert all(not chat.running for chat in router._active_chats.values())
-    assert len(runtime_thread_ids) == 1
-
-
-def test_chat_router_promotes_an_active_existing_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    configure_model(tmp_path, monkeypatch)
-    active_session_id = str(uuid4())
-    other_session_id = str(uuid4())
-    started = Event()
-    release = Event()
-
-    class FakeClaudeSDKClient:
-        def __init__(self, options: ClaudeAgentOptions) -> None:
-            pass
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def query(self, prompt: str) -> None:
-            started.set()
-
-        async def receive_response(self) -> AsyncIterator[ResultMessage]:
-            await asyncio.to_thread(release.wait, 2)
-            yield ResultMessage(
-                subtype="success",
-                duration_ms=1,
-                duration_api_ms=1,
-                is_error=False,
-                num_turns=1,
-                session_id=active_session_id,
-                result="done",
-            )
-
-    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-    monkeypatch.setattr("backend.router.chat.time", lambda: 3.0)
-
-    router = ApplicationBridge()
-    monkeypatch.setattr(router._history, "has_session", lambda _session_id: True)
-    monkeypatch.setattr(
-        router._history,
-        "list_sessions",
-        lambda: [
-            {
-                "session_id": other_session_id,
-                "title": "newer workspace",
-                "project_path": r"C:\work\newer",
-                "project_name": "newer",
-                "last_modified": 2_000,
-                "created_at": 2_000,
-            },
-            {
-                "session_id": active_session_id,
-                "title": "existing title",
-                "project_path": str(tmp_path),
-                "project_name": tmp_path.name,
-                "last_modified": 1_000,
-                "created_at": 1_000,
-            },
-        ],
+        running=True,
     )
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(
-            router.send_chat_message,
-            "continue",
-            str(tmp_path),
-            active_session_id,
-        )
-        assert started.wait(timeout=2)
+    sessions = router.list_chat_sessions()
 
-        sessions = router.list_chat_sessions()
-        assert [session["session_id"] for session in sessions] == [
-            active_session_id,
-            other_session_id,
-        ]
-        assert sessions[0]["last_modified"] == 3_000
-        assert sessions[0]["title"] == "existing title"
-        assert sessions[0]["running"] is True
-        assert sessions[1]["running"] is False
-
-        release.set()
-        assert future.result(timeout=2)["content"] == "done"
+    assert [item["session_id"] for item in sessions] == [running_id, persisted_id]
+    assert sessions[0]["cwd"] == str(tmp_path)
+    assert sessions[0]["running"] is True
+    assert sessions[1]["running"] is False
 
 
-def test_chat_router_stops_active_turn_and_returns_partial_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_chat_router_returns_history_and_search_in_the_public_event_protocol(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
-    configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
-    query_started = Event()
-    interrupt_called = Event()
-
-    class FakeClaudeSDKClient:
-        def __init__(self, options: ClaudeAgentOptions) -> None:
-            self._interrupted: asyncio.Event | None = None
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def query(self, prompt: str) -> None:
-            self._interrupted = asyncio.Event()
-            query_started.set()
-
-        async def interrupt(self) -> None:
-            assert self._interrupted is not None
-            interrupt_called.set()
-            self._interrupted.set()
-
-        async def receive_response(
-            self,
-        ) -> AsyncIterator[StreamEvent | ResultMessage]:
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={"type": "message_start", "message": {"id": "message-1"}},
-            )
-            yield StreamEvent(
-                uuid="message-1",
-                session_id=session_id,
-                event={
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {"type": "text_delta", "text": "已完成一部分"},
-                },
-            )
-            assert self._interrupted is not None
-            await self._interrupted.wait()
-            yield ResultMessage(
-                subtype="error_during_execution",
-                duration_ms=1,
-                duration_api_ms=1,
-                is_error=True,
-                num_turns=1,
-                session_id=session_id,
-                errors=["Interrupted by user"],
-            )
-
-    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-
-    router = ApplicationBridge()
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        result_future = executor.submit(
-            router.send_chat_message,
-            "执行耗时任务",
-            str(tmp_path),
-            session_id,
-            "high",
-            "default",
+    info = ChatSessionInfo(
+        session_id=session_id,
+        title="Unified history",
+        summary="Unified history",
+        last_modified=123,
+        cwd=str(tmp_path),
+    )
+    user_event = event(
+        "user.message",
+        turn_id="history-turn",
+        data={"content": "hello"},
+    )
+    router = bridge_factory()
+    router._history.get_session = lambda _session_id: ChatSessionSnapshot(
+        session=info,
+        events=(user_event,),
+    )
+    router._history.search_sessions = lambda _query: [
+        ChatSearchMatch(
+            session=info,
+            snippet="hello",
+            event_id=user_event.id,
+            turn_id=user_event.turn_id,
+            role="user",
         )
-        assert query_started.wait(timeout=2)
-        assert router.stop_chat_message(session_id)
-        reply = result_future.result(timeout=2)
+    ]
 
-    assert interrupt_called.is_set()
-    assert reply == {
-        "content": "已完成一部分",
-        "final_output_block_id": "message-1-block-0",
-        "session_id": session_id,
-        "stopped": True,
-        "usage": {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_input_tokens": 0,
-            "cache_creation_input_tokens": 0,
-            "num_turns": 1,
-            "model_name": None,
-            "stop_reason": "interrupted",
-        },
-    }
-    assert not router.stop_chat_message(session_id)
+    history = router.get_chat_session(session_id)
+    matches = router.search_chat_sessions("hello")
 
-
-def test_chat_router_stop_releases_pending_tool_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    configure_model(tmp_path, monkeypatch)
-    session_id = str(uuid4())
-    permission_visible = Event()
-
-    class FakeClaudeSDKClient:
-        def __init__(self, options: ClaudeAgentOptions) -> None:
-            self._options = options
-            self._interrupted: asyncio.Event | None = None
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def query(self, prompt: str) -> None:
-            self._interrupted = asyncio.Event()
-
-        async def interrupt(self) -> None:
-            assert self._interrupted is not None
-            self._interrupted.set()
-
-        async def receive_response(self) -> AsyncIterator[ResultMessage]:
-            assert self._options.can_use_tool is not None
-            decision = await self._options.can_use_tool(
-                "Write",
-                {"file_path": "README.md", "content": "updated"},
-                ToolPermissionContext(),
-            )
-            assert isinstance(decision, PermissionResultDeny)
-            assert self._interrupted is not None
-            await self._interrupted.wait()
-            yield ResultMessage(
-                subtype="error_during_execution",
-                duration_ms=1,
-                duration_api_ms=1,
-                is_error=True,
-                num_turns=1,
-                session_id=session_id,
-                errors=["Interrupted by user"],
-            )
-
-    class WindowStub:
-        def evaluate_js(self, script: str) -> None:
-            if '"type":"permission_request"' in script:
-                permission_visible.set()
-
-    monkeypatch.setattr("backend.chat.client.ClaudeSDKClient", FakeClaudeSDKClient)
-
-    router = ApplicationBridge()
-    router._window = WindowStub()
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        result_future = executor.submit(
-            router.send_chat_message,
-            "修改文件",
-            str(tmp_path),
-            None,
-            "high",
-        )
-        assert permission_visible.wait(timeout=2)
-        assert router.stop_chat_message()
-        reply = result_future.result(timeout=2)
-
-    assert reply["stopped"] is True
-    assert reply["session_id"] == session_id
-    assert not router._pending_permissions
+    assert history["events"] == [user_event.to_dict()]
+    assert "messages" not in history
+    assert matches[0]["event_id"] == user_event.id
+    assert matches[0]["turn_id"] == "history-turn"
+    assert "message_key" not in matches[0]
 
 
 @pytest.mark.parametrize(
-    ("allowed", "result_type"),
+    ("allowed", "expected_type"),
     [(True, PermissionResultAllow), (False, PermissionResultDeny)],
 )
-def test_chat_router_waits_for_tool_permission_from_ui(
+def test_chat_router_resolves_event_driven_tool_permission(
     allowed: bool,
-    result_type: type[PermissionResultAllow] | type[PermissionResultDeny],
+    expected_type: type[PermissionResultAllow] | type[PermissionResultDeny],
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
-    router = ApplicationBridge()
-    events: list[dict[str, object]] = []
-
-    class WindowStub:
-        def evaluate_js(self, script: str) -> None:
-            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
-            assert script.startswith(prefix)
-            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
-            events.append(event)
-            assert router.respond_chat_permission(
-                event["permission_id"],
-                allowed,
-            )
-
-    router._window = WindowStub()
-    result = router._async_runtime.call(
-        router._request_tool_permission,
-        "Write",
-        {"file_path": "README.md", "content": "updated"},
-        ToolPermissionContext(
-            title="Claude 请求写入 README.md",
-            display_name="写入文件",
-            description="将更新项目说明",
-        ),
-    )
-
-    assert isinstance(result, result_type)
-    assert events == [
-        {
-            "type": "permission_request",
-            "permission_id": events[0]["permission_id"],
-            "tool_name": "Write",
-            "input": {"file_path": "README.md", "content": "updated"},
-            "title": "Claude 请求写入 README.md",
-            "display_name": "写入文件",
-            "description": "将更新项目说明",
-            "blocked_path": "",
-            "timestamp": events[0]["timestamp"],
-        }
-    ]
-    assert isinstance(events[0]["timestamp"], int)
-    assert not router.respond_chat_permission(
-        str(uuid4()),
-        allowed,
-    )
-
-
-def test_exit_plan_mode_applies_and_exposes_suggested_mode() -> None:
-    router = ApplicationBridge()
-    events: list[dict[str, object]] = []
-    mode_update = PermissionUpdate(
-        type="setMode",
-        mode="default",
-        destination="session",
-    )
-
-    class WindowStub:
-        def evaluate_js(self, script: str) -> None:
-            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
-            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
-            events.append(event)
-            assert router.respond_chat_permission(event["permission_id"], True)
-
-    router._window = WindowStub()
-    result = router._async_runtime.call(
-        router._request_tool_permission,
-        "ExitPlanMode",
-        {"plan": "Implement the approved plan."},
-        ToolPermissionContext(suggestions=[mode_update]),
-    )
-
-    assert isinstance(result, PermissionResultAllow)
-    assert result.updated_permissions == [mode_update]
-    assert events[0]["suggested_permission_mode"] == "default"
-
-
-def test_exit_plan_mode_returns_feedback_to_claude() -> None:
-    router = ApplicationBridge()
-    events: list[dict[str, object]] = []
-
-    class WindowStub:
-        def evaluate_js(self, script: str) -> None:
-            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
-            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
-            events.append(event)
-            assert router.respond_chat_permission(
-                event["permission_id"],
-                False,
-                feedback="请补充数据库迁移和回滚方案",
-            )
-
-    router._window = WindowStub()
-    result = router._async_runtime.call(
-        router._request_tool_permission,
-        "ExitPlanMode",
-        {"plan": "Implement the approved plan."},
-        ToolPermissionContext(),
-    )
-
-    assert isinstance(result, PermissionResultDeny)
-    assert result.message == "请补充数据库迁移和回滚方案"
-    assert events[0]["suggested_permission_mode"] == "default"
-
-
-def test_get_active_chat_hides_answered_permission_requests() -> None:
-    router = ApplicationBridge()
     session_id = str(uuid4())
-    pending_id = str(uuid4())
-    answered_id = str(uuid4())
+    request_id = "toolu_permission_123"
 
     class StubClient:
-        async def close(self) -> None:
+        pending_permission_ids = (request_id,)
+        resolved: tuple[str, object] | None = None
+
+        def resolve_permission(self, identifier: str, permission: object) -> None:
+            self.resolved = (identifier, permission)
+
+        async def request_stop(self) -> None:
             return None
 
-    loop = asyncio.new_event_loop()
-    try:
-        pending_future = loop.create_future()
-    finally:
-        loop.close()
-
-    # 已应答的权限已从 _pending_permissions 移除，但事件仍留在回合缓冲里；
-    # get_active_chat 重放时不应把它再交给前端，否则会弹出"已失效"的确认框
-    router._pending_permissions[pending_id] = _PendingPermission(
-        tool_name="Read",
-        input_data={},
-        future=pending_future,
-        session_id=session_id,
-    )
+    client = StubClient()
+    router = bridge_factory()
     router._active_chats[session_id] = _ActiveChat(
-        client=StubClient(),
+        client=client,  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
         events=[
-            {"type": "session_started", "session_id": session_id},
-            {
-                "type": "permission_request",
-                "permission_id": answered_id,
-                "tool_name": "Write",
-            },
-            {
-                "type": "permission_request",
-                "permission_id": pending_id,
-                "tool_name": "Read",
-            },
+            event(
+                "permission.requested",
+                data={
+                    "request_id": request_id,
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "README.md", "content": "new"},
+                    "suggestions": [],
+                },
+            )
         ],
         metadata={},
         running=True,
     )
 
-    try:
-        result = router.get_active_chat(session_id)
-        assert result is not None
-        assert [
-            event["permission_id"]
-            for event in result["events"]
-            if event.get("type") == "permission_request"
-        ] == [pending_id]
-    finally:
-        router._pending_permissions.pop(pending_id, None)
-        router._active_chats.pop(session_id, None)
+    assert router.respond_chat_permission(request_id, allowed)
+    assert client.resolved is not None
+    assert client.resolved[0] == request_id
+    assert isinstance(client.resolved[1], expected_type)
+    if allowed:
+        assert client.resolved[1].updated_input == {
+            "file_path": "README.md",
+            "content": "new",
+        }
 
 
-def test_chat_event_indexes_do_not_restart_when_turn_buffer_is_cleared() -> None:
-    router = ApplicationBridge()
+def test_chat_router_returns_ask_user_answers_to_client(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    session_id = str(uuid4())
+    request_id = "toolu_question"
+    question = "使用哪种主题？"
+
+    class StubClient:
+        pending_permission_ids = (request_id,)
+        permission: PermissionResultAllow | None = None
+
+        def resolve_permission(
+            self,
+            _identifier: str,
+            permission: PermissionResultAllow,
+        ) -> None:
+            self.permission = permission
+
+        async def request_stop(self) -> None:
+            return None
+
+    client = StubClient()
+    router = bridge_factory()
+    router._active_chats[session_id] = _ActiveChat(
+        client=client,  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[
+            event(
+                "permission.requested",
+                data={
+                    "request_id": request_id,
+                    "tool_name": "AskUserQuestion",
+                    "tool_input": {"questions": [{"question": question}]},
+                    "suggestions": [],
+                },
+            )
+        ],
+        metadata={},
+        running=True,
+    )
+
+    assert router.respond_chat_permission(
+        request_id,
+        True,
+        answers={question: "深色"},
+    )
+    assert client.permission is not None
+    assert client.permission.updated_input == {
+        "questions": [{"question": question}],
+        "answers": {question: "深色"},
+    }
+
+
+def test_chat_router_resolves_plan_with_suggested_mode(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    session_id = str(uuid4())
+    request_id = "toolu_plan"
+
+    class StubClient:
+        pending_permission_ids = (request_id,)
+        approval: dict[str, object] | None = None
+
+        def resolve_plan_approval(self, identifier: str, **kwargs: object) -> None:
+            self.approval = {"request_id": identifier, **kwargs}
+
+        async def request_stop(self) -> None:
+            return None
+
+    client = StubClient()
+    router = bridge_factory()
+    router._active_chats[session_id] = _ActiveChat(
+        client=client,  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[
+            event(
+                "permission.requested",
+                data={
+                    "request_id": request_id,
+                    "tool_name": "ExitPlanMode",
+                    "tool_input": {"plan": "Ship it"},
+                    "suggestions": [{"type": "setMode", "mode": "acceptEdits"}],
+                },
+            )
+        ],
+        metadata={},
+        running=True,
+    )
+
+    assert router.respond_chat_permission(request_id, True)
+    assert client.approval == {
+        "request_id": request_id,
+        "approved": True,
+        "mode": "acceptEdits",
+        "message": "",
+    }
+
+
+def test_get_active_chat_replays_only_pending_permission_requests(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
     session_id = str(uuid4())
 
     class StubClient:
-        async def close(self) -> None:
+        pending_permission_ids = ("pending",)
+
+        async def request_stop(self) -> None:
             return None
 
-    class WindowStub:
-        def evaluate_js(self, script: str) -> None:
-            return None
-
-    router._window = WindowStub()
+    router = bridge_factory()
     router._active_chats[session_id] = _ActiveChat(
-        client=StubClient(),
+        client=StubClient(),  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[
+            event("turn.started"),
+            event("permission.requested", data={"request_id": "resolved"}),
+            event("permission.requested", data={"request_id": "pending"}),
+        ],
+        metadata={},
+        running=True,
+    )
+
+    active = router.get_active_chat(session_id)
+
+    assert active is not None
+    permission_events = [
+        item
+        for item in active["events"]
+        if item["event"] == "permission.requested"
+    ]
+    assert [item["data"]["request_id"] for item in permission_events] == [
+        "pending"
+    ]
+
+
+def test_chat_router_denies_permission_when_window_is_unavailable(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    session_id = str(uuid4())
+    request_id = "toolu_no_window"
+
+    class StubClient:
+        pending_permission_ids = (request_id,)
+        denied: PermissionResultDeny | None = None
+
+        def resolve_permission(
+            self,
+            _identifier: str,
+            permission: PermissionResultDeny,
+        ) -> None:
+            self.denied = permission
+
+        async def request_stop(self) -> None:
+            return None
+
+    client = StubClient()
+    router = bridge_factory()
+    router._active_chats[session_id] = _ActiveChat(
+        client=client,  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[],
+        metadata={},
+        running=True,
+    )
+    permission_event = event(
+        "permission.requested",
+        data={
+            "request_id": request_id,
+            "tool_name": "Write",
+            "tool_input": {},
+            "suggestions": [],
+        },
+    )
+
+    assert not router._emit_chat_event(permission_event, session_id=session_id)
+    assert client.denied is not None
+    assert "无法显示" in client.denied.message
+
+
+def test_chat_router_stops_active_client(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    session_id = str(uuid4())
+
+    class StubClient:
+        pending_permission_ids: tuple[str, ...] = ()
+        stopped = False
+
+        async def request_stop(self) -> None:
+            self.stopped = True
+
+    client = StubClient()
+    router = bridge_factory()
+    router._active_chats[session_id] = _ActiveChat(
+        client=client,  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
         events=[],
         metadata={},
         running=True,
     )
 
-    assert router._emit_chat_event(
-        {"type": "session_started", "session_id": session_id},
-        session_id=session_id,
-    )
-    assert router._active_chats[session_id].events[0]["event_index"] == 0
-    first_timestamp = router._active_chats[session_id].events[0]["timestamp"]
-    assert isinstance(first_timestamp, int)
-
-    router._active_chats[session_id].events.clear()
-    assert router._emit_chat_event(
-        {"type": "permission_request", "permission_id": str(uuid4())},
-        session_id=session_id,
-    )
-    assert router._active_chats[session_id].events[0]["event_index"] == 1
-    second_timestamp = router._active_chats[session_id].events[0]["timestamp"]
-    assert isinstance(second_timestamp, int)
-    assert second_timestamp >= first_timestamp
-
-
-def test_chat_router_returns_ask_user_question_answers_to_sdk() -> None:
-    router = ApplicationBridge()
-    question_input = {
-        "questions": [
-            {
-                "question": "要使用哪种主题？",
-                "header": "主题",
-                "options": [
-                    {"label": "浅色", "description": "使用明亮配色"},
-                    {"label": "深色", "description": "使用暗色配色"},
-                ],
-                "multiSelect": False,
-            },
-            {
-                "question": "需要哪些功能？",
-                "header": "功能",
-                "options": [
-                    {"label": "搜索", "description": "增加全文搜索"},
-                    {"label": "导出", "description": "增加结果导出"},
-                ],
-                "multiSelect": True,
-            },
-        ]
-    }
-    answers = {
-        "要使用哪种主题？": "深色",
-        "需要哪些功能？": ["搜索", "键盘快捷键"],
-    }
-
-    class WindowStub:
-        def evaluate_js(self, script: str) -> None:
-            prefix = "window.dispatchEvent(new CustomEvent('xalling:chat-event',{detail:"
-            event = json.loads(script.removeprefix(prefix).removesuffix("}));"))
-            assert router.respond_chat_permission(
-                event["permission_id"],
-                True,
-                answers,
-            )
-
-    router._window = WindowStub()
-    result = router._async_runtime.call(
-        router._request_tool_permission,
-        "AskUserQuestion",
-        question_input,
-        ToolPermissionContext(),
-    )
-
-    assert isinstance(result, PermissionResultAllow)
-    assert result.updated_input == {**question_input, "answers": answers}
+    assert router.stop_chat_message(session_id)
+    assert client.stopped
 
 
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])
-def test_chat_router_rejects_invalid_effort(effort: str) -> None:
+def test_chat_router_rejects_invalid_effort(
+    effort: str,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
     with pytest.raises(ValueError, match="推理强度无效"):
-        ApplicationBridge().send_chat_message("检查项目", effort=effort)
+        bridge_factory().send_chat_message("检查项目", effort=effort)
 
 
 @pytest.mark.parametrize(
     "permission_mode",
     ["", "ask", "fullAccess", "dontAsk"],
 )
-def test_chat_router_rejects_invalid_permission_mode(permission_mode: str) -> None:
+def test_chat_router_rejects_invalid_permission_mode(
+    permission_mode: str,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
     with pytest.raises(ValueError, match="权限模式无效"):
-        ApplicationBridge().send_chat_message(
+        bridge_factory().send_chat_message(
             "检查项目",
             permission_mode=permission_mode,
         )
 
 
-@pytest.mark.parametrize(
-    "permission_mode",
-    ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
-)
-def test_chat_message_request_accepts_sdk_permission_modes(permission_mode: str) -> None:
-    request = _ChatMessageRequest.model_validate({"prompt": "检查项目", "permission_mode": permission_mode})
-
-    assert request.permission_mode == permission_mode
-
-
-def test_chat_message_request_defaults_to_home_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-    request = _ChatMessageRequest.model_validate({"prompt": "检查项目"})
-
-    assert request.project_path == tmp_path.resolve()
-
-
-def test_chat_message_request_defaults_to_desktop_when_available(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_chat_message_request_defaults_to_desktop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-    request = _ChatMessageRequest.model_validate({"prompt": "检查项目"})
+    request = _ChatMessageRequest.model_validate({"prompt": " 检查项目 "})
 
+    assert request.prompt == "检查项目"
     assert request.project_path == desktop.resolve()
 
 
-def test_chat_message_request_normalizes_prompt_and_session_id() -> None:
-    session_id = uuid4()
-
-    request = _ChatMessageRequest.model_validate(
-        {
-            "prompt": "  检查项目  ",
-            "session_id": str(session_id).upper(),
-        }
-    )
-
-    assert request.prompt == "检查项目"
-    assert request.session_id == str(session_id)
+def test_chat_router_accepts_non_uuid_sdk_permission_ids(
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    assert not bridge_factory().respond_chat_permission("toolu_abc123", False)
 
 
-def test_chat_router_rejects_invalid_session_id() -> None:
-    with pytest.raises(ValueError, match="会话标识无效"):
-        ApplicationBridge().send_chat_message(
-            "检查项目",
-            session_id="not-a-uuid",
-        )
-
-
-def test_chat_router_rejects_non_boolean_permission_decision() -> None:
+def test_chat_router_rejects_non_boolean_permission_decision(
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
     with pytest.raises(TypeError, match="权限决定必须是布尔值"):
-        ApplicationBridge().respond_chat_permission(str(uuid4()), "yes")
+        bridge_factory().respond_chat_permission(str(uuid4()), "yes")

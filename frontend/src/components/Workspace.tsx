@@ -14,6 +14,7 @@ import {
   getActiveChat,
   getChatSession,
   getHomeFolder,
+  isPermissionRequestEvent,
   respondChatPermission,
   sendChatMessage,
   stopChatMessage,
@@ -29,7 +30,6 @@ import { pickQuote } from "../quotes";
 import {
   AgentTrace,
   applyChatStreamEvent,
-  applyExitPlanPermission,
   finishAgentTrace,
   stripExitPlanContent,
   type AgentTraceItem,
@@ -97,7 +97,7 @@ function formatCacheHitRate(usage?: ChatUsage): string {
   return rate === null ? "—" : `${Math.round(rate * 100)}%`;
 }
 
-function stopReasonLabel(reason?: string): string {
+function stopReasonLabel(reason?: string | null): string {
   const labels: Record<string, string> = {
     end_turn: "正常完成",
     interrupted: "用户停止",
@@ -126,7 +126,7 @@ function ResponseUsageDetails({ usage }: { usage: ChatUsage }) {
         <div><dt>缓存命中率</dt><dd>{formatCacheHitRate(usage)}</dd></div>
         <div><dt>总 Token</dt><dd>{formatTokenCount(total)}</dd></div>
         <div className="response-usage-wide">
-          <dt>模型</dt><dd title={usage.model_name ?? undefined}>{usage.model_name ?? "—"}</dd>
+          <dt>模型</dt><dd title={usage.model ?? undefined}>{usage.model ?? "—"}</dd>
         </div>
         <div className="response-usage-wide">
           <dt>停止原因</dt><dd>{stopReasonLabel(usage.stop_reason)}</dd>
@@ -174,22 +174,124 @@ function applyEventToAssistant(
   event: ChatStreamEvent,
 ): ConversationMessage {
   const trace = message.trace ?? [];
-  const isTopLevelEvent = event.parent_tool_id === undefined;
+  const isTopLevelEvent = event.parent_tool_use_id === null;
+  const isOutputEvent = event.event.startsWith("assistant.reply.")
+    && typeof event.data.block_id === "string";
+  const streamUuid = typeof event.data.stream_uuid === "string"
+    ? event.data.stream_uuid
+    : event.id;
+  const index = typeof event.data.index === "number" ? event.data.index : 0;
+  const blockId = typeof event.data.block_id === "string"
+    ? event.data.block_id
+    : `${streamUuid}:${index}`;
+  const outputKey = `${blockId}:reply`;
   const startsNewOutput = (
-    event.type === "output_start" || event.type === "output_delta"
+    event.event === "assistant.reply.started"
+    || event.event === "assistant.reply.delta"
   ) && isTopLevelEvent
-    && !trace.some((traceItem) => traceItem.key === event.block_id);
+    && !trace.some((traceItem) => traceItem.key === outputKey);
   const separator = startsNewOutput && message.content ? "\n\n" : "";
-  const nextContent = event.type === "output_delta" && isTopLevelEvent
-    ? `${message.content}${separator}${event.text}`
+  const delta = typeof event.data.text === "string" ? event.data.text : "";
+  const nextContent = event.event === "assistant.reply.delta" && isTopLevelEvent
+    ? `${message.content}${separator}${delta}`
     : `${message.content}${separator}`;
   const nextTrace = applyChatStreamEvent(trace, event);
   return {
     ...message,
     content: stripExitPlanContent(nextContent, nextTrace),
+    finalOutputKey: isOutputEvent && isTopLevelEvent
+      ? outputKey
+      : message.finalOutputKey,
     loading: true,
     trace: nextTrace,
   };
+}
+
+function eventTime(event: ChatStreamEvent): number {
+  const value = Date.parse(event.created_at);
+  return Number.isFinite(value) ? value : Date.now();
+}
+
+function turnAssistantKey(turnId: string): string {
+  return `turn-${turnId}-assistant`;
+}
+
+function turnUserKey(turnId: string): string {
+  return `turn-${turnId}-user`;
+}
+
+function isStoppedUsage(usage: ChatUsage | undefined): boolean {
+  return usage?.terminal_reason?.startsWith("aborted") === true
+    || usage?.stop_reason === "interrupted";
+}
+
+function conversationFromEvents(events: ChatStreamEvent[]): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  for (const event of events) {
+    const userKey = turnUserKey(event.turn_id);
+    const assistantKey = turnAssistantKey(event.turn_id);
+    if (event.event === "user.message") {
+      const content = typeof event.data.content === "string" ? event.data.content : "";
+      if (!messages.some((item) => item.key === userKey)) {
+        messages.push({ content, key: userKey, role: "user", status: "success" });
+      }
+      continue;
+    }
+    if (
+      event.event === "turn.started"
+      || event.event === "permission.requested"
+      || event.event === "permission.resolved"
+    ) {
+      continue;
+    }
+
+    let assistantIndex = messages.findIndex((item) => item.key === assistantKey);
+    if (assistantIndex === -1) {
+      messages.push({
+        content: "",
+        expandedTraceItemKeys: [],
+        key: assistantKey,
+        loading: true,
+        role: "ai",
+        trace: [],
+        traceExpanded: false,
+      });
+      assistantIndex = messages.length - 1;
+    }
+    let assistant = messages[assistantIndex];
+    if (event.event === "turn.completed") {
+      const usage = event.data.usage as ChatUsage | undefined;
+      const content = typeof event.data.content === "string"
+        ? event.data.content
+        : assistant.content;
+      assistant = {
+        ...assistant,
+        content: content || assistant.content,
+        loading: false,
+        status: isStoppedUsage(usage) ? "abort" : event.data.is_error === true ? "error" : "success",
+        trace: finishAgentTrace(
+          assistant.trace ?? [],
+          event.data.is_error === true ? "error" : "success",
+          eventTime(event),
+        ),
+        usage,
+      };
+    } else if (event.event === "turn.failed") {
+      assistant = {
+        ...assistant,
+        content: typeof event.data.message === "string"
+          ? event.data.message
+          : assistant.content,
+        loading: false,
+        status: "error",
+        trace: finishAgentTrace(assistant.trace ?? [], "error", eventTime(event)),
+      };
+    } else {
+      assistant = applyEventToAssistant(assistant, event);
+    }
+    messages[assistantIndex] = assistant;
+  }
+  return messages;
 }
 
 type WorkspaceProps = {
@@ -232,7 +334,7 @@ export function Workspace({
   const sessionIdRef = useRef(initialSessionId ?? crypto.randomUUID());
   const activeAssistantKeyRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
-  const eventIndexRef = useRef(-1);
+  const processedEventIdsRef = useRef(new Set<string>());
   const historyLoadingRef = useRef(Boolean(initialSessionId));
   const messageNumberRef = useRef(0);
   const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
@@ -241,76 +343,90 @@ export function Workspace({
   const copyFeedbackTimerRef = useRef<number | null>(null);
   const [copiedMessageKey, setCopiedMessageKey] = useState<string | null>(null);
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
-  const focusBubbleKeyRef = useRef(focusMessageKey ? `history-${focusMessageKey}` : null);
+  const focusBubbleKeyRef = useRef(focusMessageKey);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
 
   const applyLiveEvent = useCallback((event: ChatStreamEvent) => {
-    if (
-      event.event_index !== undefined
-      && event.event_index <= eventIndexRef.current
-    ) {
+    if (processedEventIdsRef.current.has(event.id)) {
       return;
     }
-    if (event.event_index !== undefined) {
-      eventIndexRef.current = event.event_index;
+    processedEventIdsRef.current.add(event.id);
+    if (event.session_id) {
+      sessionIdRef.current = event.session_id;
     }
-    if (event.type === "permission_request") {
+    if (isPermissionRequestEvent(event)) {
       setPermissionRequests((current) => (
-        current.some((item) => item.permission_id === event.permission_id)
+        current.some((item) => item.data.request_id === event.data.request_id)
           ? current
           : [...current, event]
       ));
-      if (event.tool_name === "ExitPlanMode") {
-        setMessages((current) => current.map((item) => {
-          if (item.key !== activeAssistantKeyRef.current) {
-            return item;
-          }
-          const update = applyExitPlanPermission(item.trace ?? [], event);
-          if (!update.expandedItemKeys.length) {
-            return item;
-          }
-          return {
-            ...item,
-            expandedTraceItemKeys: [
-              ...new Set([
-                ...(item.expandedTraceItemKeys ?? []),
-                ...update.expandedItemKeys,
-              ]),
-            ],
-            content: stripExitPlanContent(item.content, update.items),
-            trace: update.items,
-            traceExpanded: true,
-          };
-        }));
-      }
       return;
     }
-    if (event.type === "session_started") {
-      sessionIdRef.current = event.session_id;
-      startedAtRef.current = event.timestamp ?? Date.now();
+    if (event.event === "permission.resolved") {
+      const requestId = event.data.request_id;
+      setPermissionRequests((current) => current.filter(
+        (item) => item.data.request_id !== requestId,
+      ));
+      return;
+    }
+    if (event.event === "turn.started") {
+      const assistantKey = turnAssistantKey(event.turn_id);
+      const previousKey = activeAssistantKeyRef.current;
+      activeAssistantKeyRef.current = assistantKey;
+      startedAtRef.current = eventTime(event);
+      setMessages((current) => current.map((item) => (
+        item.key === previousKey ? { ...item, key: assistantKey } : item
+      )));
       onSessionsChanged?.();
       return;
     }
-    if (event.type === "chat_complete") {
-      const reply = event.reply;
-      sessionIdRef.current = reply.session_id;
-      const stopped = Boolean(reply.stopped || stopRequestedRef.current);
+    if (event.event === "user.message") {
+      const content = typeof event.data.content === "string" ? event.data.content : "";
+      const userKey = turnUserKey(event.turn_id);
+      setMessages((current) => {
+        if (current.some((item) => item.key === userKey)) {
+          return current;
+        }
+        let candidateIndex = -1;
+        for (let index = current.length - 1; index >= 0; index -= 1) {
+          if (current[index].role === "user" && current[index].key.startsWith("user-")) {
+            candidateIndex = index;
+            break;
+          }
+        }
+        if (candidateIndex === -1) {
+          return [...current, { content, key: userKey, role: "user", status: "success" }];
+        }
+        return current.map((item, index) => (
+          index === candidateIndex ? { ...item, key: userKey } : item
+        ));
+      });
+      return;
+    }
+    if (event.event === "turn.completed") {
+      const usage = event.data.usage as ChatUsage | undefined;
+      const stopped = isStoppedUsage(usage) || stopRequestedRef.current;
       const workingSeconds = startedAtRef.current === null
         ? undefined
         : Math.max(
             1,
-            Math.round(((event.timestamp ?? Date.now()) - startedAtRef.current) / 1000),
+            Math.round((eventTime(event) - startedAtRef.current) / 1000),
           );
       setMessages((current) => current.map((item) => (
         item.key === activeAssistantKeyRef.current
           ? {
               ...item,
-              content: stopped ? (reply.content || item.content) : reply.content,
-              finalOutputKey: reply.final_output_block_id ?? undefined,
+              content: typeof event.data.content === "string"
+                ? (event.data.content || item.content)
+                : item.content,
               loading: false,
-              status: stopped ? "abort" : "success",
-              trace: finishAgentTrace(item.trace ?? [], "success", event.timestamp),
-              usage: reply.usage,
+              status: stopped ? "abort" : event.data.is_error === true ? "error" : "success",
+              trace: finishAgentTrace(
+                item.trace ?? [],
+                event.data.is_error === true ? "error" : "success",
+                eventTime(event),
+              ),
+              usage,
               workingSeconds,
             }
           : item
@@ -321,15 +437,17 @@ export function Workspace({
       onSessionsChanged?.();
       return;
     }
-    if (event.type === "chat_error") {
+    if (event.event === "turn.failed") {
       setMessages((current) => current.map((item) => (
         item.key === activeAssistantKeyRef.current
           ? {
               ...item,
-              content: event.message || item.content,
+              content: typeof event.data.message === "string"
+                ? event.data.message
+                : item.content,
               loading: false,
               status: "error",
-              trace: finishAgentTrace(item.trace ?? [], "error", event.timestamp),
+              trace: finishAgentTrace(item.trace ?? [], "error", eventTime(event)),
             }
           : item
       )));
@@ -341,10 +459,9 @@ export function Workspace({
 
     setBusy(true);
     setMessages((current) => {
-      let assistantKey = activeAssistantKeyRef.current;
+      let assistantKey = turnAssistantKey(event.turn_id);
       let next = current;
-      if (!assistantKey || !current.some((item) => item.key === assistantKey)) {
-        assistantKey = `active-${sessionIdRef.current}`;
+      if (!current.some((item) => item.key === assistantKey)) {
         activeAssistantKeyRef.current = assistantKey;
         next = [
           ...current,
@@ -403,130 +520,36 @@ export function Workspace({
           return;
         }
         sessionIdRef.current = history.session_id;
-        messageNumberRef.current = history.messages.filter(
+        const activeEvents = activeChat?.events ?? [];
+        const activeTurnIds = new Set(activeEvents.map((event) => event.turn_id));
+        const events = [
+          ...history.events.filter((event) => !activeTurnIds.has(event.turn_id)),
+          ...activeEvents,
+        ];
+        processedEventIdsRef.current = new Set(events.map((event) => event.id));
+        const historyMessages = conversationFromEvents(events);
+        messageNumberRef.current = historyMessages.filter(
           (message) => message.role === "user",
         ).length;
-        let historyMessages: ConversationMessage[] = history.messages.map((message) => {
-          if (message.role === "user") {
-            return {
-              content: message.content,
-              key: `history-${message.key}`,
-              role: "user",
-              status: "success",
-            };
-          }
-          const trace = message.trace_events.reduce<AgentTraceItem[]>(
-            (items, event) => applyChatStreamEvent(items, event),
-            [],
-          );
-          return {
-            content: stripExitPlanContent(message.content, trace),
-            expandedTraceItemKeys: [],
-            finalOutputKey: message.final_output_block_id ?? undefined,
-            key: `history-${message.key}`,
-            role: "ai",
-            status: "success",
-            trace: finishAgentTrace(trace, "success"),
-            traceExpanded: false,
-            usage: message.usage,
-          };
-        });
-        if (activeChat) {
-          const assistantKey = `active-${activeChat.session_id}`;
-          activeAssistantKeyRef.current = assistantKey;
-          let assistant: ConversationMessage = {
-            content: "",
-            expandedTraceItemKeys: [],
-            key: assistantKey,
-            loading: true,
-            role: "ai",
-            trace: [],
-            traceExpanded: false,
-          };
-          const permissions: ChatPermissionRequestEvent[] = [];
-          let running = true;
-          for (const event of activeChat.events) {
-            if (event.event_index !== undefined) {
-              eventIndexRef.current = Math.max(
-                eventIndexRef.current,
-                event.event_index,
-              );
-            }
-            if (event.type === "permission_request") {
-              permissions.push(event);
-              const update = applyExitPlanPermission(assistant.trace ?? [], event);
-              if (update.expandedItemKeys.length) {
-                assistant = {
-                  ...assistant,
-                  expandedTraceItemKeys: [
-                    ...new Set([
-                      ...(assistant.expandedTraceItemKeys ?? []),
-                      ...update.expandedItemKeys,
-                    ]),
-                  ],
-                  content: stripExitPlanContent(assistant.content, update.items),
-                  trace: update.items,
-                  traceExpanded: true,
-                };
-              }
-            } else if (event.type === "session_started") {
-              sessionIdRef.current = event.session_id;
-              startedAtRef.current = event.timestamp ?? Date.now();
-            } else if (event.type === "chat_complete") {
-              const stopped = Boolean(event.reply.stopped);
-              assistant = {
-                ...assistant,
-                content: event.reply.content || assistant.content,
-                finalOutputKey: event.reply.final_output_block_id ?? undefined,
-                loading: false,
-                status: stopped ? "abort" : "success",
-                trace: finishAgentTrace(
-                  assistant.trace ?? [],
-                  "success",
-                  event.timestamp,
-                ),
-                usage: event.reply.usage,
-              };
-              running = false;
-            } else if (event.type === "chat_error") {
-              assistant = {
-                ...assistant,
-                content: event.message || assistant.content,
-                loading: false,
-                status: "error",
-                trace: finishAgentTrace(
-                  assistant.trace ?? [],
-                  "error",
-                  event.timestamp,
-                ),
-              };
-              running = false;
-            } else {
-              assistant = applyEventToAssistant(assistant, event);
-            }
-          }
-          let lastUserIndex = -1;
-          for (let index = historyMessages.length - 1; index >= 0; index -= 1) {
-            if (historyMessages[index].role === "user") {
-              lastUserIndex = index;
-              break;
-            }
-          }
-          historyMessages = [
-            ...historyMessages.slice(0, lastUserIndex + 1),
-            assistant,
-          ];
-          setPermissionRequests(permissions);
-          setBusy(running);
-          if (!running) {
-            startedAtRef.current = null;
-          }
-        }
         setMessages(historyMessages);
-        if (history.project_path) {
+        const permissions = activeEvents.filter(isPermissionRequestEvent);
+        setPermissionRequests(permissions);
+        setBusy(Boolean(activeChat));
+        if (activeChat) {
+          const lastEvent = activeEvents.at(-1);
+          if (lastEvent) {
+            activeAssistantKeyRef.current = turnAssistantKey(lastEvent.turn_id);
+          }
+          const started = activeEvents.find((event) => event.event === "turn.started");
+          startedAtRef.current = started ? eventTime(started) : Date.now();
+        } else {
+          startedAtRef.current = null;
+        }
+        if (history.cwd) {
+          const segments = history.cwd.split(/[\\/]/).filter(Boolean);
           onProjectChange({
-            name: history.project_name,
-            path: history.project_path,
+            name: segments.at(-1) ?? history.cwd,
+            path: history.cwd,
           });
         }
         historyLoadingRef.current = false;
@@ -638,7 +661,7 @@ export function Workspace({
     feedback?: string,
   ) => {
     const resolved = await respondChatPermission(
-      request.permission_id,
+      request.data.request_id,
       allowed,
       answers,
       feedback,
@@ -646,11 +669,23 @@ export function Workspace({
     if (!resolved) {
       throw new Error("权限请求已失效，请等待当前任务更新。");
     }
-    if (allowed && request.tool_name === "ExitPlanMode") {
-      onPermissionModeChange(request.suggested_permission_mode ?? "default");
+    if (allowed && request.data.tool_name === "ExitPlanMode") {
+      const suggestion = request.data.suggestions.find((item) => (
+        item.type === "setMode"
+        && (
+          item.mode === "default"
+          || item.mode === "acceptEdits"
+          || item.mode === "auto"
+          || item.mode === "bypassPermissions"
+        )
+      ));
+      onPermissionModeChange(
+        (suggestion?.mode as Exclude<ChatPermissionMode, "plan"> | undefined)
+        ?? "default",
+      );
     }
     setPermissionRequests((current) => current.filter(
-      (item) => item.permission_id !== request.permission_id,
+      (item) => item.data.request_id !== request.data.request_id,
     ));
   };
 
@@ -721,16 +756,19 @@ export function Workspace({
         if (reply.session_id) {
           sessionIdRef.current = reply.session_id;
         }
-        const stopped = Boolean(reply.stopped || stopRequestedRef.current);
+        const stopped = isStoppedUsage(reply.usage) || stopRequestedRef.current;
+        const resolvedAssistantKey = activeAssistantKeyRef.current ?? assistantKey;
         setMessages((current) => current.map((item) => (
-          item.key === assistantKey
+          item.key === resolvedAssistantKey
             ? {
                 ...item,
                 content: stopped ? (reply.content || item.content) : reply.content,
-                finalOutputKey: reply.final_output_block_id ?? undefined,
                 loading: false,
-                status: stopped ? "abort" : "success",
-                trace: finishAgentTrace(item.trace ?? [], "success"),
+                status: stopped ? "abort" : reply.is_error ? "error" : "success",
+                trace: finishAgentTrace(
+                  item.trace ?? [],
+                  reply.is_error ? "error" : "success",
+                ),
                 usage: reply.usage,
                 workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
               }
@@ -740,8 +778,9 @@ export function Workspace({
       })
       .catch((error: unknown) => {
         const stopped = stopRequestedRef.current;
+        const resolvedAssistantKey = activeAssistantKeyRef.current ?? assistantKey;
         setMessages((current) => current.map((item) => (
-          item.key === assistantKey
+          item.key === resolvedAssistantKey
             ? {
                 ...item,
                 content: stopped ? item.content : errorText(error),
@@ -820,7 +859,7 @@ export function Workspace({
     if (item.usage) {
       stats.inputTokens += item.usage.input_tokens ?? 0;
       stats.outputTokens += item.usage.output_tokens ?? 0;
-      stats.agentSteps += item.usage.num_turns ?? 1;
+      stats.agentSteps += item.usage.actual_turns_this_request || 1;
       stats.latestUsage = item.usage;
     } else if (!item.loading) {
       stats.agentSteps += 1;

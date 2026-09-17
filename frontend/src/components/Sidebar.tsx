@@ -57,6 +57,10 @@ type AutoScrollTextProps = {
 const SIDEBAR_SCROLL_GAP = 24;
 const SIDEBAR_SCROLL_SPEED = 32;
 
+function workspaceName(path: string | null): string {
+  return path?.split(/[\\/]/).filter(Boolean).at(-1) ?? "未知工作区";
+}
+
 function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
   const containerRef = useRef<HTMLSpanElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -161,7 +165,7 @@ export function Sidebar({
   const sessionGroups = useMemo(() => {
     const grouped = new Map<string, ChatSessionSummary[]>();
     for (const session of sessions) {
-      const key = session.project_path || "__unknown_project__";
+      const key = session.cwd || "__unknown_project__";
       const group = grouped.get(key) ?? [];
       group.push(session);
       grouped.set(key, group);
@@ -174,8 +178,8 @@ export function Sidebar({
         return {
           key,
           lastModified: sortedSessions[0].last_modified,
-          name: sortedSessions[0].project_name,
-          path: sortedSessions[0].project_path,
+          name: workspaceName(sortedSessions[0].cwd),
+          path: sortedSessions[0].cwd ?? "",
           sessions: sortedSessions,
         };
       })
@@ -194,7 +198,7 @@ export function Sidebar({
   }, [defaultProjectPath, sessions]);
 
   const activeProjectKey =
-    sessions.find((session) => session.session_id === activeSessionId)?.project_path || null;
+    sessions.find((session) => session.session_id === activeSessionId)?.cwd || null;
 
   useEffect(() => {
     if (!activeProjectKey) {

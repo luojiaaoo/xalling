@@ -7,9 +7,9 @@ from backend.router import FileRouter
 
 @pytest.fixture()
 def project(tmp_path: Path) -> Path:
-    chat_dir = tmp_path / "backend" / "chat"
-    chat_dir.mkdir(parents=True)
-    (chat_dir / "trace.py").write_text("# trace", encoding="utf-8")
+    client_dir = tmp_path / "backend" / "claude_chat_client"
+    client_dir.mkdir(parents=True)
+    (client_dir / "models.py").write_text("# models", encoding="utf-8")
     (tmp_path / "backend" / "router").mkdir()
     ignored = tmp_path / "node_modules" / "junk"
     ignored.mkdir(parents=True)
@@ -20,10 +20,12 @@ def project(tmp_path: Path) -> Path:
 def test_file_router_searches_files_and_folders(project: Path) -> None:
     router = FileRouter()
 
-    files = router.search_project_files(str(project), "trace")
-    assert [item["name"] for item in files] == ["trace.py"]
-    assert files[0]["path"] == (project / "backend" / "chat" / "trace.py").as_posix()
-    assert files[0]["relative"] == "backend/chat/trace.py"
+    files = router.search_project_files(str(project), "models")
+    assert [item["name"] for item in files] == ["models.py"]
+    assert files[0]["path"] == (
+        project / "backend" / "claude_chat_client" / "models.py"
+    ).as_posix()
+    assert files[0]["relative"] == "backend/claude_chat_client/models.py"
     assert files[0]["is_dir"] is False
 
     folders = router.search_project_files(str(project), "router")

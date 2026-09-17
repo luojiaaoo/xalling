@@ -57,6 +57,14 @@ class _ToolCall:
     input: dict[str, Any]
 
 
+@dataclass(slots=True)
+class _StreamState:
+    """Stable identity for one raw assistant message stream."""
+
+    stream_uuid: str
+    message_id: str
+
+
 class _EventFactory:
     def __init__(self, turn_id: str, *, session_id: str | None = None) -> None:
         self.turn_id = turn_id
@@ -167,6 +175,7 @@ class _MessageAdapter:
         self.plan_approval_modes = plan_approval_modes
         self.tools: dict[str, _ToolCall] = {}
         self.stream_blocks: dict[tuple[str, int], dict[str, Any]] = {}
+        self.streams: dict[tuple[str, str | None], _StreamState] = {}
         self.main_text: list[str] = []
         self.main_models: list[str] = []
         self.last_main_stop_reason: str | None = None
@@ -604,8 +613,10 @@ class _MessageAdapter:
         raw = message.event
         raw_type = raw.get("type")
         parent_id = message.parent_tool_use_id
+        state = self._stream_state(message, raw_type)
         common = {
-            "stream_uuid": message.uuid,
+            "stream_uuid": state.stream_uuid,
+            "message_id": state.message_id,
             "raw_type": raw_type,
         }
 
@@ -617,7 +628,6 @@ class _MessageAdapter:
                     "assistant.message.started",
                     {
                         **common,
-                        "message_id": payload.get("id"),
                         "model": payload.get("model"),
                         "usage": payload.get("usage"),
                     },
@@ -645,7 +655,7 @@ class _MessageAdapter:
                 )
             ]
         if raw_type == "message_stop":
-            return [
+            events = [
                 self.factory.make(
                     "assistant.message.stopped",
                     common,
@@ -653,6 +663,8 @@ class _MessageAdapter:
                     parent_tool_use_id=parent_id,
                 )
             ]
+            self._finish_stream(message, state)
+            return events
         if raw_type == "ping":
             return [
                 self.factory.make(
@@ -680,6 +692,51 @@ class _MessageAdapter:
             )
         ]
 
+    def _stream_state(
+        self,
+        message: StreamEvent,
+        raw_type: Any,
+    ) -> _StreamState:
+        scope = (message.session_id, message.parent_tool_use_id)
+        if raw_type == "message_start":
+            raw_message = message.event.get("message")
+            payload = raw_message if isinstance(raw_message, Mapping) else {}
+            message_id = _string_or_none(payload.get("id")) or message.uuid
+            previous = self.streams.get(scope)
+            if previous is not None:
+                self._clear_stream_blocks(previous.stream_uuid)
+            state = _StreamState(
+                stream_uuid=message.uuid,
+                message_id=message_id,
+            )
+            self.streams[scope] = state
+            return state
+
+        state = self.streams.get(scope)
+        if state is None:
+            # Be defensive when a transport reconnect drops message_start. The
+            # first observed event becomes the stable identity for later frames.
+            state = _StreamState(
+                stream_uuid=message.uuid,
+                message_id=message.uuid,
+            )
+            self.streams[scope] = state
+        return state
+
+    def _finish_stream(
+        self,
+        message: StreamEvent,
+        state: _StreamState,
+    ) -> None:
+        scope = (message.session_id, message.parent_tool_use_id)
+        if self.streams.get(scope) is state:
+            self.streams.pop(scope, None)
+        self._clear_stream_blocks(state.stream_uuid)
+
+    def _clear_stream_blocks(self, stream_uuid: str) -> None:
+        for key in [key for key in self.stream_blocks if key[0] == stream_uuid]:
+            self.stream_blocks.pop(key, None)
+
     def _stream_block_start(
         self,
         message: StreamEvent,
@@ -690,12 +747,17 @@ class _MessageAdapter:
         raw_block = raw.get("content_block")
         block = raw_block if isinstance(raw_block, dict) else {}
         block_type = block.get("type")
-        self.stream_blocks[(message.uuid, index)] = {
+        stream_uuid = cast(str, common["stream_uuid"])
+        self.stream_blocks[(stream_uuid, index)] = {
             "type": block_type,
             "tool_id": block.get("id"),
             "name": block.get("name"),
         }
-        data = {**common, "index": index}
+        data = {
+            **common,
+            "block_id": f"{common['message_id']}:{index}",
+            "index": index,
+        }
         if block_type == "text":
             event: EventName = "assistant.reply.started"
         elif block_type in {"thinking", "redacted_thinking"}:
@@ -721,7 +783,11 @@ class _MessageAdapter:
         raw_delta = raw.get("delta")
         delta = raw_delta if isinstance(raw_delta, dict) else {}
         delta_type = delta.get("type")
-        data = {**common, "index": index}
+        data = {
+            **common,
+            "block_id": f"{common['message_id']}:{index}",
+            "index": index,
+        }
         if delta_type == "text_delta":
             event: EventName = "assistant.reply.delta"
             data["text"] = delta.get("text", "")
@@ -735,7 +801,8 @@ class _MessageAdapter:
             event = "assistant.reply.citation"
             data["citation"] = delta.get("citation")
         elif delta_type == "input_json_delta":
-            block = self.stream_blocks.get((message.uuid, index), {})
+            stream_uuid = cast(str, common["stream_uuid"])
+            block = self.stream_blocks.get((stream_uuid, index), {})
             event = "subagent.tool.input.delta" if message.parent_tool_use_id is not None else "tool.input.delta"
             data.update(
                 {
@@ -769,7 +836,8 @@ class _MessageAdapter:
         common: dict[str, Any],
     ) -> list[ChatEvent]:
         index = _integer_or_zero(raw.get("index"))
-        block = self.stream_blocks.get((message.uuid, index), {})
+        stream_uuid = cast(str, common["stream_uuid"])
+        block = self.stream_blocks.get((stream_uuid, index), {})
         block_type = block.get("type")
         if block_type == "text":
             event: EventName = "assistant.reply.stopped"
@@ -780,7 +848,11 @@ class _MessageAdapter:
         return [
             self.factory.make(
                 event,
-                {**common, "index": index},
+                {
+                    **common,
+                    "block_id": f"{common['message_id']}:{index}",
+                    "index": index,
+                },
                 session_id=message.session_id,
                 parent_tool_use_id=message.parent_tool_use_id,
             )

@@ -11,6 +11,7 @@ from claude_agent_sdk import (
     PermissionResult,
     PermissionResultAllow,
     ResultMessage,
+    StreamEvent,
     TextBlock,
     ToolPermissionContext,
     UserMessage,
@@ -271,6 +272,107 @@ async def _client_remembers_stop_requested_before_query_submission() -> None:
             await client.request_stop()
 
     assert _FakeSDK.instances[0].interrupted is True
+
+
+def test_client_normalizes_changing_stream_event_uuids() -> None:
+    anyio.run(_client_normalizes_changing_stream_event_uuids)
+
+
+async def _client_normalizes_changing_stream_event_uuids() -> None:
+    _FakeSDK.batches = [
+        [
+            UserMessage(
+                content="Say hello",
+                uuid="replaced-below",
+                origin={"kind": "human"},
+            ),
+            StreamEvent(
+                uuid="frame-1",
+                session_id="session-1",
+                event={
+                    "type": "message_start",
+                    "message": {
+                        "id": "api-message-1",
+                        "model": "test-model",
+                        "usage": {},
+                    },
+                },
+            ),
+            StreamEvent(
+                uuid="frame-2",
+                session_id="session-1",
+                event={
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "text", "text": ""},
+                },
+            ),
+            StreamEvent(
+                uuid="frame-3",
+                session_id="session-1",
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "Hello "},
+                },
+            ),
+            StreamEvent(
+                uuid="frame-4",
+                session_id="session-1",
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "world"},
+                },
+            ),
+            StreamEvent(
+                uuid="frame-5",
+                session_id="session-1",
+                event={"type": "content_block_stop", "index": 0},
+            ),
+            StreamEvent(
+                uuid="frame-6",
+                session_id="session-1",
+                event={"type": "message_stop"},
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="Hello world")],
+                model="test-model",
+                message_id="api-message-1",
+                session_id="session-1",
+                uuid="assistant-envelope-1",
+                stop_reason="end_turn",
+            ),
+            _result(origin={"kind": "human"}),
+        ]
+    ]
+    client = ClaudeChatClient(ClaudeAgentOptions(model="test-model"))
+    events = []
+
+    async for event in client.stream("Say hello"):
+        events.append(event)
+        if event.event == "turn.started":
+            _FakeSDK.batches[0][0].uuid = event.turn_id
+
+    block_events = [
+        event
+        for event in events
+        if event.event
+        in {
+            "assistant.reply.started",
+            "assistant.reply.delta",
+            "assistant.reply.stopped",
+        }
+    ]
+    assert len(block_events) == 4
+    assert {event.data["stream_uuid"] for event in block_events} == {"frame-1"}
+    assert {event.data["message_id"] for event in block_events} == {"api-message-1"}
+    assert {event.data["block_id"] for event in block_events} == {"api-message-1:0"}
+    assert [
+        event.data["text"]
+        for event in block_events
+        if event.event == "assistant.reply.delta"
+    ] == ["Hello ", "world"]
 
 
 def _result(

@@ -8,10 +8,7 @@ import {
 } from "@ant-design/icons";
 import { Think, ThoughtChain } from "@ant-design/x";
 
-import type {
-  ChatPermissionRequestEvent,
-  ChatStreamEvent,
-} from "../bridge/client";
+import type { ChatStreamEvent } from "../bridge/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type TraceStatus = "error" | "running" | "success";
@@ -88,17 +85,31 @@ function applyChatStreamEventAtLevel(
   items: AgentTraceItem[],
   event: ChatStreamEvent,
 ): AgentTraceItem[] {
-  const now = event.timestamp ?? Date.now();
+  const parsedTime = Date.parse(event.created_at);
+  const now = Number.isFinite(parsedTime) ? parsedTime : Date.now();
+  const data = event.data;
+  const streamUuid = typeof data.stream_uuid === "string" ? data.stream_uuid : event.id;
+  const index = typeof data.index === "number" ? data.index : 0;
+  const messageId = typeof data.message_id === "string" ? data.message_id : undefined;
+  const messageUuid = typeof data.message_uuid === "string" ? data.message_uuid : event.id;
+  const blockId = typeof data.block_id === "string"
+    ? data.block_id
+    : `${streamUuid}:${index}`;
+  const isThinking = event.event.startsWith("assistant.thinking")
+    || event.event === "subagent.thinking.completed";
+  const contentKey = event.event.endsWith(".completed")
+    ? `${messageId ?? messageUuid}:completed:${isThinking ? "thinking" : "reply"}`
+    : `${blockId}:${isThinking ? "thinking" : "reply"}`;
 
-  if (event.type === "thinking_start" || event.type === "output_start") {
-    const kind = event.type === "thinking_start" ? "thinking" : "output";
-    const existingIndex = items.findIndex((item) => item.key === event.block_id);
+  if (event.event === "assistant.thinking.started" || event.event === "assistant.reply.started") {
+    const kind = isThinking ? "thinking" : "output";
+    const existingIndex = items.findIndex((item) => item.key === contentKey);
     if (existingIndex === -1) {
       return [
         ...items,
         {
           content: "",
-          key: event.block_id,
+          key: contentKey,
           kind,
           startedAt: now,
           status: "running",
@@ -108,15 +119,18 @@ function applyChatStreamEventAtLevel(
     return items;
   }
 
-  if (event.type === "thinking_delta" || event.type === "output_delta") {
-    const kind = event.type === "thinking_delta" ? "thinking" : "output";
-    const existingIndex = items.findIndex((item) => item.key === event.block_id);
+  if (event.event === "assistant.thinking.delta" || event.event === "assistant.reply.delta") {
+    const kind = isThinking ? "thinking" : "output";
+    const text = isThinking
+      ? (typeof data.thinking === "string" ? data.thinking : "")
+      : (typeof data.text === "string" ? data.text : "");
+    const existingIndex = items.findIndex((item) => item.key === contentKey);
     if (existingIndex === -1) {
       return [
         ...items,
         {
-          content: event.text,
-          key: event.block_id,
+          content: text,
+          key: contentKey,
           kind,
           startedAt: now,
           status: "running",
@@ -125,51 +139,96 @@ function applyChatStreamEventAtLevel(
     }
     return items.map((item, index) => (
       index === existingIndex && item.kind !== "tools"
-        ? { ...item, content: `${item.content}${event.text}` }
+        ? { ...item, content: `${item.content}${text}` }
         : item
     ));
   }
 
-  if (event.type === "thinking_complete" || event.type === "output_complete") {
+  if (event.event === "assistant.thinking.stopped" || event.event === "assistant.reply.stopped") {
     return items.map((item) => (
-      item.key === event.block_id ? completeStatus(item, "success", now) : item
+      item.key === contentKey ? completeStatus(item, "success", now) : item
     ));
   }
 
-  if (event.type === "tool_start") {
-    const previousItem = items.at(-1);
-    const plan = (
-      event.name === "ExitPlanMode"
-      && previousItem?.kind === "output"
-      && previousItem.content.trim()
-    ) || undefined;
-    const sourceItems = plan ? items.slice(0, -1) : items;
+  if (event.event.endsWith(".reply.completed") || event.event.endsWith(".thinking.completed")) {
+    const content = isThinking
+      ? (typeof data.thinking === "string" ? data.thinking : "")
+      : (typeof data.text === "string" ? data.text : "");
+    const kind = isThinking ? "thinking" : "output";
+    const completedMessageIds = [messageId, messageUuid]
+      .filter((value): value is string => typeof value === "string");
+    if (
+      !content
+      || items.some((item) => (
+        item.kind === kind
+        && completedMessageIds.some((id) => item.key.startsWith(`${id}:`))
+      ))
+    ) {
+      return items;
+    }
+    return [
+      ...items,
+      {
+        content,
+        finishedAt: now,
+        key: contentKey,
+        kind,
+        startedAt: now,
+        status: "success",
+      },
+    ];
+  }
+
+  const requestedEvents = new Set([
+    "tool.requested",
+    "subagent.tool.requested",
+    "subagent.started",
+    "ask_user.requested",
+    "plan.approval.requested",
+    "server_tool.requested",
+  ]);
+  if (requestedEvents.has(event.event)) {
+    const toolId = typeof data.tool_id === "string" ? data.tool_id : event.id;
+    const name = typeof data.name === "string"
+      ? data.name
+      : typeof data.tool_name === "string"
+        ? data.tool_name
+        : event.event;
+    const input = typeof data.input === "object" && data.input !== null
+      ? data.input
+      : data;
+    const rawSummary = JSON.stringify(input);
+    const summary = rawSummary.length > 180 ? `${rawSummary.slice(0, 177)}...` : rawSummary;
+    const plan = typeof data.plan === "string" && data.plan.trim()
+      ? data.plan.trim()
+      : undefined;
     const toolCall: ToolCall = {
-      key: event.tool_id,
-      name: event.name,
+      key: toolId,
+      name,
       plan,
       status: "running",
-      summary: event.summary,
+      summary,
       trace: [],
     };
-    const groupIndex = sourceItems.findIndex((item) => item.key === event.group_id);
+    const groupKey = `tools:${event.turn_id}:${event.parent_tool_use_id ?? "main"}`;
+    const groupIndex = items.findIndex((item) => item.key === groupKey);
     if (groupIndex === -1) {
       return [
-        ...sourceItems,
+        ...items,
         {
           calls: [toolCall],
-          key: event.group_id,
+          key: groupKey,
           kind: "tools",
           startedAt: now,
           status: "running",
         },
       ];
     }
-    return sourceItems.map((item, index) => {
-      if (index !== groupIndex || item.kind !== "tools") {
+    return items.map((item, itemIndex) => {
+      if (itemIndex !== groupIndex || item.kind !== "tools") {
         return item;
       }
-      if (item.calls.some((call) => call.key === event.tool_id)) {
+      if (item.calls.some((call) => call.key === toolId)) {
         return item;
       }
       return {
@@ -181,21 +240,31 @@ function applyChatStreamEventAtLevel(
     });
   }
 
-  if (event.type === "tool_complete") {
+  const completedEvents = new Set([
+    "tool.completed",
+    "subagent.tool.completed",
+    "subagent.completed",
+    "ask_user.completed",
+    "plan.approval.completed",
+    "server_tool.completed",
+  ]);
+  if (completedEvents.has(event.event)) {
+    const toolId = typeof data.tool_id === "string" ? data.tool_id : "";
+    const status: "error" | "success" = data.is_error === true ? "error" : "success";
     return items.map((item) => {
       if (item.kind !== "tools") {
         return item;
       }
-      const callIndex = item.calls.findIndex((call) => call.key === event.tool_id);
+      const callIndex = item.calls.findIndex((call) => call.key === toolId);
       if (callIndex === -1) {
         return item;
       }
       const calls = item.calls.map((call) => (
-        call.key === event.tool_id
+        call.key === toolId
           ? {
               ...call,
-              status: event.status,
-              trace: finishAgentTrace(call.trace, event.status, now),
+              status,
+              trace: finishAgentTrace(call.trace, status, now),
             }
           : call
       ));
@@ -251,57 +320,14 @@ export function applyChatStreamEvent(
   items: AgentTraceItem[],
   event: ChatStreamEvent,
 ): AgentTraceItem[] {
-  if (event.parent_tool_id !== undefined) {
+  if (event.parent_tool_use_id !== null) {
     return applyNestedChatStreamEvent(
       items,
-      event.parent_tool_id,
+      event.parent_tool_use_id,
       event,
     ).items;
   }
   return applyChatStreamEventAtLevel(items, event);
-}
-
-type ExitPlanPermissionUpdate = {
-  expandedItemKeys: string[];
-  items: AgentTraceItem[];
-};
-
-export function applyExitPlanPermission(
-  items: AgentTraceItem[],
-  event: ChatPermissionRequestEvent,
-): ExitPlanPermissionUpdate {
-  const rawPlan = event.tool_name === "ExitPlanMode" ? event.input.plan : null;
-  const plan = typeof rawPlan === "string" ? rawPlan.trim() : "";
-  if (!plan) {
-    return { expandedItemKeys: [], items };
-  }
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item.kind !== "tools") {
-      continue;
-    }
-    let callIndex = -1;
-    for (let candidateIndex = item.calls.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
-      if (item.calls[candidateIndex].name === "ExitPlanMode") {
-        callIndex = candidateIndex;
-        break;
-      }
-    }
-    if (callIndex === -1) {
-      continue;
-    }
-    const call = item.calls[callIndex];
-    const calls = item.calls.map((candidate, candidateIndex) => (
-      candidateIndex === callIndex ? { ...candidate, plan } : candidate
-    ));
-    return {
-      expandedItemKeys: [item.key, call.key],
-      items: items.map((candidate, candidateIndex) => (
-        candidateIndex === index ? { ...item, calls } : candidate
-      )),
-    };
-  }
-  return { expandedItemKeys: [], items };
 }
 
 export function stripExitPlanContent(

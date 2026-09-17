@@ -263,7 +263,7 @@ export function TaskComposer({
 
   useEffect(() => {
     setPermissionDecision(null);
-  }, [permissionRequest?.permission_id]);
+  }, [permissionRequest?.data.request_id]);
 
   useEffect(() => {
     slashRequestedRef.current = false;
@@ -634,16 +634,16 @@ export function TaskComposer({
       {contextHolder}
       {permissionRequest && isAskUserQuestionRequest(permissionRequest) ? (
         <AskUserQuestionDialog
-          key={permissionRequest.permission_id}
+          key={permissionRequest.data.request_id}
           decision={permissionDecision}
           onDecision={handleToolPermissionDecision}
           onStop={onStop}
           request={permissionRequest}
           stopping={stopping}
         />
-      ) : permissionRequest?.tool_name === "ExitPlanMode" ? (
+      ) : permissionRequest?.data.tool_name === "ExitPlanMode" ? (
         <ExitPlanModeDialog
-          key={permissionRequest.permission_id}
+          key={permissionRequest.data.request_id}
           decision={permissionDecision}
           onDecision={(allowed, feedback) => (
             handleToolPermissionDecision(allowed, undefined, feedback)
@@ -662,13 +662,15 @@ export function TaskComposer({
           <div className="tool-permission-heading">
             <span className="tool-permission-icon"><SafetyCertificateOutlined /></span>
             <div className="tool-permission-copy">
-              <strong id="tool-permission-title">{permissionRequest.title}</strong>
-              <span>{permissionRequest.description}</span>
+              <strong id="tool-permission-title">
+                {permissionRequest.data.title || `Claude 请求使用 ${permissionRequest.data.tool_name}`}
+              </strong>
+              <span>{permissionRequest.data.description || "此操作需要你的确认后才能继续。"}</span>
             </div>
-            <code>{permissionRequest.display_name || permissionRequest.tool_name}</code>
+            <code>{permissionRequest.data.display_name || permissionRequest.data.tool_name}</code>
           </div>
           <pre className="tool-permission-input">
-            {JSON.stringify(permissionRequest.input, null, 2)}
+            {JSON.stringify(permissionRequest.data.tool_input, null, 2)}
           </pre>
           <div className="tool-permission-actions">
             {busy && onStop && (

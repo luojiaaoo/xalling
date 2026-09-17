@@ -39,7 +39,7 @@ export function AskUserQuestionDialog({
   request,
   stopping = false,
 }: AskUserQuestionDialogProps) {
-  const questions = request.input.questions;
+  const questions = request.data.tool_input.questions;
   const [activeKey, setActiveKey] = useState("0");
   const [drafts, setDrafts] = useState<AnswerDraft[]>(() => (
     questions.map(() => ({ custom: "", selected: [] }))
@@ -171,7 +171,7 @@ export function AskUserQuestionDialog({
 
   return (
     <section
-      aria-labelledby={`ask-user-question-title-${request.permission_id}`}
+      aria-labelledby={`ask-user-question-title-${request.data.request_id}`}
       aria-modal="true"
       className="tool-permission-dialog ask-user-question-dialog"
       role="dialog"
@@ -179,7 +179,7 @@ export function AskUserQuestionDialog({
       <div className="tool-permission-heading">
         <span className="tool-permission-icon"><QuestionCircleOutlined /></span>
         <div className="tool-permission-copy">
-          <strong id={`ask-user-question-title-${request.permission_id}`}>
+          <strong id={`ask-user-question-title-${request.data.request_id}`}>
             Claude 需要你的回答
           </strong>
           <span>回答完成后，Claude 会继续当前任务。</span>
