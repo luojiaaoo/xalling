@@ -238,47 +238,16 @@ class ChatEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelUsage:
-    """Actual usage attributed to one model, including sub-agents."""
-
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_input_tokens: int = 0
-    cache_creation_input_tokens: int = 0
-    web_search_requests: int = 0
-    cost_usd: float = 0.0
-
-    def to_dict(self) -> dict[str, int | float]:
-        return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
 class TurnUsage:
-    """Usage returned when one human-submitted conversation turn finishes.
+    """Top-level agent usage for one human-submitted turn."""
 
-    ``user_turns`` is the number of prompts submitted through this wrapper.
-    ``actual_turns`` is the cumulative sum of SDK ``ResultMessage.num_turns``
-    and therefore includes agent/tool round trips and Claude Code injected
-    turns observed while waiting for the human turn to finish. Persisted
-    transcripts do not retain ``ResultMessage`` objects, so history replay
-    estimates these two actual-turn fields from unique assistant messages and
-    reports zero ``sdk_results_this_request``.
-    """
-
-    user_turns: int
-    actual_turns: int
-    actual_turns_this_request: int
-    sdk_results_this_request: int
     input_tokens: int
     output_tokens: int
     cache_read_input_tokens: int
     cache_creation_input_tokens: int
     model: str | None
-    models: tuple[str, ...]
     stop_reason: str | None
     terminal_reason: str | None
-    total_cost_usd: float
-    by_model: dict[str, ModelUsage]
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe usage payload."""

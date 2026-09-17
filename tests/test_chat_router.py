@@ -69,20 +69,13 @@ def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def usage(*, terminal_reason: str | None = None) -> TurnUsage:
     return TurnUsage(
-        user_turns=1,
-        actual_turns=1,
-        actual_turns_this_request=1,
-        sdk_results_this_request=1,
         input_tokens=10,
         output_tokens=5,
         cache_read_input_tokens=2,
         cache_creation_input_tokens=1,
         model="claude-sonnet",
-        models=("claude-sonnet",),
         stop_reason="end_turn",
         terminal_reason=terminal_reason,
-        total_cost_usd=0.01,
-        by_model={},
     )
 
 

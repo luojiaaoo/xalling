@@ -37,14 +37,13 @@ from .models import (
     ChatEvent,
     ChatResult,
     EventHandler,
-    ModelUsage,
     PermissionHandler,
     PermissionRequestedData,
     PermissionResolvedData,
     PlanApprovalMode,
     _jsonable,
 )
-from .usage import _UsageAccumulator
+from .usage import _turn_usage
 
 _STREAM_END = object()
 
@@ -96,8 +95,6 @@ class ClaudeChatClient:
         self._pending_permissions: dict[str, _PendingPermission] = {}
         self._plan_approval_modes: dict[str, PlanApprovalMode] = {}
         self._user_turns = 0
-        self._actual_turns = 0
-        self._usage_baseline: dict[str, ModelUsage] = {}
         self._last_result: ChatResult | None = None
 
     @property
@@ -433,7 +430,6 @@ class ClaudeChatClient:
         if sdk is None:  # pragma: no cover - guarded by stream
             raise RuntimeError("Claude SDK client is not connected")
         adapter = _MessageAdapter(factory, self._plan_approval_modes)
-        usage = _UsageAccumulator(self._usage_baseline)
         requested_result: ResultMessage | None = None
 
         async def submitted_message() -> AsyncIterator[dict[str, Any]]:
@@ -468,13 +464,6 @@ class ClaudeChatClient:
                         continue
 
                     received_result = True
-                    fallback_model = (
-                        adapter.main_models[-1]
-                        if adapter.main_models
-                        else self._options.model
-                    )
-                    usage.add(message, fallback_model)
-                    self._actual_turns += max(message.num_turns, 0)
                     origin = dict(message.origin) if message.origin else None
                     origin_kind = origin.get("kind") if origin else None
                     if origin_kind not in {None, "human"}:
@@ -502,17 +491,16 @@ class ClaudeChatClient:
             if requested_result is None:
                 raise RuntimeError("Claude SDK message stream ended without a result")
 
-            primary_model = adapter.main_models[-1] if adapter.main_models else self._options.model
-            final_usage = usage.finish(
-                user_turns=self._user_turns,
-                cumulative_actual_turns=self._actual_turns,
-                primary_model=primary_model,
-                result=requested_result,
-                fallback_stop_reason=adapter.last_main_stop_reason,
+            primary_model = (
+                adapter.main_models[-1]
+                if adapter.main_models
+                else self._options.model
             )
-            cumulative_snapshot = usage.cumulative_snapshot
-            if cumulative_snapshot is not None:
-                self._usage_baseline = cumulative_snapshot
+            final_usage = _turn_usage(
+                requested_result,
+                primary_model,
+                adapter.last_main_stop_reason,
+            )
             content = requested_result.result
             if content is None:
                 content = "\n\n".join(part for part in adapter.main_text if part)

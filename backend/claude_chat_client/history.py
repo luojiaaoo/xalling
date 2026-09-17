@@ -32,7 +32,6 @@ from .models import (
     ChatSearchMatch,
     ChatSessionInfo,
     ChatSessionSnapshot,
-    ModelUsage,
     TurnUsage,
 )
 
@@ -265,20 +264,17 @@ def assemble_session_messages(
     adapter: _MessageAdapter | None = None
     turn_events_start = 0
     user_turn = 0
-    cumulative_actual_turns = 0
 
     for message in messages:
         if factory is None or _starts_human_turn(message):
             if factory is not None and adapter is not None:
-                completed, actual_turns = _history_turn_completed(
-                    factory,
-                    adapter,
-                    events[turn_events_start:],
-                    user_turn=user_turn,
-                    cumulative_actual_turns=cumulative_actual_turns,
+                events.append(
+                    _history_turn_completed(
+                        factory,
+                        adapter,
+                        events[turn_events_start:],
+                    )
                 )
-                events.append(completed)
-                cumulative_actual_turns += actual_turns
             user_turn += 1
             factory = _EventFactory(message.uuid, session_id=message.session_id)
             adapter = _MessageAdapter(factory, {})
@@ -304,14 +300,13 @@ def assemble_session_messages(
             )
         )
     if factory is not None and adapter is not None:
-        completed, _actual_turns = _history_turn_completed(
-            factory,
-            adapter,
-            events[turn_events_start:],
-            user_turn=user_turn,
-            cumulative_actual_turns=cumulative_actual_turns,
+        events.append(
+            _history_turn_completed(
+                factory,
+                adapter,
+                events[turn_events_start:],
+            )
         )
-        events.append(completed)
     return events
 
 
@@ -319,96 +314,59 @@ def _history_turn_completed(
     factory: _EventFactory,
     adapter: _MessageAdapter,
     events: Iterable[ChatEvent],
-    *,
-    user_turn: int,
-    cumulative_actual_turns: int,
-) -> tuple[ChatEvent, int]:
+) -> ChatEvent:
     """Synthesize the terminal event absent from persisted transcripts."""
-    raw_usage_by_message: dict[
-        tuple[str | None, str],
-        tuple[str, Mapping[str, Any]],
-    ] = {}
-    assistant_messages: set[tuple[str | None, str]] = set()
+    raw_usage_by_message: dict[str, Mapping[str, Any]] = {}
     for event in events:
-        if event.event != "assistant.message.completed":
+        if (
+            event.event != "assistant.message.completed"
+            or event.parent_tool_use_id is not None
+        ):
             continue
-        model = event.data.get("model")
         usage = event.data.get("usage")
         message_key = event.data.get("message_id") or event.data.get("message_uuid")
-        if not isinstance(message_key, str):
-            continue
-        scoped_message_key = (event.parent_tool_use_id, message_key)
-        assistant_messages.add(scoped_message_key)
-        if not isinstance(model, str) or not isinstance(usage, Mapping):
-            continue
-        raw_usage_by_message[scoped_message_key] = (
-            model,
-            usage,
-        )
+        if isinstance(message_key, str) and isinstance(usage, Mapping):
+            raw_usage_by_message[message_key] = usage
 
-    by_model: dict[str, ModelUsage] = {}
-    for model, raw_usage in raw_usage_by_message.values():
-        previous = by_model.get(model, ModelUsage())
-        by_model[model] = ModelUsage(
-            input_tokens=previous.input_tokens
-            + _usage_integer(raw_usage, "input_tokens"),
-            output_tokens=previous.output_tokens
-            + _usage_integer(raw_usage, "output_tokens"),
-            cache_read_input_tokens=previous.cache_read_input_tokens
-            + _usage_integer(raw_usage, "cache_read_input_tokens"),
-            cache_creation_input_tokens=previous.cache_creation_input_tokens
-            + _usage_integer(raw_usage, "cache_creation_input_tokens"),
-        )
-
-    actual_turns = len(assistant_messages)
-    totals = ModelUsage(
-        input_tokens=sum(usage.input_tokens for usage in by_model.values()),
-        output_tokens=sum(usage.output_tokens for usage in by_model.values()),
+    usage = TurnUsage(
+        input_tokens=sum(
+            _usage_integer(raw, "input_tokens")
+            for raw in raw_usage_by_message.values()
+        ),
+        output_tokens=sum(
+            _usage_integer(raw, "output_tokens")
+            for raw in raw_usage_by_message.values()
+        ),
         cache_read_input_tokens=sum(
-            usage.cache_read_input_tokens for usage in by_model.values()
+            _usage_integer(raw, "cache_read_input_tokens")
+            for raw in raw_usage_by_message.values()
         ),
         cache_creation_input_tokens=sum(
-            usage.cache_creation_input_tokens for usage in by_model.values()
+            _usage_integer(raw, "cache_creation_input_tokens")
+            for raw in raw_usage_by_message.values()
         ),
-    )
-    primary_model = adapter.main_models[-1] if adapter.main_models else None
-    usage = TurnUsage(
-        user_turns=user_turn,
-        actual_turns=cumulative_actual_turns + actual_turns,
-        actual_turns_this_request=actual_turns,
-        sdk_results_this_request=0,
-        input_tokens=totals.input_tokens,
-        output_tokens=totals.output_tokens,
-        cache_read_input_tokens=totals.cache_read_input_tokens,
-        cache_creation_input_tokens=totals.cache_creation_input_tokens,
-        model=primary_model,
-        models=tuple(by_model),
+        model=adapter.main_models[-1] if adapter.main_models else None,
         stop_reason=adapter.last_main_stop_reason,
         terminal_reason=None,
-        total_cost_usd=0.0,
-        by_model=by_model,
     )
     content = "\n\n".join(part for part in adapter.main_text if part)
-    return (
-        factory.make(
-            "turn.completed",
-            {
-                "content": content,
-                "is_error": False,
-                "subtype": "success",
-                "errors": (),
-                "structured_output": None,
-                "permission_denials": (),
-                "deferred_tool_use": None,
-                "api_error_status": None,
-                "duration_ms": 0,
-                "duration_api_ms": 0,
-                "origin": {"kind": "human"},
-                "result_uuid": None,
-                "usage": usage.to_dict(),
-            },
-        ),
-        actual_turns,
+    return factory.make(
+        "turn.completed",
+        {
+            "content": content,
+            "is_error": False,
+            "subtype": "success",
+            "errors": (),
+            "structured_output": None,
+            "permission_denials": (),
+            "deferred_tool_use": None,
+            "api_error_status": None,
+            "duration_ms": 0,
+            "duration_api_ms": 0,
+            "origin": {"kind": "human"},
+            "result_uuid": None,
+            "usage": usage.to_dict(),
+        },
     )
 
 
@@ -639,7 +597,11 @@ def _completed_stream_events(
                 "stop_reason": message.stop_reason,
                 "stop_sequence": None,
             },
-            "usage": ({"output_tokens": output_tokens} if isinstance(output_tokens, int) else None),
+            "usage": (
+                {"output_tokens": output_tokens}
+                if isinstance(output_tokens, int)
+                else None
+            ),
         },
     )
     yield StreamEvent(

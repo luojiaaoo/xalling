@@ -842,51 +842,6 @@ export function Workspace({
     }));
   };
 
-  const sessionStats = messages.reduce<{
-    agentSteps: number;
-    inputTokens: number;
-    latestUsage?: ChatUsage;
-    outputTokens: number;
-    toolCalls: number;
-    toolFailures: number;
-    toolSuccesses: number;
-    turns: number;
-  }>((stats, item) => {
-    if (item.role === "user") {
-      stats.turns += 1;
-      return stats;
-    }
-    if (item.usage) {
-      stats.inputTokens += item.usage.input_tokens ?? 0;
-      stats.outputTokens += item.usage.output_tokens ?? 0;
-      stats.agentSteps += item.usage.actual_turns_this_request || 1;
-      stats.latestUsage = item.usage;
-    } else if (!item.loading) {
-      stats.agentSteps += 1;
-    }
-    for (const traceItem of item.trace ?? []) {
-      if (traceItem.kind !== "tools") {
-        continue;
-      }
-      stats.toolCalls += traceItem.calls.length;
-      stats.toolSuccesses += traceItem.calls.filter(
-        (call) => call.status === "success",
-      ).length;
-      stats.toolFailures += traceItem.calls.filter(
-        (call) => call.status === "error",
-      ).length;
-    }
-    return stats;
-  }, {
-    agentSteps: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    toolCalls: 0,
-    toolFailures: 0,
-    toolSuccesses: 0,
-    turns: 0,
-  });
-
   const bubbleItems = messages.map((item) => {
     const traceItems = item.trace ?? [];
     const lastTraceItem = traceItems.at(-1);
@@ -1053,15 +1008,6 @@ export function Workspace({
             sessionId={sessionIdRef.current}
             stopping={stopping}
           />
-          {conversationStarted && (
-            <div className="conversation-stats" aria-label="当前会话统计">
-              <span><strong>{sessionStats.turns}</strong>轮对话</span>
-              <span>AI 调用<strong>{sessionStats.agentSteps}</strong>步</span>
-              <span>缓存命中率<strong>{formatCacheHitRate(sessionStats.latestUsage)}</strong></span>
-              <span>词元 · 输入<strong>{formatTokenCount(sessionStats.inputTokens)}</strong> · 输出<strong>{formatTokenCount(sessionStats.outputTokens)}</strong> · 总<strong>{formatTokenCount(sessionStats.inputTokens + sessionStats.outputTokens)}</strong></span>
-              <span>工具<strong>{sessionStats.toolCalls}</strong>次 · <em className="stat-success">成功{sessionStats.toolSuccesses}</em>/<em className="stat-failure">失败{sessionStats.toolFailures}</em></span>
-            </div>
-          )}
         </div>
       </div>
     </main>

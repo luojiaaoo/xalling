@@ -118,27 +118,13 @@ export type ChatPermissionMode =
   | "bypassPermissions";
 
 export type ChatUsage = {
-  actual_turns: number;
-  actual_turns_this_request: number;
-  by_model: Record<string, {
-    cache_creation_input_tokens: number;
-    cache_read_input_tokens: number;
-    cost_usd: number;
-    input_tokens: number;
-    output_tokens: number;
-    web_search_requests: number;
-  }>;
   cache_creation_input_tokens: number;
   cache_read_input_tokens: number;
   input_tokens: number;
   model: string | null;
-  models: string[];
   output_tokens: number;
-  sdk_results_this_request: number;
   stop_reason: string | null;
   terminal_reason: string | null;
-  total_cost_usd: number;
-  user_turns: number;
 };
 
 export type ChatReply = {

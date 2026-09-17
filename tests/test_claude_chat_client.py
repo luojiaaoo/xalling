@@ -158,8 +158,8 @@ async def _client_consumes_proxy_results_and_correlates_user_turn() -> None:
     result = client.last_result
     assert result is not None
     assert result.content == "Final answer"
-    assert result.usage.actual_turns_this_request == 3
     assert result.usage.input_tokens == 30
+    assert result.usage.output_tokens == 12
     assert [event.event for event in events].count("user.message") == 1
     assert any(event.event == "turn.proxy.completed" for event in events)
     assert events[-1].event == "turn.completed"
@@ -390,10 +390,16 @@ def _result(
         num_turns=num_turns,
         session_id="session-1",
         stop_reason="end_turn",
+        usage={
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        },
         model_usage={
             "test-model": {
-                "inputTokens": input_tokens,
-                "outputTokens": output_tokens,
+                "inputTokens": input_tokens + 100,
+                "outputTokens": output_tokens + 100,
                 "cacheReadInputTokens": 0,
                 "cacheCreationInputTokens": 0,
                 "webSearchRequests": 0,

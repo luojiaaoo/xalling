@@ -28,7 +28,6 @@ def test_package_exports_are_available() -> None:
         "EventName",
         "ExitPlanModeCompletedData",
         "ExitPlanModeRequestedData",
-        "ModelUsage",
         "PermissionHandler",
         "PermissionRequestedData",
         "PermissionResolvedData",

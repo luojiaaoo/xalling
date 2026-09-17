@@ -145,6 +145,9 @@ def test_history_inserts_nested_subagent_events_after_matching_tool() -> None:
     completed_index = names.index("subagent.completed")
     assert started_index < user_index < reply_index < completed_index
     assert events[reply_index].parent_tool_use_id == "agent-tool"
+    turn_completed = events[-1]
+    assert turn_completed.data["usage"]["input_tokens"] == 10
+    assert turn_completed.data["usage"]["output_tokens"] == 5
     assert not any(
         event.event == "assistant.reply.delta" and event.parent_tool_use_id == "agent-tool" for event in events
     )
