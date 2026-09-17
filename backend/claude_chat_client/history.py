@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from typing import Any, Literal, cast
+from uuid import UUID
 
 from claude_agent_sdk import (
     AssistantMessage,
+    SDKSessionInfo,
     ServerToolResultBlock,
     ServerToolUseBlock,
     SessionMessage,
@@ -17,22 +19,144 @@ from claude_agent_sdk import (
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
+    get_session_info,
     get_session_messages,
     get_subagent_messages,
+    list_sessions,
     list_subagents,
 )
 
 from .message_adapter import _EventFactory, _MessageAdapter
-from .models import ChatEvent
+from .models import (
+    ChatEvent,
+    ChatSearchMatch,
+    ChatSessionInfo,
+    ChatSessionSnapshot,
+    ModelUsage,
+    TurnUsage,
+)
 
 
 class ClaudeChatHistory:
     """Load persisted SDK messages as the client's public event protocol.
 
-    Historical content uses the same adapter as realtime SDK messages. The only
-    intentional transport difference is that each persisted content delta is
-    emitted once with its complete value instead of being split into chunks.
+    Historical content uses the same adapter and turn lifecycle as realtime
+    SDK messages. Persisted content deltas are emitted once with their complete
+    values, and the missing ResultMessage is reconstructed as ``turn.completed``.
     """
+
+    def list_sessions(
+        self,
+        *,
+        directory: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        include_worktrees: bool = True,
+    ) -> list[ChatSessionInfo]:
+        """List persisted sessions using wrapper-owned metadata models."""
+        return [
+            _session_info(session)
+            for session in list_sessions(
+                directory=directory,
+                limit=limit,
+                offset=offset,
+                include_worktrees=include_worktrees,
+            )
+        ]
+
+    def has_session(
+        self,
+        session_id: str,
+        *,
+        directory: str | None = None,
+    ) -> bool:
+        """Return whether a valid persisted session exists."""
+        normalized = _normalize_session_id(session_id)
+        return get_session_info(normalized, directory=directory) is not None
+
+    def get_session(
+        self,
+        session_id: str,
+        *,
+        directory: str | None = None,
+    ) -> ChatSessionSnapshot:
+        """Load session metadata and replayable events in one snapshot."""
+        normalized = _normalize_session_id(session_id)
+        session = get_session_info(normalized, directory=directory)
+        if session is None:
+            raise ValueError("Claude session does not exist or is no longer available")
+        history_directory = directory or session.cwd
+        return ChatSessionSnapshot(
+            session=_session_info(session),
+            events=tuple(
+                self.get_session_events(
+                    normalized,
+                    directory=history_directory,
+                )
+            ),
+        )
+
+    def search_sessions(
+        self,
+        query: str,
+        *,
+        directory: str | None = None,
+        limit: int = 30,
+        include_worktrees: bool = True,
+    ) -> list[ChatSearchMatch]:
+        """Search titles and visible user/assistant text, newest first."""
+        normalized_query = query.strip().casefold()
+        if not normalized_query or limit <= 0:
+            return []
+
+        matches: list[ChatSearchMatch] = []
+        sessions = self.list_sessions(
+            directory=directory,
+            include_worktrees=include_worktrees,
+        )
+        for session in sessions:
+            title_index = session.title.casefold().find(normalized_query)
+            if title_index >= 0:
+                matches.append(
+                    ChatSearchMatch(
+                        session=session,
+                        snippet=_match_snippet(
+                            session.title,
+                            title_index,
+                            len(query.strip()),
+                        ),
+                    )
+                )
+                if len(matches) >= limit:
+                    return matches
+
+            try:
+                events = self.get_session_events(
+                    session.session_id,
+                    directory=directory or session.cwd,
+                )
+            except Exception:  # noqa: BLE001 - one corrupt transcript must not abort a global search
+                events = []
+            for event, role, text in _visible_text_events(events):
+                text_index = text.casefold().find(normalized_query)
+                if text_index < 0:
+                    continue
+                matches.append(
+                    ChatSearchMatch(
+                        session=session,
+                        snippet=_match_snippet(
+                            text,
+                            text_index,
+                            len(query.strip()),
+                        ),
+                        event_id=event.id,
+                        turn_id=event.turn_id,
+                        role=role,
+                    )
+                )
+                if len(matches) >= limit:
+                    return matches
+        return matches
 
     def get_session_events(
         self,
@@ -66,6 +190,63 @@ class ClaudeChatHistory:
         )
 
 
+def _normalize_session_id(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("session_id must be a string")
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise ValueError("session_id must be a valid UUID") from exc
+
+
+def _session_info(session: SDKSessionInfo) -> ChatSessionInfo:
+    title = " ".join(session.summary.split()) or "Untitled conversation"
+    return ChatSessionInfo(
+        session_id=session.session_id,
+        title=title,
+        summary=session.summary,
+        last_modified=session.last_modified,
+        file_size=session.file_size,
+        custom_title=session.custom_title,
+        first_prompt=session.first_prompt,
+        git_branch=session.git_branch,
+        cwd=session.cwd,
+        tag=session.tag,
+        created_at=session.created_at,
+    )
+
+
+def _visible_text_events(
+    events: Iterable[ChatEvent],
+) -> Iterable[tuple[ChatEvent, Literal["user", "assistant"], str]]:
+    for event in events:
+        role: Literal["user", "assistant"]
+        value: object
+        if event.event == "user.message":
+            role = "user"
+            value = event.data.get("content")
+        elif event.event == "assistant.reply.completed":
+            role = "assistant"
+            value = event.data.get("text")
+        else:
+            continue
+        if isinstance(value, str) and value.strip():
+            yield event, role, value
+
+
+def _match_snippet(
+    content: str,
+    start: int,
+    length: int,
+    radius: int = 32,
+) -> str:
+    left = max(0, start - radius)
+    right = min(len(content), start + length + radius)
+    prefix = "…" if left > 0 else ""
+    suffix = "…" if right < len(content) else ""
+    return f"{prefix}{' '.join(content[left:right].split())}{suffix}"
+
+
 def assemble_session_messages(
     messages: Iterable[SessionMessage],
     *,
@@ -82,11 +263,35 @@ def assemble_session_messages(
     events: list[ChatEvent] = []
     factory: _EventFactory | None = None
     adapter: _MessageAdapter | None = None
+    turn_events_start = 0
+    user_turn = 0
+    cumulative_actual_turns = 0
 
     for message in messages:
         if factory is None or _starts_human_turn(message):
-            factory = _EventFactory(message.uuid)
+            if factory is not None and adapter is not None:
+                completed, actual_turns = _history_turn_completed(
+                    factory,
+                    adapter,
+                    events[turn_events_start:],
+                    user_turn=user_turn,
+                    cumulative_actual_turns=cumulative_actual_turns,
+                )
+                events.append(completed)
+                cumulative_actual_turns += actual_turns
+            user_turn += 1
+            factory = _EventFactory(message.uuid, session_id=message.session_id)
             adapter = _MessageAdapter(factory, {})
+            turn_events_start = len(events)
+            events.append(
+                factory.make(
+                    "turn.started",
+                    {
+                        "user_turn": user_turn,
+                        "session_id_requested": message.session_id,
+                    },
+                )
+            )
         if adapter is None:  # pragma: no cover - initialized with factory
             continue
         events.extend(
@@ -98,7 +303,118 @@ def assemble_session_messages(
                 frozenset(),
             )
         )
+    if factory is not None and adapter is not None:
+        completed, _actual_turns = _history_turn_completed(
+            factory,
+            adapter,
+            events[turn_events_start:],
+            user_turn=user_turn,
+            cumulative_actual_turns=cumulative_actual_turns,
+        )
+        events.append(completed)
     return events
+
+
+def _history_turn_completed(
+    factory: _EventFactory,
+    adapter: _MessageAdapter,
+    events: Iterable[ChatEvent],
+    *,
+    user_turn: int,
+    cumulative_actual_turns: int,
+) -> tuple[ChatEvent, int]:
+    """Synthesize the terminal event absent from persisted transcripts."""
+    raw_usage_by_message: dict[
+        tuple[str | None, str],
+        tuple[str, Mapping[str, Any]],
+    ] = {}
+    assistant_messages: set[tuple[str | None, str]] = set()
+    for event in events:
+        if event.event != "assistant.message.completed":
+            continue
+        model = event.data.get("model")
+        usage = event.data.get("usage")
+        message_key = event.data.get("message_id") or event.data.get("message_uuid")
+        if not isinstance(message_key, str):
+            continue
+        scoped_message_key = (event.parent_tool_use_id, message_key)
+        assistant_messages.add(scoped_message_key)
+        if not isinstance(model, str) or not isinstance(usage, Mapping):
+            continue
+        raw_usage_by_message[scoped_message_key] = (
+            model,
+            usage,
+        )
+
+    by_model: dict[str, ModelUsage] = {}
+    for model, raw_usage in raw_usage_by_message.values():
+        previous = by_model.get(model, ModelUsage())
+        by_model[model] = ModelUsage(
+            input_tokens=previous.input_tokens
+            + _usage_integer(raw_usage, "input_tokens"),
+            output_tokens=previous.output_tokens
+            + _usage_integer(raw_usage, "output_tokens"),
+            cache_read_input_tokens=previous.cache_read_input_tokens
+            + _usage_integer(raw_usage, "cache_read_input_tokens"),
+            cache_creation_input_tokens=previous.cache_creation_input_tokens
+            + _usage_integer(raw_usage, "cache_creation_input_tokens"),
+        )
+
+    actual_turns = len(assistant_messages)
+    totals = ModelUsage(
+        input_tokens=sum(usage.input_tokens for usage in by_model.values()),
+        output_tokens=sum(usage.output_tokens for usage in by_model.values()),
+        cache_read_input_tokens=sum(
+            usage.cache_read_input_tokens for usage in by_model.values()
+        ),
+        cache_creation_input_tokens=sum(
+            usage.cache_creation_input_tokens for usage in by_model.values()
+        ),
+    )
+    primary_model = adapter.main_models[-1] if adapter.main_models else None
+    usage = TurnUsage(
+        user_turns=user_turn,
+        actual_turns=cumulative_actual_turns + actual_turns,
+        actual_turns_this_request=actual_turns,
+        sdk_results_this_request=0,
+        input_tokens=totals.input_tokens,
+        output_tokens=totals.output_tokens,
+        cache_read_input_tokens=totals.cache_read_input_tokens,
+        cache_creation_input_tokens=totals.cache_creation_input_tokens,
+        model=primary_model,
+        models=tuple(by_model),
+        stop_reason=adapter.last_main_stop_reason,
+        terminal_reason=None,
+        total_cost_usd=0.0,
+        by_model=by_model,
+    )
+    content = "\n\n".join(part for part in adapter.main_text if part)
+    return (
+        factory.make(
+            "turn.completed",
+            {
+                "content": content,
+                "is_error": False,
+                "subtype": "success",
+                "errors": (),
+                "structured_output": None,
+                "permission_denials": (),
+                "deferred_tool_use": None,
+                "api_error_status": None,
+                "duration_ms": 0,
+                "duration_api_ms": 0,
+                "origin": {"kind": "human"},
+                "result_uuid": None,
+                "usage": usage.to_dict(),
+            },
+        ),
+        actual_turns,
+    )
+
+
+def _usage_integer(usage: Mapping[str, Any], key: str) -> int:
+    value = usage.get(key, 0)
+    return value if type(value) is int else 0
 
 
 def _group_subagent_messages(
@@ -171,10 +487,14 @@ def _to_sdk_message(
         else:
             return None
         origin = {"kind": "human"} if session_message.parent_tool_use_id is None and has_text else None
+        tool_use_result = raw_message.get("tool_use_result")
         return UserMessage(
             content=parsed_content,
             uuid=session_message.uuid,
             parent_tool_use_id=session_message.parent_tool_use_id,
+            tool_use_result=(
+                tool_use_result if isinstance(tool_use_result, dict) else None
+            ),
             origin=origin,
         )
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from claude_agent_sdk import SessionMessage
+from uuid import uuid4
+
+import pytest
+from claude_agent_sdk import SDKSessionInfo, SessionMessage
 
 from backend.claude_chat_client import (
     ClaudeChatHistory,
@@ -90,6 +93,11 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
     ]
     tool_completed = next(event for event in events if event.event == "tool.completed")
     assert tool_completed.data["name"] == "Read"
+    turn_completed = events[-1]
+    assert turn_completed.event == "turn.completed"
+    assert turn_completed.data["content"] == "检查完成"
+    assert turn_completed.data["usage"]["input_tokens"] == 10
+    assert turn_completed.data["usage"]["output_tokens"] == 5
 
 
 def test_history_inserts_nested_subagent_events_after_matching_tool() -> None:
@@ -169,7 +177,11 @@ def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None
         directory="project-dir",
     )
 
-    assert [event.event for event in events] == ["user.message"]
+    assert [event.event for event in events] == [
+        "turn.started",
+        "user.message",
+        "turn.completed",
+    ]
     assert calls == [
         ("main", "session-id", "project-dir"),
         ("list", "session-id", "project-dir"),
@@ -177,16 +189,136 @@ def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None
     ]
 
 
+def test_history_exposes_session_snapshots_and_search(monkeypatch) -> None:
+    session_id = str(uuid4())
+    session = SDKSessionInfo(
+        session_id=session_id,
+        summary="  Fix   login timeout  ",
+        last_modified=1_789_000_000_000,
+        cwd="C:/work/xalling",
+        created_at=1_788_000_000_000,
+    )
+    messages = [
+        _user_message(
+            "user-1",
+            "Please inspect the login endpoint",
+            session_id=session_id,
+        ),
+        _assistant_message(
+            "assistant-1",
+            [{"type": "text", "text": "The login timeout is fixed."}],
+            session_id=session_id,
+        ),
+    ]
+    monkeypatch.setattr(
+        "backend.claude_chat_client.history.list_sessions",
+        lambda **_kwargs: [session],
+    )
+    monkeypatch.setattr(
+        "backend.claude_chat_client.history.get_session_info",
+        lambda requested_id, directory=None: (
+            session if requested_id == session_id else None
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.claude_chat_client.history.get_session_messages",
+        lambda requested_id, directory=None: (
+            messages if requested_id == session_id else []
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.claude_chat_client.history.list_subagents",
+        lambda _session_id, directory=None: [],
+    )
+
+    history = ClaudeChatHistory()
+    listed = history.list_sessions()
+    snapshot = history.get_session(session_id.upper())
+    matches = history.search_sessions("login")
+
+    assert listed[0].title == "Fix login timeout"
+    assert snapshot.session == listed[0]
+    assert snapshot.events[0].event == "turn.started"
+    assert snapshot.events[0].session_id == session_id
+    assert snapshot.events[-1].event == "turn.completed"
+    assert [match.role for match in matches] == [None, "user", "assistant"]
+    assert all(match.session.session_id == session_id for match in matches)
+    assert snapshot.to_dict()["events"][0]["event"] == "turn.started"
+
+
+def test_history_rejects_invalid_or_missing_session(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.claude_chat_client.history.get_session_info",
+        lambda _session_id, directory=None: None,
+    )
+
+    history = ClaudeChatHistory()
+    with pytest.raises(ValueError, match="valid UUID"):
+        history.get_session("not-a-session-id")
+    with pytest.raises(ValueError, match="does not exist"):
+        history.get_session(str(uuid4()))
+
+
+def test_history_decodes_special_tool_results_from_json() -> None:
+    messages = [
+        _user_message("user-1", "Ask me"),
+        _assistant_message(
+            "assistant-1",
+            [
+                {
+                    "type": "tool_use",
+                    "id": "ask-1",
+                    "name": "AskUserQuestion",
+                    "input": {
+                        "questions": [
+                            {
+                                "question": "Deploy now?",
+                                "header": "Deploy",
+                                "options": [],
+                                "multiSelect": False,
+                            }
+                        ]
+                    },
+                }
+            ],
+        ),
+        SessionMessage(
+            type="user",
+            uuid="result-1",
+            session_id="session-id",
+            message={
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "ask-1",
+                        "content": '{"answers":{"Deploy now?":"Yes"}}',
+                    }
+                ],
+            },
+        ),
+    ]
+
+    completed = next(
+        event
+        for event in assemble_session_messages(messages)
+        if event.event == "ask_user.completed"
+    )
+
+    assert completed.data["answers"] == {"Deploy now?": "Yes"}
+
+
 def _user_message(
     uuid: str,
     text: str,
     *,
     parent_tool_use_id: str | None = None,
+    session_id: str = "session-id",
 ) -> SessionMessage:
     return SessionMessage(
         type="user",
         uuid=uuid,
-        session_id="session-id",
+        session_id=session_id,
         message={"role": "user", "content": text},
         parent_tool_use_id=parent_tool_use_id,
     )
@@ -215,11 +347,12 @@ def _assistant_message(
     content: list[dict[str, object]],
     *,
     parent_tool_use_id: str | None = None,
+    session_id: str = "session-id",
 ) -> SessionMessage:
     return SessionMessage(
         type="assistant",
         uuid=uuid,
-        session_id="session-id",
+        session_id=session_id,
         message={
             "id": f"message-{uuid}",
             "role": "assistant",

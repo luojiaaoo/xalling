@@ -259,7 +259,10 @@ class TurnUsage:
     ``user_turns`` is the number of prompts submitted through this wrapper.
     ``actual_turns`` is the cumulative sum of SDK ``ResultMessage.num_turns``
     and therefore includes agent/tool round trips and Claude Code injected
-    turns observed while waiting for the human turn to finish.
+    turns observed while waiting for the human turn to finish. Persisted
+    transcripts do not retain ``ResultMessage`` objects, so history replay
+    estimates these two actual-turn fields from unique assistant messages and
+    reports zero ``sdk_results_this_request``.
     """
 
     user_turns: int
@@ -298,3 +301,69 @@ class ChatResult:
     api_error_status: int | None = None
     duration_ms: int = 0
     duration_api_ms: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe result payload."""
+        return cast(dict[str, Any], _jsonable(asdict(self)))
+
+
+@dataclass(frozen=True, slots=True)
+class ChatSessionInfo:
+    """Stable metadata for one persisted Claude session.
+
+    The fields mirror :class:`claude_agent_sdk.SDKSessionInfo` without
+    exposing that SDK type as part of this package's public API. ``title`` is
+    a normalized display value while ``summary`` preserves the SDK value.
+    """
+
+    session_id: str
+    title: str
+    summary: str
+    last_modified: int
+    file_size: int | None = None
+    custom_title: str | None = None
+    first_prompt: str | None = None
+    git_branch: str | None = None
+    cwd: str | None = None
+    tag: str | None = None
+    created_at: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return JSON-safe session metadata."""
+        return cast(dict[str, Any], _jsonable(asdict(self)))
+
+
+@dataclass(frozen=True, slots=True)
+class ChatSessionSnapshot:
+    """Persisted session metadata and its replayable event stream."""
+
+    session: ChatSessionInfo
+    events: tuple[ChatEvent, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a flattened JSON-safe snapshot for transport layers."""
+        return {
+            **self.session.to_dict(),
+            "events": [event.to_dict() for event in self.events],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ChatSearchMatch:
+    """One title or visible-message match in persisted chat history."""
+
+    session: ChatSessionInfo
+    snippet: str
+    event_id: str | None = None
+    turn_id: str | None = None
+    role: Literal["user", "assistant"] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a flattened JSON-safe search result."""
+        return {
+            **self.session.to_dict(),
+            "snippet": self.snippet,
+            "event_id": self.event_id,
+            "turn_id": self.turn_id,
+            "role": self.role,
+        }

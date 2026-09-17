@@ -14,6 +14,8 @@ from uuid import uuid4
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    ContextUsageResponse,
+    McpStatusResponse,
     PermissionMode,
     PermissionResult,
     PermissionResultAllow,
@@ -22,6 +24,7 @@ from claude_agent_sdk import (
     ResultMessage,
     ToolPermissionContext,
     Transport,
+    UserMessage,
 )
 
 from .message_adapter import (
@@ -88,6 +91,8 @@ class ClaudeChatClient:
         self._turn_lock = asyncio.Lock()
         self._active_queue: asyncio.Queue[ChatEvent | object] | None = None
         self._active_factory: _EventFactory | None = None
+        self._stop_requested: asyncio.Event | None = None
+        self._query_submitted = False
         self._pending_permissions: dict[str, _PendingPermission] = {}
         self._plan_approval_modes: dict[str, PlanApprovalMode] = {}
         self._user_turns = 0
@@ -104,6 +109,21 @@ class ClaudeChatClient:
     def last_result(self) -> ChatResult | None:
         """The most recently completed human turn, if any."""
         return self._last_result
+
+    @property
+    def connected(self) -> bool:
+        """Whether the underlying SDK connection is currently open."""
+        return self._sdk is not None
+
+    @property
+    def active(self) -> bool:
+        """Whether a human turn is currently being produced."""
+        return self._active_queue is not None
+
+    @property
+    def pending_permission_ids(self) -> tuple[str, ...]:
+        """Permission request IDs still waiting for a caller decision."""
+        return tuple(self._pending_permissions)
 
     async def __aenter__(self) -> Self:
         await self.connect()
@@ -133,11 +153,9 @@ class ClaudeChatClient:
 
     async def close(self) -> None:
         """Interrupt an active turn, then close the persistent connection."""
-        sdk = self._sdk
-        if sdk is not None and self._active_queue is not None:
-            self._deny_pending_permissions("Claude client is closing")
+        if self._active_queue is not None:
             with suppress(Exception):
-                await sdk.interrupt()
+                await self.interrupt()
         async with self._turn_lock, self._connect_lock:
             sdk = self._sdk
             self._sdk = None
@@ -148,8 +166,15 @@ class ClaudeChatClient:
         """Request cancellation of the current Claude turn."""
         sdk = self._sdk
         if sdk is not None and self._active_queue is not None:
+            if self._stop_requested is not None:
+                self._stop_requested.set()
             self._deny_pending_permissions("Claude turn was interrupted")
-            await sdk.interrupt()
+            if self._query_submitted:
+                await sdk.interrupt()
+
+    async def request_stop(self) -> None:
+        """Compatibility alias for :meth:`interrupt`."""
+        await self.interrupt()
 
     def resolve_permission(
         self,
@@ -245,15 +270,56 @@ class ClaudeChatClient:
             raise RuntimeError("Claude SDK client is not connected")
         return await self._sdk.get_server_info()
 
+    async def get_mcp_status(self) -> McpStatusResponse:
+        """Return the status of configured MCP servers."""
+        sdk = await self._connected_sdk()
+        return await sdk.get_mcp_status()
+
+    async def get_context_usage(self) -> ContextUsageResponse:
+        """Return the current context-window usage breakdown."""
+        sdk = await self._connected_sdk()
+        return await sdk.get_context_usage()
+
+    async def reconnect_mcp_server(self, server_name: str) -> None:
+        """Reconnect one failed or disconnected MCP server."""
+        sdk = await self._connected_sdk()
+        await sdk.reconnect_mcp_server(server_name)
+
+    async def toggle_mcp_server(self, server_name: str, *, enabled: bool) -> None:
+        """Enable or disable one MCP server for this connection."""
+        sdk = await self._connected_sdk()
+        await sdk.toggle_mcp_server(server_name, enabled)
+
+    async def stop_task(self, task_id: str) -> None:
+        """Stop one background task running in this session."""
+        sdk = await self._connected_sdk()
+        await sdk.stop_task(task_id)
+
+    async def rewind_files(self, user_message_id: str) -> None:
+        """Restore files to a checkpoint created for a user message."""
+        sdk = await self._connected_sdk()
+        await sdk.rewind_files(user_message_id)
+
+    async def _connected_sdk(self) -> ClaudeSDKClient:
+        await self.connect()
+        if self._sdk is None:  # pragma: no cover - guarded by connect
+            raise RuntimeError("Claude SDK client is not connected")
+        return self._sdk
+
     async def send(
         self,
         prompt: str,
         *,
         session_id: str = "default",
         on_event: EventHandler | None = None,
+        empty_result_content: str | None = None,
     ) -> ChatResult:
         """Run one human turn, optionally forwarding each realtime event."""
-        async for event in self.stream(prompt, session_id=session_id):
+        async for event in self.stream(
+            prompt,
+            session_id=session_id,
+            empty_result_content=empty_result_content,
+        ):
             if on_event is not None:
                 handled = on_event(event)
                 if inspect.isawaitable(handled):
@@ -267,6 +333,7 @@ class ClaudeChatClient:
         prompt: str,
         *,
         session_id: str = "default",
+        empty_result_content: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Yield one complete realtime event stream for a human prompt.
 
@@ -287,9 +354,12 @@ class ClaudeChatClient:
             turn_id = str(uuid4())
             factory = _EventFactory(turn_id)
             queue: asyncio.Queue[ChatEvent | object] = asyncio.Queue()
+            stop_requested = asyncio.Event()
             error: list[BaseException] = []
             self._active_queue = queue
             self._active_factory = factory
+            self._stop_requested = stop_requested
+            self._query_submitted = False
 
             await queue.put(
                 factory.make(
@@ -305,6 +375,7 @@ class ClaudeChatClient:
                     "user.message",
                     {
                         "content": prompt,
+                        "message_uuid": turn_id,
                         "origin": {"kind": "human"},
                         "source": "human",
                         "submitted": True,
@@ -319,6 +390,8 @@ class ClaudeChatClient:
                     factory=factory,
                     queue=queue,
                     error=error,
+                    empty_result_content=empty_result_content,
+                    stop_requested=stop_requested,
                 )
             )
             try:
@@ -331,18 +404,19 @@ class ClaudeChatClient:
                 if error:
                     raise error[0]
             finally:
-                self._active_queue = None
-                self._active_factory = None
                 if not producer.done():
-                    self._deny_pending_permissions("Event stream consumer disconnected")
                     with suppress(Exception):
-                        await self._sdk.interrupt()
+                        await self.interrupt()
                     try:
                         await asyncio.wait_for(asyncio.shield(producer), timeout=10)
                     except TimeoutError:
                         producer.cancel()
                         with suppress(asyncio.CancelledError):
                             await producer
+                self._active_queue = None
+                self._active_factory = None
+                self._stop_requested = None
+                self._query_submitted = False
 
     async def _produce_turn(
         self,
@@ -352,6 +426,8 @@ class ClaudeChatClient:
         factory: _EventFactory,
         queue: asyncio.Queue[ChatEvent | object],
         error: list[BaseException],
+        empty_result_content: str | None,
+        stop_requested: asyncio.Event,
     ) -> None:
         sdk = self._sdk
         if sdk is None:  # pragma: no cover - guarded by stream
@@ -366,42 +442,62 @@ class ClaudeChatClient:
                 "message": {"role": "user", "content": prompt},
                 "parent_tool_use_id": None,
                 "session_id": session_id,
+                "uuid": factory.turn_id,
                 "origin": {"kind": "human"},
             }
 
         try:
             await sdk.query(submitted_message(), session_id=session_id)
-            async for message in sdk.receive_messages():
-                for event in adapter.adapt(message):
-                    await queue.put(event)
-
-                if not isinstance(message, ResultMessage):
-                    continue
-
-                fallback_model = adapter.main_models[-1] if adapter.main_models else self._options.model
-                usage.add(message, fallback_model)
-                self._actual_turns += max(message.num_turns, 0)
-                origin = dict(message.origin) if message.origin else None
-                origin_kind = origin.get("kind") if origin else None
-                if origin_kind not in {None, "human"}:
-                    await queue.put(
-                        factory.make(
-                            "turn.proxy.completed",
-                            {
-                                "origin": origin,
-                                "subtype": message.subtype,
-                                "is_error": message.is_error,
-                                "num_turns": message.num_turns,
-                                "stop_reason": message.stop_reason,
-                                "terminal_reason": message.terminal_reason,
-                            },
-                            session_id=message.session_id,
-                        )
+            self._query_submitted = True
+            if stop_requested.is_set():
+                await sdk.interrupt()
+            while requested_result is None:
+                received_result = False
+                async for message in sdk.receive_response():
+                    is_submitted_echo = (
+                        isinstance(message, UserMessage)
+                        and message.uuid == factory.turn_id
+                        and message.origin is not None
+                        and message.origin.get("kind") == "human"
                     )
-                    continue
+                    if not is_submitted_echo:
+                        for event in adapter.adapt(message):
+                            await queue.put(event)
 
-                requested_result = message
-                break
+                    if not isinstance(message, ResultMessage):
+                        continue
+
+                    received_result = True
+                    fallback_model = (
+                        adapter.main_models[-1]
+                        if adapter.main_models
+                        else self._options.model
+                    )
+                    usage.add(message, fallback_model)
+                    self._actual_turns += max(message.num_turns, 0)
+                    origin = dict(message.origin) if message.origin else None
+                    origin_kind = origin.get("kind") if origin else None
+                    if origin_kind not in {None, "human"}:
+                        await queue.put(
+                            factory.make(
+                                "turn.proxy.completed",
+                                {
+                                    "origin": origin,
+                                    "subtype": message.subtype,
+                                    "is_error": message.is_error,
+                                    "num_turns": message.num_turns,
+                                    "stop_reason": message.stop_reason,
+                                    "terminal_reason": message.terminal_reason,
+                                },
+                                session_id=message.session_id,
+                            )
+                        )
+                        continue
+
+                    requested_result = message
+
+                if not received_result:
+                    break
 
             if requested_result is None:
                 raise RuntimeError("Claude SDK message stream ended without a result")
@@ -420,6 +516,8 @@ class ClaudeChatClient:
             content = requested_result.result
             if content is None:
                 content = "\n\n".join(part for part in adapter.main_text if part)
+            if not content.strip() and empty_result_content is not None:
+                content = empty_result_content.strip()
             result = ChatResult(
                 content=content,
                 session_id=requested_result.session_id,
@@ -457,6 +555,8 @@ class ClaudeChatClient:
                 )
             )
         except BaseException as exc:
+            self._deny_pending_permissions("Claude turn failed")
+            await self._discard_sdk(sdk)
             if isinstance(exc, asyncio.CancelledError):
                 raise
             error.append(exc)
@@ -467,7 +567,18 @@ class ClaudeChatClient:
                 )
             )
         finally:
+            self._query_submitted = False
+            self._plan_approval_modes.clear()
             await queue.put(_STREAM_END)
+
+    async def _discard_sdk(self, sdk: ClaudeSDKClient) -> None:
+        """Disconnect a connection whose stream state is no longer reliable."""
+        async with self._connect_lock:
+            if self._sdk is not sdk:
+                return
+            self._sdk = None
+            with suppress(Exception):
+                await sdk.disconnect()
 
     async def _can_use_tool(
         self,
@@ -479,6 +590,8 @@ class ClaudeChatClient:
         queue = self._active_queue
         factory = self._active_factory
         request_id = context.tool_use_id or str(uuid4())
+        if request_id in self._pending_permissions:
+            request_id = str(uuid4())
         pending: _PendingPermission | None = None
         if self._permission_handler is None and (queue is None or factory is None):
             return PermissionResultDeny(message="Permission request arrived outside an active event stream")
@@ -511,7 +624,6 @@ class ClaudeChatClient:
                         description=context.description,
                         suggestions=serialized_suggestions,
                     ),
-                    parent_tool_use_id=context.agent_id,
                 )
             )
 
@@ -566,7 +678,6 @@ class ClaudeChatClient:
                 factory.make(
                     "permission.resolved",
                     resolved_data,
-                    parent_tool_use_id=context.agent_id,
                 )
             )
         return result

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, cast
@@ -57,8 +58,9 @@ class _ToolCall:
 
 
 class _EventFactory:
-    def __init__(self, turn_id: str) -> None:
+    def __init__(self, turn_id: str, *, session_id: str | None = None) -> None:
         self.turn_id = turn_id
+        self.session_id = session_id
         self._sequence = 0
 
     def make(
@@ -75,7 +77,7 @@ class _EventFactory:
             event=event,
             turn_id=self.turn_id,
             data=dict(data or {}),
-            session_id=session_id,
+            session_id=session_id or self.session_id,
             parent_tool_use_id=parent_tool_use_id,
         )
 
@@ -132,6 +134,20 @@ def _tool_result_mapping(
         return tool_use_result
     if isinstance(content, Mapping):
         return content
+    if isinstance(content, str):
+        try:
+            decoded = json.loads(content)
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, Mapping) else {}
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("type") == "text":
+                parsed = _tool_result_mapping(item.get("text"), None)
+                if parsed:
+                    return parsed
     return {}
 
 
@@ -273,6 +289,7 @@ class _MessageAdapter:
         events: list[ChatEvent] = []
         parent_id = message.parent_tool_use_id
         is_subagent = parent_id is not None
+        message_text: list[str] = []
         if not is_subagent:
             self.main_models.append(message.model)
             self.last_main_stop_reason = message.stop_reason or self.last_main_stop_reason
@@ -281,7 +298,7 @@ class _MessageAdapter:
             if isinstance(block, TextBlock):
                 event: EventName = "subagent.reply.completed" if is_subagent else "assistant.reply.completed"
                 if not is_subagent:
-                    self.main_text.append(block.text)
+                    message_text.append(block.text)
                 events.append(
                     self.factory.make(
                         event,
@@ -360,6 +377,11 @@ class _MessageAdapter:
                     )
                 )
 
+        if message_text:
+            # A turn may contain commentary before tools and a final response
+            # afterwards. ResultMessage.result corresponds to the latest
+            # textual assistant message, so retain that same fallback here.
+            self.main_text = message_text
         if message.error is not None:
             events.append(
                 self.factory.make(
