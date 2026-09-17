@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from claude_agent_sdk import ResultMessage
@@ -11,23 +11,34 @@ from .models import TurnUsage
 
 
 def _turn_usage(
-    result: ResultMessage,
+    results: Iterable[ResultMessage],
     primary_model: str | None,
     fallback_stop_reason: str | None,
 ) -> TurnUsage:
-    """Build one usage payload without including sub-agent model usage."""
-    raw = result.usage or {}
+    """Sum top-level agent usage without including background-task usage."""
+    collected = tuple(results)
+    if not collected:
+        raise ValueError("at least one ResultMessage is required")
+    final_result = collected[-1]
+    raw_usages = tuple(result.usage or {} for result in collected)
     return TurnUsage(
-        input_tokens=_usage_integer(raw, "input_tokens"),
-        output_tokens=_usage_integer(raw, "output_tokens"),
-        cache_read_input_tokens=_usage_integer(raw, "cache_read_input_tokens"),
-        cache_creation_input_tokens=_usage_integer(
-            raw,
-            "cache_creation_input_tokens",
+        input_tokens=sum(
+            _usage_integer(raw, "input_tokens") for raw in raw_usages
+        ),
+        output_tokens=sum(
+            _usage_integer(raw, "output_tokens") for raw in raw_usages
+        ),
+        cache_read_input_tokens=sum(
+            _usage_integer(raw, "cache_read_input_tokens")
+            for raw in raw_usages
+        ),
+        cache_creation_input_tokens=sum(
+            _usage_integer(raw, "cache_creation_input_tokens")
+            for raw in raw_usages
         ),
         model=primary_model,
-        stop_reason=result.stop_reason or fallback_stop_reason,
-        terminal_reason=result.terminal_reason,
+        stop_reason=final_result.stop_reason or fallback_stop_reason,
+        terminal_reason=final_result.terminal_reason,
     )
 
 

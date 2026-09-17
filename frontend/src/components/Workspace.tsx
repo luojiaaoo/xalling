@@ -175,6 +175,12 @@ function applyEventToAssistant(
 ): ConversationMessage {
   const trace = message.trace ?? [];
   const isTopLevelEvent = event.parent_tool_use_id === null;
+  const foldsCurrentOutput = isTopLevelEvent && (
+    event.event === "turn.proxy.completed"
+    || event.event === "user.proxy.message"
+  );
+  const currentContent = foldsCurrentOutput ? "" : message.content;
+  const currentOutputKey = foldsCurrentOutput ? undefined : message.finalOutputKey;
   const isOutputEvent = event.event.startsWith("assistant.reply.")
     && typeof event.data.block_id === "string";
   const streamUuid = typeof event.data.stream_uuid === "string"
@@ -190,18 +196,18 @@ function applyEventToAssistant(
     || event.event === "assistant.reply.delta"
   ) && isTopLevelEvent
     && !trace.some((traceItem) => traceItem.key === outputKey);
-  const separator = startsNewOutput && message.content ? "\n\n" : "";
+  const separator = startsNewOutput && currentContent ? "\n\n" : "";
   const delta = typeof event.data.text === "string" ? event.data.text : "";
   const nextContent = event.event === "assistant.reply.delta" && isTopLevelEvent
-    ? `${message.content}${separator}${delta}`
-    : `${message.content}${separator}`;
+    ? `${currentContent}${separator}${delta}`
+    : `${currentContent}${separator}`;
   const nextTrace = applyChatStreamEvent(trace, event);
   return {
     ...message,
     content: stripExitPlanContent(nextContent, nextTrace),
     finalOutputKey: isOutputEvent && isTopLevelEvent
       ? outputKey
-      : message.finalOutputKey,
+      : currentOutputKey,
     loading: true,
     trace: nextTrace,
   };
@@ -845,7 +851,9 @@ export function Workspace({
   const bubbleItems = messages.map((item) => {
     const traceItems = item.trace ?? [];
     const lastTraceItem = traceItems.at(-1);
-    const streamingOutput = item.loading && lastTraceItem?.kind === "output"
+    const streamingOutput = item.loading
+      && lastTraceItem?.kind === "output"
+      && lastTraceItem.key === item.finalOutputKey
       ? lastTraceItem
       : undefined;
     const externalOutputKey = item.loading ? streamingOutput?.key : item.finalOutputKey;

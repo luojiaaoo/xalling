@@ -231,8 +231,8 @@ async def _client_waits_for_chained_background_agents_before_completing() -> Non
     result = client.last_result
     assert result is not None
     assert result.content == "Final implementation plan"
-    assert result.usage.input_tokens == 40
-    assert result.usage.output_tokens == 16
+    assert result.usage.input_tokens == 70
+    assert result.usage.output_tokens == 29
     assert [event.event for event in events].count("turn.completed") == 1
     assert [event.event for event in events].count("turn.proxy.completed") == 3
     assert [event.event for event in events].count("user.message") == 1

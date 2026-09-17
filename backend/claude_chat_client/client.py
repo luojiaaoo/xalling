@@ -437,6 +437,7 @@ class ClaudeChatClient:
         adapter = _MessageAdapter(factory, self._plan_approval_modes)
         requested_result: ResultMessage | None = None
         deferred_human_result: ResultMessage | None = None
+        logical_results: list[ResultMessage] = []
         active_task_ids: set[str] = set()
         pending_notification_turns = 0
         background_chain_started = False
@@ -494,6 +495,16 @@ class ClaudeChatClient:
                     origin = dict(message.origin) if message.origin else None
                     origin_kind = origin.get("kind") if origin else None
                     is_human_result = origin_kind in {None, "human"}
+                    is_background_continuation = origin_kind in {
+                        "auto-continuation",
+                        "task-notification",
+                    }
+                    if is_human_result or (
+                        deferred_human_result is not None
+                        and background_chain_started
+                        and is_background_continuation
+                    ):
+                        logical_results.append(message)
                     if origin_kind == "task-notification" and pending_notification_turns:
                         pending_notification_turns -= 1
 
@@ -522,10 +533,6 @@ class ClaudeChatClient:
                         )
                     )
 
-                    is_background_continuation = origin_kind in {
-                        "auto-continuation",
-                        "task-notification",
-                    }
                     if (
                         not is_human_result
                         and deferred_human_result is not None
@@ -553,7 +560,7 @@ class ClaudeChatClient:
                 else self._options.model
             )
             final_usage = _turn_usage(
-                requested_result,
+                logical_results,
                 primary_model,
                 adapter.last_main_stop_reason,
             )
