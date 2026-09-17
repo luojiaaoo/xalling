@@ -235,6 +235,8 @@ async def _client_waits_for_chained_background_agents_before_completing() -> Non
     assert result.usage.output_tokens == 16
     assert [event.event for event in events].count("turn.completed") == 1
     assert [event.event for event in events].count("turn.proxy.completed") == 3
+    assert [event.event for event in events].count("user.message") == 1
+    assert [event.event for event in events].count("user.proxy.message") == 2
     assert [event.data.get("task_id") for event in events if event.event == "task.completed"] == [
         "explore",
         "plan",

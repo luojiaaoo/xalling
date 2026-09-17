@@ -9,6 +9,7 @@ from uuid import UUID
 
 from claude_agent_sdk import (
     AssistantMessage,
+    MessageOrigin,
     SDKSessionInfo,
     ServerToolResultBlock,
     ServerToolUseBlock,
@@ -34,6 +35,9 @@ from .models import (
     ChatSessionSnapshot,
     TurnUsage,
 )
+
+_TASK_NOTIFICATION_OPEN = "<task-notification>"
+_TASK_NOTIFICATION_CLOSE = "</task-notification>"
 
 
 class ClaudeChatHistory:
@@ -444,7 +448,7 @@ def _to_sdk_message(
             has_text = any(isinstance(block, TextBlock) for block in parsed_content)
         else:
             return None
-        origin = {"kind": "human"} if session_message.parent_tool_use_id is None and has_text else None
+        origin = _history_user_origin(session_message, has_text=has_text)
         tool_use_result = raw_message.get("tool_use_result")
         return UserMessage(
             content=parsed_content,
@@ -653,8 +657,43 @@ def _starts_human_turn(message: SessionMessage) -> bool:
     if not isinstance(raw_message, Mapping):
         return False
     content = raw_message.get("content")
+    if _is_task_notification_content(content):
+        return False
     if isinstance(content, str):
         return bool(content)
     return isinstance(content, list) and any(
         isinstance(block, Mapping) and block.get("type") == "text" for block in content
+    )
+
+
+def _history_user_origin(
+    message: SessionMessage,
+    *,
+    has_text: bool,
+) -> MessageOrigin | None:
+    if message.parent_tool_use_id is not None or not has_text:
+        return None
+    raw_message = message.message
+    if not isinstance(raw_message, Mapping):
+        return None
+    if _is_task_notification_content(raw_message.get("content")):
+        return {"kind": "task-notification"}
+    return {"kind": "human"}
+
+
+def _is_task_notification_content(content: object) -> bool:
+    if isinstance(content, str):
+        text = content.strip()
+    elif isinstance(content, list):
+        text = "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, Mapping)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ).strip()
+    else:
+        return False
+    return text.startswith(_TASK_NOTIFICATION_OPEN) and text.endswith(
+        _TASK_NOTIFICATION_CLOSE
     )

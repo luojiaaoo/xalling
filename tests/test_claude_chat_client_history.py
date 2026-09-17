@@ -153,6 +153,41 @@ def test_history_inserts_nested_subagent_events_after_matching_tool() -> None:
     )
 
 
+def test_history_keeps_task_notifications_inside_the_human_turn() -> None:
+    messages = [
+        _user_message("user-1", "Explore, then plan"),
+        _assistant_message(
+            "assistant-1",
+            [{"type": "text", "text": "Explore agent is running"}],
+        ),
+        _user_message(
+            "notification-1",
+            (
+                "<task-notification>"
+                "<task-id>explore</task-id>"
+                "<status>completed</status>"
+                "</task-notification>"
+            ),
+        ),
+        _assistant_message(
+            "assistant-2",
+            [{"type": "text", "text": "Final implementation plan"}],
+        ),
+    ]
+
+    events = assemble_session_messages(messages)
+
+    assert [event.event for event in events].count("turn.started") == 1
+    assert [event.event for event in events].count("turn.completed") == 1
+    assert [event.event for event in events].count("user.message") == 1
+    proxy_message = next(
+        event for event in events if event.event == "user.proxy.message"
+    )
+    assert proxy_message.data["origin"] == {"kind": "task-notification"}
+    assert all(event.turn_id == "user-1" for event in events)
+    assert events[-1].data["content"] == "Final implementation plan"
+
+
 def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None:
     main = [_user_message("user-1", "你好")]
     nested = [
