@@ -17,7 +17,7 @@ LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token")
 
 # 高频调用、刷日志没意义的桥接方法：不打 call/result 访问日志，但异常仍记录
-SILENT_ACCESS_LOG_CALLS = frozenset({"WindowRouter.resize_window"})
+SILENT_ACCESS_LOG_CALLS = frozenset({"WindowRouter.resize_window", "ChatRouter.list_chat_sessions"})
 
 _logging_configured = False
 _access_logger = logger.bind(channel="access")

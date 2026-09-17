@@ -12,6 +12,7 @@ from typing import Any, Self, cast, get_args
 from uuid import uuid4
 
 from claude_agent_sdk import (
+    TERMINAL_TASK_STATUSES,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ContextUsageResponse,
@@ -22,6 +23,10 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     PermissionUpdate,
     ResultMessage,
+    TaskNotificationMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
+    TaskUpdatedMessage,
     ToolPermissionContext,
     Transport,
     UserMessage,
@@ -431,6 +436,10 @@ class ClaudeChatClient:
             raise RuntimeError("Claude SDK client is not connected")
         adapter = _MessageAdapter(factory, self._plan_approval_modes)
         requested_result: ResultMessage | None = None
+        deferred_human_result: ResultMessage | None = None
+        active_task_ids: set[str] = set()
+        pending_notification_turns = 0
+        background_chain_started = False
 
         async def submitted_message() -> AsyncIterator[dict[str, Any]]:
             yield {
@@ -450,6 +459,24 @@ class ClaudeChatClient:
             while requested_result is None:
                 received_result = False
                 async for message in sdk.receive_response():
+                    if isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
+                        active_task_ids.add(message.task_id)
+                        background_chain_started = True
+                    elif isinstance(message, TaskNotificationMessage):
+                        active_task_ids.discard(message.task_id)
+                        pending_notification_turns += 1
+                        background_chain_started = True
+                    elif isinstance(message, TaskUpdatedMessage):
+                        status = message.status
+                        if status is None:
+                            raw_status = message.patch.get("status")
+                            status = raw_status if isinstance(raw_status, str) else None
+                        if status in TERMINAL_TASK_STATUSES:
+                            active_task_ids.discard(message.task_id)
+                        elif status is not None:
+                            active_task_ids.add(message.task_id)
+                            background_chain_started = True
+
                     is_submitted_echo = (
                         isinstance(message, UserMessage)
                         and message.uuid == factory.turn_id
@@ -466,26 +493,55 @@ class ClaudeChatClient:
                     received_result = True
                     origin = dict(message.origin) if message.origin else None
                     origin_kind = origin.get("kind") if origin else None
-                    if origin_kind not in {None, "human"}:
-                        await queue.put(
-                            factory.make(
-                                "turn.proxy.completed",
-                                {
-                                    "origin": origin,
-                                    "subtype": message.subtype,
-                                    "is_error": message.is_error,
-                                    "num_turns": message.num_turns,
-                                    "stop_reason": message.stop_reason,
-                                    "terminal_reason": message.terminal_reason,
-                                },
-                                session_id=message.session_id,
-                            )
-                        )
+                    is_human_result = origin_kind in {None, "human"}
+                    if origin_kind == "task-notification" and pending_notification_turns:
+                        pending_notification_turns -= 1
+
+                    waiting_for_background = bool(
+                        active_task_ids or pending_notification_turns
+                    )
+                    if is_human_result and not waiting_for_background:
+                        requested_result = message
                         continue
 
-                    requested_result = message
+                    if is_human_result:
+                        deferred_human_result = message
+
+                    await queue.put(
+                        factory.make(
+                            "turn.proxy.completed",
+                            {
+                                "origin": origin,
+                                "subtype": message.subtype,
+                                "is_error": message.is_error,
+                                "num_turns": message.num_turns,
+                                "stop_reason": message.stop_reason,
+                                "terminal_reason": message.terminal_reason,
+                            },
+                            session_id=message.session_id,
+                        )
+                    )
+
+                    is_background_continuation = origin_kind in {
+                        "auto-continuation",
+                        "task-notification",
+                    }
+                    if (
+                        not is_human_result
+                        and deferred_human_result is not None
+                        and background_chain_started
+                        and is_background_continuation
+                        and not waiting_for_background
+                    ):
+                        requested_result = message
 
                 if not received_result:
+                    if (
+                        deferred_human_result is not None
+                        and not active_task_ids
+                        and not pending_notification_turns
+                    ):
+                        requested_result = deferred_human_result
                     break
 
             if requested_result is None:

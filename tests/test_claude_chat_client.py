@@ -12,6 +12,8 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     ResultMessage,
     StreamEvent,
+    TaskNotificationMessage,
+    TaskStartedMessage,
     TextBlock,
     ToolPermissionContext,
     UserMessage,
@@ -166,6 +168,79 @@ async def _client_consumes_proxy_results_and_correlates_user_turn() -> None:
     submitted = _FakeSDK.instances[0].queries[0]
     assert submitted["uuid"] == events[0].turn_id
     assert submitted["origin"] == {"kind": "human"}
+
+
+def test_client_waits_for_chained_background_agents_before_completing() -> None:
+    anyio.run(_client_waits_for_chained_background_agents_before_completing)
+
+
+async def _client_waits_for_chained_background_agents_before_completing() -> None:
+    _FakeSDK.batches = [
+        [
+            _task_started("explore", "Explore the project"),
+            AssistantMessage(
+                content=[TextBlock(text="Explore agent is running")],
+                model="test-model",
+            ),
+            _result(
+                origin={"kind": "human"},
+                input_tokens=10,
+                output_tokens=5,
+            ),
+        ],
+        [
+            _task_completed("explore", "Exploration complete"),
+            UserMessage(
+                content="Explore agent completed",
+                uuid="explore-notification",
+                origin={"kind": "task-notification"},
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="Starting Plan agent")],
+                model="test-model",
+            ),
+            _task_started("plan", "Create the final plan"),
+            _result(
+                origin={"kind": "task-notification"},
+                input_tokens=20,
+                output_tokens=8,
+            ),
+        ],
+        [
+            _task_completed("plan", "Planning complete"),
+            UserMessage(
+                content="Plan agent completed",
+                uuid="plan-notification",
+                origin={"kind": "task-notification"},
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="Final implementation plan")],
+                model="test-model",
+                stop_reason="end_turn",
+            ),
+            _result(
+                origin={"kind": "task-notification"},
+                input_tokens=40,
+                output_tokens=16,
+            ),
+        ],
+    ]
+    client = ClaudeChatClient(ClaudeAgentOptions(model="test-model"))
+    events = [event async for event in client.stream("Explore, then plan")]
+
+    result = client.last_result
+    assert result is not None
+    assert result.content == "Final implementation plan"
+    assert result.usage.input_tokens == 40
+    assert result.usage.output_tokens == 16
+    assert [event.event for event in events].count("turn.completed") == 1
+    assert [event.event for event in events].count("turn.proxy.completed") == 3
+    assert [event.data.get("task_id") for event in events if event.event == "task.completed"] == [
+        "explore",
+        "plan",
+    ]
+    assert events[-1].event == "turn.completed"
+    assert events[-1].data["content"] == "Final implementation plan"
 
 
 def test_client_emits_permission_events_and_accepts_resolution() -> None:
@@ -409,4 +484,30 @@ def _result(
             }
         },
         origin=origin,
+    )
+
+
+def _task_started(task_id: str, description: str) -> TaskStartedMessage:
+    return TaskStartedMessage(
+        subtype="task_started",
+        data={},
+        task_id=task_id,
+        description=description,
+        uuid=f"{task_id}-started",
+        session_id="session-1",
+        task_type="local_agent",
+    )
+
+
+def _task_completed(task_id: str, summary: str) -> TaskNotificationMessage:
+    return TaskNotificationMessage(
+        subtype="task_notification",
+        data={},
+        task_id=task_id,
+        status="completed",
+        output_file=f"{task_id}.txt",
+        summary=summary,
+        uuid=f"{task_id}-completed",
+        session_id="session-1",
+        usage={"total_tokens": 100, "tool_uses": 1, "duration_ms": 1_000},
     )
