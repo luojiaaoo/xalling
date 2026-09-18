@@ -47,6 +47,7 @@ import {
   selectProjectFolder,
   setCurrentModel,
   type ChatPermissionAnswers,
+  type ChatPlanExecutionMode,
   type ChatPermissionRequestEvent,
   type ChatPermissionMode,
   type ClaudeCommand,
@@ -68,6 +69,7 @@ type TaskComposerProps = {
     allowed: boolean,
     answers?: ChatPermissionAnswers,
     feedback?: string,
+    executionMode?: ChatPlanExecutionMode,
   ) => Promise<void>;
   onPermissionModeChange: (mode: ChatPermissionMode) => void;
   onProjectChange: (project: ProjectFolder | null) => void;
@@ -544,13 +546,20 @@ export function TaskComposer({
     allowed: boolean,
     answers?: ChatPermissionAnswers,
     feedback?: string,
+    executionMode?: ChatPlanExecutionMode,
   ) => {
     if (!permissionRequest || !onPermissionDecision || permissionDecision || stopping) {
       return;
     }
     setPermissionDecision(allowed ? "allow" : "deny");
     try {
-      await onPermissionDecision(permissionRequest, allowed, answers, feedback);
+      await onPermissionDecision(
+        permissionRequest,
+        allowed,
+        answers,
+        feedback,
+        executionMode,
+      );
     } catch (error) {
       const text = error instanceof Error && error.message.trim()
         ? error.message
@@ -645,8 +654,13 @@ export function TaskComposer({
         <ExitPlanModeDialog
           key={permissionRequest.data.request_id}
           decision={permissionDecision}
-          onDecision={(allowed, feedback) => (
-            handleToolPermissionDecision(allowed, undefined, feedback)
+          onDecision={(allowed, feedback, executionMode) => (
+            handleToolPermissionDecision(
+              allowed,
+              undefined,
+              feedback,
+              executionMode,
+            )
           )}
           onStop={onStop}
           request={permissionRequest}

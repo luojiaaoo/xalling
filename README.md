@@ -218,7 +218,7 @@ turn.started
 
 - 普通工具统一产生 `permission.requested` / `permission.resolved`。
 - `AskUserQuestion` 会转换成结构化问题、选项和多选信息，由前端对话框收集完整答案后再恢复 SDK 调用。
-- `ExitPlanMode` 会产生计划审批事件；批准时可应用 SDK 建议的权限模式，拒绝时可把反馈交回 Agent 继续规划。
+- `ExitPlanMode` 会产生计划审批事件；批准时可选择恢复进入计划模式前的权限模式，或切换为变更前确认、自动编辑、帮我批准、完全访问，拒绝时可把反馈交回 Agent 继续规划。
 - 如果权限事件无法送达前端，后端会自动拒绝该调用，防止 SDK 永久等待。
 
 ## 通信契约

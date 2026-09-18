@@ -938,6 +938,7 @@ html[data-theme="serene"] .message-action-button:hover { color: #507395; backgro
 .exit-plan-mode-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .exit-plan-mode-footer > span { min-width: 0; color: #777886; font-size: 11px; line-height: 16px; }
 .exit-plan-mode-footer .tool-permission-actions { margin-inline-start: auto; }
+.exit-plan-mode-execution-select { width: 154px; }
 
 @keyframes tool-permission-enter {
   from { opacity: 0; transform: translateY(5px) scale(.995); }

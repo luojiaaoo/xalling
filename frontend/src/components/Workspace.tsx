@@ -21,6 +21,7 @@ import {
   subscribeChatEvents,
   type ChatPermissionAnswers,
   type ChatPermissionMode,
+  type ChatPlanExecutionMode,
   type ChatPermissionRequestEvent,
   type ChatStreamEvent,
   type ChatUsage,
@@ -665,30 +666,36 @@ export function Workspace({
     allowed: boolean,
     answers?: ChatPermissionAnswers,
     feedback?: string,
+    executionMode?: ChatPlanExecutionMode,
   ) => {
     const resolved = await respondChatPermission(
       request.data.request_id,
       allowed,
       answers,
       feedback,
+      executionMode,
     );
     if (!resolved) {
       throw new Error("权限请求已失效，请等待当前任务更新。");
     }
     if (allowed && request.data.tool_name === "ExitPlanMode") {
-      const suggestion = request.data.suggestions.find((item) => (
-        item.type === "setMode"
-        && (
-          item.mode === "default"
-          || item.mode === "acceptEdits"
-          || item.mode === "auto"
-          || item.mode === "bypassPermissions"
-        )
-      ));
-      onPermissionModeChange(
-        (suggestion?.mode as Exclude<ChatPermissionMode, "plan"> | undefined)
-        ?? "default",
-      );
+      if (executionMode) {
+        onPermissionModeChange(executionMode);
+      } else {
+        const suggestion = request.data.suggestions.find((item) => (
+          item.type === "setMode"
+          && (
+            item.mode === "default"
+            || item.mode === "acceptEdits"
+            || item.mode === "auto"
+            || item.mode === "bypassPermissions"
+          )
+        ));
+        onPermissionModeChange(
+          (suggestion?.mode as Exclude<ChatPermissionMode, "plan"> | undefined)
+          ?? "default",
+        );
+      }
     }
     setPermissionRequests((current) => current.filter(
       (item) => item.data.request_id !== request.data.request_id,

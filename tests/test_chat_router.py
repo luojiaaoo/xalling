@@ -469,9 +469,14 @@ def test_chat_router_returns_ask_user_answers_to_client(
     }
 
 
-def test_chat_router_resolves_plan_with_suggested_mode(
+@pytest.mark.parametrize(
+    "execution_mode",
+    [None, "default", "acceptEdits", "auto", "bypassPermissions"],
+)
+def test_chat_router_resolves_plan_with_selected_mode(
     tmp_path: Path,
     bridge_factory: Callable[[], ApplicationBridge],
+    execution_mode: str | None,
 ) -> None:
     session_id = str(uuid4())
     request_id = "toolu_plan"
@@ -507,11 +512,15 @@ def test_chat_router_resolves_plan_with_suggested_mode(
         running=True,
     )
 
-    assert router.respond_chat_permission(request_id, True)
+    assert router.respond_chat_permission(
+        request_id,
+        True,
+        execution_mode=execution_mode,
+    )
     assert client.approval == {
         "request_id": request_id,
         "approved": True,
-        "mode": "acceptEdits",
+        "mode": execution_mode,
         "message": "",
     }
 
@@ -678,3 +687,14 @@ def test_chat_router_rejects_non_boolean_permission_decision(
 ) -> None:
     with pytest.raises(TypeError, match="权限决定必须是布尔值"):
         bridge_factory().respond_chat_permission(str(uuid4()), "yes")
+
+
+def test_chat_router_rejects_invalid_plan_execution_mode(
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    with pytest.raises(ValueError, match="参数 execution_mode 无效"):
+        bridge_factory().respond_chat_permission(
+            str(uuid4()),
+            True,
+            execution_mode="plan",
+        )

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from time import time
-from typing import Any, cast
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import asyncer
@@ -140,6 +140,12 @@ class _ChatPermissionDecision(BaseModel):
     allowed: bool
     answers: dict[str, str | list[str]] | None = None
     feedback: str | None = None
+    execution_mode: Literal[
+        "default",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions",
+    ] | None = None
 
     @field_validator("permission_id", mode="before")
     @classmethod
@@ -532,6 +538,7 @@ class ChatRouter(CommandRouter):
         allowed: bool,
         answers: dict[str, str | list[str]] | None = None,
         feedback: str | None = None,
+        execution_mode: str | None = None,
     ) -> bool:
         try:
             decision = _ChatPermissionDecision.model_validate(
@@ -540,6 +547,7 @@ class ChatRouter(CommandRouter):
                     "allowed": allowed,
                     "answers": answers,
                     "feedback": feedback,
+                    "execution_mode": execution_mode,
                 }
             )
         except ValidationError as error:
@@ -548,7 +556,11 @@ class ChatRouter(CommandRouter):
         located = self._find_permission(decision.permission_id)
         if located is None:
             return False
-        client, tool_name, tool_input, suggestions = located
+        client, tool_name, tool_input = located
+        if decision.execution_mode is not None and (
+            tool_name != "ExitPlanMode" or not decision.allowed
+        ):
+            raise ValueError("只有执行计划时才能选择执行方式")
         normalized_answers = self._validate_tool_answers(
             tool_name,
             tool_input,
@@ -560,11 +572,7 @@ class ChatRouter(CommandRouter):
                 client.resolve_plan_approval(
                     decision.permission_id,
                     approved=decision.allowed,
-                    mode=(
-                        self._suggested_permission_mode(suggestions)
-                        if decision.allowed
-                        else None
-                    ),
+                    mode=decision.execution_mode if decision.allowed else None,
                     message=normalized_feedback or "",
                 )
             elif decision.allowed:
@@ -587,7 +595,7 @@ class ChatRouter(CommandRouter):
     def _find_permission(
         self,
         request_id: str,
-    ) -> tuple[ClaudeChatClient, str, dict[str, Any], list[Any]] | None:
+    ) -> tuple[ClaudeChatClient, str, dict[str, Any]] | None:
         for active_chat in self._active_chats.values():
             if request_id not in active_chat.client.pending_permission_ids:
                 continue
@@ -598,32 +606,9 @@ class ChatRouter(CommandRouter):
                 ):
                     tool_name = event.data.get("tool_name")
                     tool_input = event.data.get("tool_input")
-                    suggestions = event.data.get("suggestions")
                     if isinstance(tool_name, str) and isinstance(tool_input, dict):
-                        return (
-                            active_chat.client,
-                            tool_name,
-                            tool_input,
-                            suggestions if isinstance(suggestions, list) else [],
-                        )
+                        return active_chat.client, tool_name, tool_input
         return None
-
-    @staticmethod
-    def _suggested_permission_mode(suggestions: list[Any]) -> PermissionMode | None:
-        valid_modes = {
-            "default",
-            "acceptEdits",
-            "auto",
-            "bypassPermissions",
-            "dontAsk",
-        }
-        for suggestion in suggestions:
-            if not isinstance(suggestion, dict):
-                continue
-            mode = suggestion.get("mode")
-            if suggestion.get("type") == "setMode" and mode in valid_modes:
-                return cast(PermissionMode, mode)
-        return "default"
 
     @staticmethod
     def _validate_tool_feedback(

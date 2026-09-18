@@ -4,18 +4,23 @@ import {
   FileTextOutlined,
   LoadingOutlined,
 } from "@ant-design/icons";
-import { Button, Input, Tooltip } from "antd";
+import { Button, Input, Select, Tooltip } from "antd";
 import { useState } from "react";
 
 import type {
   ChatPermissionMode,
+  ChatPlanExecutionMode,
   ChatPermissionRequestEvent,
 } from "../bridge/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type ExitPlanModeDialogProps = {
   decision: "allow" | "deny" | null;
-  onDecision: (allowed: boolean, feedback?: string) => Promise<void>;
+  onDecision: (
+    allowed: boolean,
+    feedback?: string,
+    executionMode?: ChatPlanExecutionMode,
+  ) => Promise<void>;
   onStop?: () => void;
   request: ChatPermissionRequestEvent;
   stopping?: boolean;
@@ -28,6 +33,18 @@ const permissionModeLabels: Record<Exclude<ChatPermissionMode, "plan">, string> 
   bypassPermissions: "完全访问",
 };
 
+type ExecutionModeSelection = "previous" | Exclude<ChatPermissionMode, "plan">;
+
+const previousPermissionModeLabel = "默认权限（之前的权限）";
+
+const executionModeOptions: { label: string; value: ExecutionModeSelection }[] = [
+  { label: previousPermissionModeLabel, value: "previous" },
+  ...Object.entries(permissionModeLabels).map(([value, label]) => ({
+    label,
+    value: value as Exclude<ChatPermissionMode, "plan">,
+  })),
+];
+
 export function ExitPlanModeDialog({
   decision,
   onDecision,
@@ -36,12 +53,10 @@ export function ExitPlanModeDialog({
   stopping = false,
 }: ExitPlanModeDialogProps) {
   const [feedback, setFeedback] = useState("");
-  const rawMode = request.data.suggestions.find((item) => item.type === "setMode")?.mode;
-  const nextMode: Exclude<ChatPermissionMode, "plan"> = (
-    rawMode === "acceptEdits"
-    || rawMode === "auto"
-    || rawMode === "bypassPermissions"
-  ) ? rawMode : "default";
+  const [executionMode, setExecutionMode] = useState<ExecutionModeSelection>("previous");
+  const executionModeLabel = executionMode === "previous"
+    ? previousPermissionModeLabel
+    : permissionModeLabels[executionMode];
   const disabled = decision !== null || stopping;
   const rawPlan = request.data.tool_input.plan;
   const plan = typeof rawPlan === "string" ? rawPlan.trim() : "";
@@ -62,7 +77,7 @@ export function ExitPlanModeDialog({
           <span>确认后，Claude 将退出计划模式并开始执行。</span>
         </div>
         <span className="exit-plan-mode-transition">
-          计划模式 <ArrowRightOutlined /> {permissionModeLabels[nextMode]}
+          计划模式 <ArrowRightOutlined /> {executionModeLabel}
         </span>
       </div>
       {plan && (
@@ -107,10 +122,23 @@ export function ExitPlanModeDialog({
           >
             {feedback.trim() ? "发送反馈并继续规划" : "继续规划"}
           </Button>
+          <Select<ExecutionModeSelection>
+            aria-label="选择计划执行方式"
+            className="exit-plan-mode-execution-select"
+            disabled={disabled}
+            onChange={setExecutionMode}
+            options={executionModeOptions}
+            popupMatchSelectWidth={false}
+            value={executionMode}
+          />
           <Button
             disabled={disabled}
             loading={decision === "allow"}
-            onClick={() => void onDecision(true)}
+            onClick={() => void onDecision(
+              true,
+              undefined,
+              executionMode === "previous" ? null : executionMode,
+            )}
             type="primary"
           >
             执行计划
