@@ -45,9 +45,17 @@ def _turn_usage(
 
 
 def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
-    """Aggregate foreground and background subagent metrics from turn events."""
+    """Aggregate subagent metrics after every usage snapshot is terminal.
+
+    The SDK can emit an ``AssistantMessage`` snapshot with ``output_tokens``
+    still at zero before it emits the same message with its final
+    ``stop_reason``.  Realtime accounting must wait for that terminal
+    snapshot instead of settling the intermediate value.
+    """
     agent_task_ids: dict[str, str] = {}
     agent_ids: set[str] = set()
+    message_agent_ids: set[str] = set()
+    finalized_agent_ids: set[str] = set()
     message_usages: dict[str, tuple[str, Mapping[str, Any]]] = {}
     task_usages: dict[str, Mapping[str, Any]] = {}
 
@@ -83,6 +91,11 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
                 agent_ids.add(tool_id)
         elif event.event == "assistant.message.completed" and parent_id is not None:
             usage = event.data.get("usage")
+            if isinstance(usage, Mapping):
+                message_agent_ids.add(parent_id)
+            stop_reason = event.data.get("stop_reason")
+            if not isinstance(stop_reason, str) or not stop_reason:
+                continue
             message_key = (
                 event.data.get("message_id")
                 or event.data.get("message_uuid")
@@ -91,8 +104,16 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
             if isinstance(message_key, str) and isinstance(usage, Mapping):
                 message_usages[message_key] = (parent_id, usage)
                 agent_ids.add(parent_id)
+                finalized_agent_ids.add(parent_id)
 
     if not agent_ids:
+        return None
+
+    # An assistant usage snapshot without a stop reason is an in-progress
+    # message (commonly the thinking frame with output_tokens == 0).  Do not
+    # settle the realtime usage until every agent that has emitted a usage
+    # snapshot has also emitted its terminal assistant message.
+    if message_agent_ids - finalized_agent_ids:
         return None
 
     raw_message_usages = tuple(usage for _, usage in message_usages.values())

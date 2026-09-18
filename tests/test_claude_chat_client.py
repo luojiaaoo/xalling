@@ -280,10 +280,23 @@ async def _client_aggregates_foreground_subagent_usage() -> None:
                 model="test-model",
             ),
             AssistantMessage(
+                content=[TextBlock(text="Thinking")],
+                model="subagent-model",
+                parent_tool_use_id="agent-tool",
+                message_id="subagent-message",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 0,
+                    "cache_read_input_tokens": 2,
+                    "cache_creation_input_tokens": 3,
+                },
+            ),
+            AssistantMessage(
                 content=[TextBlock(text="Tests look good")],
                 model="subagent-model",
                 parent_tool_use_id="agent-tool",
                 message_id="subagent-message",
+                stop_reason="end_turn",
                 usage={
                     "input_tokens": 10,
                     "output_tokens": 5,
@@ -311,6 +324,39 @@ async def _client_aggregates_foreground_subagent_usage() -> None:
         "count": 1,
         "total_tokens": 20,
     }
+
+
+def test_client_does_not_settle_in_progress_subagent_usage() -> None:
+    anyio.run(_client_does_not_settle_in_progress_subagent_usage)
+
+
+async def _client_does_not_settle_in_progress_subagent_usage() -> None:
+    _FakeSDK.batches = [
+        [
+            AssistantMessage(
+                content=[TextBlock(text="Still thinking")],
+                model="subagent-model",
+                parent_tool_use_id="agent-tool",
+                message_id="subagent-message",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 0,
+                },
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="Final answer")],
+                model="test-model",
+                stop_reason="end_turn",
+            ),
+            _result(origin={"kind": "human"}),
+        ]
+    ]
+    client = ClaudeChatClient(ClaudeAgentOptions(model="test-model"))
+    [event async for event in client.stream("Inspect the tests")]
+
+    result = client.last_result
+    assert result is not None
+    assert result.usage.subagent_usage is None
 
 
 def test_client_emits_permission_events_and_accepts_resolution() -> None:

@@ -445,7 +445,6 @@ class ClaudeChatClient:
         active_task_ids: set[str] = set()
         pending_notification_turns = 0
         background_chain_started = False
-        stopped_task_observed = False
 
         async def submitted_message() -> AsyncIterator[dict[str, Any]]:
             yield {
@@ -479,7 +478,6 @@ class ClaudeChatClient:
                     elif isinstance(message, TaskNotificationMessage):
                         active_task_ids.discard(message.task_id)
                         if stop_requested.is_set() and message.status == "stopped":
-                            stopped_task_observed = True
                             # An interrupted task will not produce the
                             # continuation ResultMessage that a normal
                             # task-notification produces. Reuse the deferred
@@ -530,11 +528,6 @@ class ClaudeChatClient:
                             pending_notification_turns,
                         )
 
-                    if requested_result is not None or (
-                        stopped_task_observed and not active_task_ids
-                    ):
-                        break
-
                     is_submitted_echo = (
                         isinstance(message, UserMessage)
                         and message.uuid == factory.turn_id
@@ -583,7 +576,11 @@ class ClaudeChatClient:
                     waiting_for_background = bool(
                         active_task_ids or pending_notification_turns
                     )
-                    if is_human_result and not waiting_for_background:
+                    if (
+                        requested_result is None
+                        and is_human_result
+                        and not waiting_for_background
+                    ):
                         requested_result = message
                         _SDK_LOGGER.info(
                             "Claude SDK ResultMessage selected as requested result | "
