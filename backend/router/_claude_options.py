@@ -42,9 +42,9 @@ def discover_plugins(
     """Return user and project roots containing Claude plugin components."""
     user_home = (home or Path.home()).resolve()
     candidate_roots = [
-        user_home / ".xalling",
         user_home / ".config" / "opencode",
         user_home / ".agents",
+        user_home / ".claude",
     ]
     if project is not None and project.is_dir():
         candidate_roots.append(project.resolve() / ".agents")
