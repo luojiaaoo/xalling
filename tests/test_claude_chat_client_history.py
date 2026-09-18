@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from uuid import uuid4
 
-import anyio
 import pytest
 from claude_agent_sdk import SDKSessionInfo, SessionMessage
 
@@ -310,37 +308,25 @@ def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None
     ]
     calls: list[tuple[object, ...]] = []
 
-    async def get_messages(_store, session_id, directory=None):
-        calls.append(("main", session_id, directory))
-        return main
-
-    async def list_agents(_store, session_id, directory=None):
-        calls.append(("list", session_id, directory))
-        return ["agent-1"]
-
-    async def get_agent_messages(_store, session_id, agent_id, directory=None):
-        calls.append(("nested", session_id, agent_id, directory))
-        return nested
-
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.get_session_messages_from_store",
-        get_messages,
+        "backend.claude_chat_client.history.get_session_messages",
+        lambda session_id, directory=None: calls.append(("main", session_id, directory)) or main,
     )
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.list_subagents_from_store",
-        list_agents,
+        "backend.claude_chat_client.history.list_subagents",
+        lambda session_id, directory=None: calls.append(("list", session_id, directory)) or ["agent-1"],
     )
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.get_subagent_messages_from_store",
-        get_agent_messages,
+        "backend.claude_chat_client.history.get_subagent_messages",
+        lambda session_id, agent_id, directory=None: (
+            calls.append(("nested", session_id, agent_id, directory)) or nested
+        ),
     )
-    async def load_events():
-        return await ClaudeChatHistory().get_session_events(
-            "session-id",
-            directory="project-dir",
-        )
 
-    events = anyio.run(load_events)
+    events = ClaudeChatHistory().get_session_events(
+        "session-id",
+        directory="project-dir",
+    )
 
     assert [event.event for event in events] == [
         "turn.started",
@@ -375,51 +361,31 @@ def test_history_exposes_session_snapshots_and_search(monkeypatch) -> None:
             session_id=session_id,
         ),
     ]
-    async def list_sessions(_store, **_kwargs):
-        return [session]
-
-    async def get_session_info(_store, requested_id, directory=None):
-        return session if requested_id == session_id else None
-
-    async def get_session_messages(_store, requested_id, directory=None):
-        return messages if requested_id == session_id else []
-
-    async def list_subagents(_store, _session_id, directory=None):
-        return []
-
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.list_sessions_from_store",
-        list_sessions,
-    )
-    async def list_project_directories():
-        return [Path("C:/work/xalling")]
-
-    monkeypatch.setattr(
-        "backend.claude_chat_client.history.session_store.list_project_directories",
-        list_project_directories,
+        "backend.claude_chat_client.history.list_sessions",
+        lambda **_kwargs: [session],
     )
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.get_session_info_from_store",
-        get_session_info,
+        "backend.claude_chat_client.history.get_session_info",
+        lambda requested_id, directory=None: (
+            session if requested_id == session_id else None
+        ),
     )
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.get_session_messages_from_store",
-        get_session_messages,
+        "backend.claude_chat_client.history.get_session_messages",
+        lambda requested_id, directory=None: (
+            messages if requested_id == session_id else []
+        ),
     )
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.list_subagents_from_store",
-        list_subagents,
+        "backend.claude_chat_client.history.list_subagents",
+        lambda _session_id, directory=None: [],
     )
+
     history = ClaudeChatHistory()
-
-    async def load_history():
-        return (
-            await history.list_sessions(),
-            await history.get_session(session_id.upper()),
-            await history.search_sessions("login"),
-        )
-
-    listed, snapshot, matches = anyio.run(load_history)
+    listed = history.list_sessions()
+    snapshot = history.get_session(session_id.upper())
+    matches = history.search_sessions("login")
 
     assert listed[0].title == "Fix login timeout"
     assert snapshot.session == listed[0]
@@ -432,26 +398,16 @@ def test_history_exposes_session_snapshots_and_search(monkeypatch) -> None:
 
 
 def test_history_rejects_invalid_or_missing_session(monkeypatch) -> None:
-    async def get_session_info(_store, _session_id, directory=None):
-        return None
-
     monkeypatch.setattr(
-        "backend.claude_chat_client.history.get_session_info_from_store",
-        get_session_info,
+        "backend.claude_chat_client.history.get_session_info",
+        lambda _session_id, directory=None: None,
     )
 
     history = ClaudeChatHistory()
-
-    async def invalid_session():
-        await history.get_session("not-a-session-id")
-
-    async def missing_session():
-        await history.get_session(str(uuid4()))
-
     with pytest.raises(ValueError, match="valid UUID"):
-        anyio.run(invalid_session)
+        history.get_session("not-a-session-id")
     with pytest.raises(ValueError, match="does not exist"):
-        anyio.run(missing_session)
+        history.get_session(str(uuid4()))
 
 
 def test_history_decodes_special_tool_results_from_json() -> None:

@@ -12,6 +12,7 @@ from time import time
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import asyncer
 from claude_agent_sdk import (
     ClaudeSDKError,
     PermissionMode,
@@ -255,7 +256,9 @@ class ChatRouter(CommandRouter):
         if existing is not None and existing.running:
             raise RuntimeError("当前会话正在生成，请先停止后再发送")
 
-        is_new_session = not await self._history.has_session(active_session_id)
+        is_new_session = not await asyncer.asyncify(self._history.has_session)(
+            active_session_id
+        )
         site, model = await self._get_current_provider()
         config = ClaudeConnectionConfig(
             api_key=site.api_key,
@@ -364,9 +367,13 @@ class ChatRouter(CommandRouter):
             raise ValueError("会话标识无效")
 
         project = default_project_folder()
-        is_new_session = not await self._history.has_session(normalized_session_id)
+        is_new_session = not await asyncer.asyncify(self._history.has_session)(
+            normalized_session_id
+        )
         if not is_new_session:
-            snapshot = await self._history.get_session(normalized_session_id)
+            snapshot = await asyncer.asyncify(self._history.get_session)(
+                normalized_session_id
+            )
             if snapshot.session.cwd:
                 candidate = Path(snapshot.session.cwd).resolve()
                 if candidate.is_dir():
@@ -451,7 +458,7 @@ class ChatRouter(CommandRouter):
             await active_chat.resources.aclose()
 
     async def list_chat_sessions(self) -> list[dict[str, Any]]:
-        sessions = await self._history.list_sessions()
+        sessions = await asyncer.asyncify(self._history.list_sessions)()
         sessions_by_id = {
             session.session_id: {**session.to_dict(), "running": False}
             for session in sessions
@@ -474,7 +481,7 @@ class ChatRouter(CommandRouter):
     async def search_chat_sessions(self, query: str) -> list[dict[str, Any]]:
         if not isinstance(query, str):
             raise TypeError("搜索关键词必须是字符串")
-        matches = await self._history.search_sessions(query)
+        matches = await asyncer.asyncify(self._history.search_sessions)(query)
         return [match.to_dict() for match in matches]
 
     async def get_chat_session(self, session_id: str) -> dict[str, Any]:
@@ -482,7 +489,7 @@ class ChatRouter(CommandRouter):
         if normalized is None:
             raise ValueError("会话标识无效")
         try:
-            snapshot = await self._history.get_session(normalized)
+            snapshot = await asyncer.asyncify(self._history.get_session)(normalized)
             payload = snapshot.to_dict()
             payload["render_events"] = [
                 self._event_payload(event, normalized)
