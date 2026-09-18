@@ -1,4 +1,4 @@
-"""Access, error, and browser logging for the JavaScript-Python bridge."""
+"""Application logging for the JavaScript-Python bridge and SDK sessions."""
 
 import inspect
 import sys
@@ -13,8 +13,10 @@ LOG_DIRECTORY = Path.home() / ".xalling" / "log"
 ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"
 BROWSER_LOG_FILEPATH = LOG_DIRECTORY / "browser.log"
 ERROR_LOG_FILEPATH = LOG_DIRECTORY / "error.log"
+SESSION_DEBUG_DIRECTORY = Path.home() / ".xalling" / "session_debug"
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token")
+SESSION_DEBUG_KINDS = frozenset({"realtime", "history"})
 
 # 高频调用、刷日志没意义的桥接方法：不打 call/result 访问日志，但异常仍记录
 SILENT_ACCESS_LOG_CALLS = frozenset({"WindowRouter.resize_window", "ChatRouter.list_chat_sessions"})
@@ -23,6 +25,14 @@ _logging_configured = False
 _access_logger = logger.bind(channel="access")
 _browser_logger = logger.bind(channel="browser")
 _error_logger = logger.bind(channel="error")
+_session_debug_logger = logger.bind(channel="session_debug")
+
+
+def session_debug_filepath(kind: str, session_id: str) -> Path:
+    """Return the JSONL path for one session debug message stream."""
+    if kind not in SESSION_DEBUG_KINDS:
+        raise ValueError("kind must be 'realtime' or 'history'")
+    return SESSION_DEBUG_DIRECTORY / f"{kind}-{session_id}.jsonl"
 
 
 def configure_logging() -> None:
