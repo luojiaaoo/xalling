@@ -28,6 +28,7 @@ type ToolCall = {
   plan?: string;
   status: TraceStatus;
   summary: string;
+  taskIds?: string[];
   trace: AgentTraceItem[];
 };
 
@@ -202,14 +203,14 @@ function applyChatStreamEventAtLevel(
     const plan = typeof data.plan === "string" && data.plan.trim()
       ? data.plan.trim()
       : undefined;
-    const toolCall: ToolCall = {
+      const toolCall: ToolCall = {
       key: toolId,
       name,
       plan,
-      status: "running",
-      summary,
-      trace: [],
-    };
+        status: "running",
+        summary,
+        trace: [],
+      };
     const modelTurnId = event.model_turn_id ?? event.id;
     const groupKey = `tools:${event.turn_id}:${modelTurnId}:${event.parent_tool_use_id ?? "main"}`;
     const groupIndex = items.findIndex((item) => item.key === groupKey);
@@ -241,6 +242,72 @@ function applyChatStreamEventAtLevel(
     });
   }
 
+  if (
+    event.event === "task.started"
+    || event.event === "task.progress"
+    || event.event === "task.completed"
+    || event.event === "task.updated"
+  ) {
+    const taskId = typeof data.task_id === "string" ? data.task_id : undefined;
+    if (!taskId) {
+      return items;
+    }
+    const toolId = typeof data.tool_use_id === "string" ? data.tool_use_id : undefined;
+    const patchData = typeof data.patch === "object" && data.patch !== null
+      ? data.patch as Record<string, unknown>
+      : undefined;
+    const rawStatus = typeof data.status === "string"
+      ? data.status
+      : typeof patchData?.status === "string" ? patchData.status : undefined;
+    const terminal: "error" | "success" | undefined = event.event === "task.completed"
+      ? rawStatus !== "failed" && rawStatus !== "stopped"
+        ? "success"
+        : "error"
+      : rawStatus === "completed" || rawStatus === "failed"
+        || rawStatus === "stopped" || rawStatus === "killed"
+        ? rawStatus === "completed" ? "success" : "error"
+        : undefined;
+    const running = terminal === undefined;
+    let changed = false;
+    const nextItems = items.map((item) => {
+      if (item.kind !== "tools") {
+        return item;
+      }
+      const calls = item.calls.map((call) => {
+        const matches = (toolId !== undefined && call.key === toolId)
+          || call.taskIds?.includes(taskId) === true;
+        if (!matches) {
+          return call;
+        }
+        changed = true;
+        const taskIds = running
+          ? [...new Set([...(call.taskIds ?? []), taskId])]
+          : (call.taskIds ?? []).filter((id) => id !== taskId);
+        const status: TraceStatus = running ? "running" : terminal;
+        const completedStatus: "error" | "success" = terminal === "error" ? "error" : "success";
+        return {
+          ...call,
+          status,
+          taskIds: taskIds.length ? taskIds : undefined,
+          trace: running ? call.trace : finishAgentTrace(call.trace, completedStatus, now),
+        };
+      });
+      if (calls === item.calls || !calls.some((call, index) => call !== item.calls[index])) {
+        return item;
+      }
+      const groupStatus: TraceStatus = calls.some((call) => call.status === "error")
+        ? "error"
+        : calls.some((call) => call.status === "running") ? "running" : "success";
+      return {
+        ...item,
+        calls,
+        finishedAt: calls.some((call) => call.status === "running") ? undefined : now,
+        status: groupStatus,
+      };
+    });
+    return changed ? nextItems : items;
+  }
+
   const completedEvents = new Set([
     "tool.completed",
     "subagent.tool.completed",
@@ -264,8 +331,14 @@ function applyChatStreamEventAtLevel(
         call.key === toolId
           ? {
               ...call,
-              status,
-              trace: finishAgentTrace(call.trace, status, now),
+              // A background Agent returns a launch acknowledgement first. Its
+              // task.* lifecycle events are the authoritative completion signal.
+              status: event.event === "subagent.completed" && call.taskIds?.length
+                ? "running" as const
+                : status,
+              trace: event.event === "subagent.completed" && call.taskIds?.length
+                ? call.trace
+                : finishAgentTrace(call.trace, status, now),
             }
           : call
       ));
@@ -401,7 +474,7 @@ function toolStatus(status: TraceStatus): string {
 }
 
 function isAgentTool(name: string): boolean {
-  return name === "Agent";
+  return name === "Agent" || name === "Task";
 }
 
 type TraceTimelineProps = {
