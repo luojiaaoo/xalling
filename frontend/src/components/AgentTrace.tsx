@@ -203,14 +203,14 @@ function applyChatStreamEventAtLevel(
     const plan = typeof data.plan === "string" && data.plan.trim()
       ? data.plan.trim()
       : undefined;
-      const toolCall: ToolCall = {
+    const toolCall: ToolCall = {
       key: toolId,
       name,
       plan,
-        status: "running",
-        summary,
-        trace: [],
-      };
+      status: "running",
+      summary,
+      trace: [],
+    };
     const modelTurnId = event.model_turn_id ?? event.id;
     const groupKey = `tools:${event.turn_id}:${modelTurnId}:${event.parent_tool_use_id ?? "main"}`;
     const groupIndex = items.findIndex((item) => item.key === groupKey);
@@ -327,21 +327,31 @@ function applyChatStreamEventAtLevel(
       if (callIndex === -1) {
         return item;
       }
-      const calls = item.calls.map((call) => (
-        call.key === toolId
-          ? {
-              ...call,
-              // A background Agent returns a launch acknowledgement first. Its
-              // task.* lifecycle events are the authoritative completion signal.
-              status: event.event === "subagent.completed" && call.taskIds?.length
-                ? "running" as const
-                : status,
-              trace: event.event === "subagent.completed" && call.taskIds?.length
-                ? call.trace
-                : finishAgentTrace(call.trace, status, now),
-            }
-          : call
-      ));
+      const calls = item.calls.map((call) => {
+        if (call.key !== toolId) {
+          return call;
+        }
+
+        // For Agent/Task, ``subagent.completed`` is the tool-result/launch
+        // acknowledgement.  Background tasks can continue after that result,
+        // and the SDK does not always include tool_use_id on their lifecycle
+        // messages, so this event cannot safely be treated as final completion.
+        // Keep the call running until a terminal task.* event arrives, or until
+        // turn.completed finishes any still-running trace as a final fallback.
+        const deferredAgentCompletion = (
+          event.event === "subagent.completed"
+          && isAgentTool(call.name)
+          && data.is_error !== true
+        );
+        const nextStatus: TraceStatus = deferredAgentCompletion ? "running" : status;
+        return {
+          ...call,
+          status: nextStatus,
+          trace: deferredAgentCompletion
+            ? call.trace
+            : finishAgentTrace(call.trace, status, now),
+        };
+      });
       if (calls.every((call) => call.status !== "running")) {
         return {
           ...item,
