@@ -121,6 +121,7 @@ type ChatStreamEvent = {
   id: string;
   event: string;
   turn_id: string;
+  model_turn_id: string | null;
   session_id: string | null;
   parent_tool_use_id: string | null;
   created_at: string;
@@ -128,7 +129,8 @@ type ChatStreamEvent = {
 };
 ```
 
-- `turn_id` 标识一次用户发起的逻辑回合。
+- `turn_id` 标识一次用户发起的逻辑回合，用于气泡、搜索和完成态归并。
+- `model_turn_id` 标识该用户回合中的一次模型调用，取自 SDK 的 `AssistantMessage.message_id`；同一次调用并行发出的工具共享该值，不同 Agent Loop 使用不同值。
 - `parent_tool_use_id` 为空时属于主 Agent；非空时用于把子 Agent 的回复、思考和工具调用嵌入对应的 Agent 工具节点。
 - `session_id` 标识 Claude 持久化会话。
 - 所有 payload 在进入桥接前都会转换成 JSON 安全值；`ChatEvent` 也支持序列化为 SSE 帧，但桌面应用当前使用 pywebview 事件而不是 HTTP/SSE。

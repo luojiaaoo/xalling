@@ -210,7 +210,8 @@ function applyChatStreamEventAtLevel(
       summary,
       trace: [],
     };
-    const groupKey = `tools:${event.turn_id}:${event.parent_tool_use_id ?? "main"}`;
+    const modelTurnId = event.model_turn_id ?? event.id;
+    const groupKey = `tools:${event.turn_id}:${modelTurnId}:${event.parent_tool_use_id ?? "main"}`;
     const groupIndex = items.findIndex((item) => item.key === groupKey);
     if (groupIndex === -1) {
       return [

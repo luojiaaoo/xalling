@@ -55,6 +55,7 @@ class _ToolCall:
     name: str
     parent_tool_use_id: str | None
     input: dict[str, Any]
+    model_turn_id: str | None
 
 
 @dataclass(slots=True)
@@ -76,6 +77,7 @@ class _EventFactory:
         event: EventName,
         data: Mapping[str, Any] | None = None,
         *,
+        model_turn_id: str | None = None,
         session_id: str | None = None,
         parent_tool_use_id: str | None = None,
     ) -> ChatEvent:
@@ -84,6 +86,7 @@ class _EventFactory:
             id=f"{self.turn_id}:{self._sequence}",
             event=event,
             turn_id=self.turn_id,
+            model_turn_id=model_turn_id,
             data=dict(data or {}),
             session_id=session_id or self.session_id,
             parent_tool_use_id=parent_tool_use_id,
@@ -179,6 +182,7 @@ class _MessageAdapter:
         self.main_text: list[str] = []
         self.main_models: list[str] = []
         self.last_main_stop_reason: str | None = None
+        self._model_turn_sequence = 0
 
     def adapt(self, message: Message) -> list[ChatEvent]:
         """Convert every currently known SDK ``Message`` variant."""
@@ -297,6 +301,12 @@ class _MessageAdapter:
     def _assistant_message(self, message: AssistantMessage) -> list[ChatEvent]:
         events: list[ChatEvent] = []
         parent_id = message.parent_tool_use_id
+        model_turn_id = message.message_id or message.uuid
+        if model_turn_id is None:
+            self._model_turn_sequence += 1
+            model_turn_id = (
+                f"{self.factory.turn_id}:model:{self._model_turn_sequence}"
+            )
         is_subagent = parent_id is not None
         message_text: list[str] = []
         if not is_subagent:
@@ -317,6 +327,7 @@ class _MessageAdapter:
                             "message_id": message.message_id,
                             "message_uuid": message.uuid,
                         },
+                        model_turn_id=model_turn_id,
                         session_id=message.session_id,
                         parent_tool_use_id=parent_id,
                     )
@@ -333,6 +344,7 @@ class _MessageAdapter:
                             "message_id": message.message_id,
                             "message_uuid": message.uuid,
                         },
+                        model_turn_id=model_turn_id,
                         session_id=message.session_id,
                         parent_tool_use_id=parent_id,
                     )
@@ -341,6 +353,7 @@ class _MessageAdapter:
                 events.append(
                     self._tool_request(
                         block,
+                        model_turn_id=model_turn_id,
                         parent_tool_use_id=parent_id,
                         session_id=message.session_id,
                     )
@@ -349,25 +362,37 @@ class _MessageAdapter:
                 events.append(
                     self._tool_result(
                         block,
+                        model_turn_id=model_turn_id,
                         parent_tool_use_id=parent_id,
                         session_id=message.session_id,
                         tool_use_result=None,
                     )
                 )
             elif isinstance(block, ServerToolUseBlock):
+                self.tools[block.id] = _ToolCall(
+                    block.name,
+                    parent_id,
+                    block.input,
+                    model_turn_id,
+                )
                 events.append(
                     self.factory.make(
                         "server_tool.requested",
                         {"tool_id": block.id, "name": block.name, "input": block.input},
+                        model_turn_id=model_turn_id,
                         session_id=message.session_id,
                         parent_tool_use_id=parent_id,
                     )
                 )
             elif isinstance(block, ServerToolResultBlock):
+                call = self.tools.get(block.tool_use_id)
                 events.append(
                     self.factory.make(
                         "server_tool.completed",
                         {"tool_id": block.tool_use_id, "content": block.content},
+                        model_turn_id=(
+                            call.model_turn_id if call is not None else model_turn_id
+                        ),
                         session_id=message.session_id,
                         parent_tool_use_id=parent_id,
                     )
@@ -381,6 +406,7 @@ class _MessageAdapter:
                             "content_block_type": type(block).__name__,
                             "payload": block,
                         },
+                        model_turn_id=model_turn_id,
                         session_id=message.session_id,
                         parent_tool_use_id=parent_id,
                     )
@@ -396,6 +422,7 @@ class _MessageAdapter:
                 self.factory.make(
                     "assistant.error",
                     {"error": message.error, "model": message.model},
+                    model_turn_id=model_turn_id,
                     session_id=message.session_id,
                     parent_tool_use_id=parent_id,
                 )
@@ -411,6 +438,7 @@ class _MessageAdapter:
                     "usage": message.usage,
                     "is_subagent": is_subagent,
                 },
+                model_turn_id=model_turn_id,
                 session_id=message.session_id,
                 parent_tool_use_id=parent_id,
             )
@@ -463,6 +491,7 @@ class _MessageAdapter:
                     events.append(
                         self._tool_result(
                             block,
+                            model_turn_id=None,
                             parent_tool_use_id=parent_id,
                             session_id=None,
                             tool_use_result=message.tool_use_result,
@@ -472,6 +501,7 @@ class _MessageAdapter:
                     events.append(
                         self._tool_request(
                             block,
+                            model_turn_id=message.uuid,
                             parent_tool_use_id=parent_id,
                             session_id=None,
                         )
@@ -494,6 +524,7 @@ class _MessageAdapter:
         self,
         block: ToolUseBlock,
         *,
+        model_turn_id: str | None,
         parent_tool_use_id: str | None,
         session_id: str | None,
     ) -> ChatEvent:
@@ -501,6 +532,7 @@ class _MessageAdapter:
             block.name,
             parent_tool_use_id,
             block.input,
+            model_turn_id,
         )
         if block.name in _AGENT_TOOL_NAMES:
             event: EventName = "subagent.started"
@@ -538,6 +570,7 @@ class _MessageAdapter:
         return self.factory.make(
             event,
             data,
+            model_turn_id=model_turn_id,
             session_id=session_id,
             parent_tool_use_id=parent_tool_use_id,
         )
@@ -546,11 +579,15 @@ class _MessageAdapter:
         self,
         block: ToolResultBlock,
         *,
+        model_turn_id: str | None,
         parent_tool_use_id: str | None,
         session_id: str | None,
         tool_use_result: dict[str, Any] | None,
     ) -> ChatEvent:
         call = self.tools.get(block.tool_use_id)
+        resolved_model_turn_id = (
+            call.model_turn_id if call is not None else model_turn_id
+        )
         name = call.name if call is not None else None
         parent_id = (
             parent_tool_use_id
@@ -605,6 +642,7 @@ class _MessageAdapter:
         return self.factory.make(
             event,
             data,
+            model_turn_id=resolved_model_turn_id,
             session_id=session_id,
             parent_tool_use_id=parent_id,
         )
@@ -631,6 +669,7 @@ class _MessageAdapter:
                         "model": payload.get("model"),
                         "usage": payload.get("usage"),
                     },
+                    model_turn_id=state.message_id,
                     session_id=message.session_id,
                     parent_tool_use_id=parent_id,
                 )
@@ -650,6 +689,7 @@ class _MessageAdapter:
                         "delta": raw.get("delta"),
                         "usage": raw.get("usage"),
                     },
+                    model_turn_id=state.message_id,
                     session_id=message.session_id,
                     parent_tool_use_id=parent_id,
                 )
@@ -659,6 +699,7 @@ class _MessageAdapter:
                 self.factory.make(
                     "assistant.message.stopped",
                     common,
+                    model_turn_id=state.message_id,
                     session_id=message.session_id,
                     parent_tool_use_id=parent_id,
                 )
@@ -670,6 +711,7 @@ class _MessageAdapter:
                 self.factory.make(
                     "stream.ping",
                     common,
+                    model_turn_id=state.message_id,
                     session_id=message.session_id,
                     parent_tool_use_id=parent_id,
                 )
@@ -679,6 +721,7 @@ class _MessageAdapter:
                 self.factory.make(
                     "stream.error",
                     {**common, "error": raw.get("error")},
+                    model_turn_id=state.message_id,
                     session_id=message.session_id,
                     parent_tool_use_id=parent_id,
                 )
@@ -687,6 +730,7 @@ class _MessageAdapter:
             self.factory.make(
                 "sdk.unhandled",
                 {**common, "payload": raw},
+                model_turn_id=state.message_id,
                 session_id=message.session_id,
                 parent_tool_use_id=parent_id,
             )
@@ -768,6 +812,7 @@ class _MessageAdapter:
             self.factory.make(
                 event,
                 data,
+                model_turn_id=_string_or_none(common.get("message_id")),
                 session_id=message.session_id,
                 parent_tool_use_id=message.parent_tool_use_id,
             )
@@ -816,6 +861,7 @@ class _MessageAdapter:
                 self.factory.make(
                     "sdk.unhandled",
                     {**data, "payload": raw},
+                    model_turn_id=_string_or_none(common.get("message_id")),
                     session_id=message.session_id,
                     parent_tool_use_id=message.parent_tool_use_id,
                 )
@@ -824,6 +870,7 @@ class _MessageAdapter:
             self.factory.make(
                 event,
                 data,
+                model_turn_id=_string_or_none(common.get("message_id")),
                 session_id=message.session_id,
                 parent_tool_use_id=message.parent_tool_use_id,
             )
@@ -853,6 +900,7 @@ class _MessageAdapter:
                     "block_id": f"{common['message_id']}:{index}",
                     "index": index,
                 },
+                model_turn_id=_string_or_none(common.get("message_id")),
                 session_id=message.session_id,
                 parent_tool_use_id=message.parent_tool_use_id,
             )

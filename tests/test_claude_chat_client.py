@@ -164,6 +164,15 @@ async def _client_consumes_proxy_results_and_correlates_user_turn() -> None:
     assert result.usage.output_tokens == 12
     assert [event.event for event in events].count("user.message") == 1
     assert any(event.event == "turn.proxy.completed" for event in events)
+    model_turn_ids = [
+        event.model_turn_id
+        for event in events
+        if event.event == "assistant.message.completed"
+    ]
+    assert len(model_turn_ids) == 2
+    assert all(model_turn_ids)
+    assert len(set(model_turn_ids)) == 2
+    assert len({event.turn_id for event in events}) == 1
     assert events[-1].event == "turn.completed"
     submitted = _FakeSDK.instances[0].queries[0]
     assert submitted["uuid"] == events[0].turn_id

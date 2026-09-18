@@ -184,6 +184,7 @@ export type ChatStreamEvent = {
   data: Record<string, unknown>;
   event: string;
   id: string;
+  model_turn_id: string | null;
   parent_tool_use_id: string | null;
   session_id: string | null;
   turn_id: string;
@@ -230,6 +231,11 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     && typeof value.event === "string"
     && "turn_id" in value
     && typeof value.turn_id === "string"
+    && "model_turn_id" in value
+    && (
+      value.model_turn_id === null
+      || typeof value.model_turn_id === "string"
+    )
     && "data" in value
     && typeof value.data === "object"
     && value.data !== null

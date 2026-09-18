@@ -212,11 +212,17 @@ def _jsonable(value: Any) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class ChatEvent:
-    """One event in the wrapper's public realtime protocol."""
+    """One event in the wrapper's public realtime protocol.
+
+    ``turn_id`` identifies the enclosing human-submitted turn, while
+    ``model_turn_id`` identifies one assistant model invocation inside it.
+    Events outside an assistant invocation leave ``model_turn_id`` unset.
+    """
 
     id: str
     event: EventName
     turn_id: str
+    model_turn_id: str | None = None
     data: EventData = field(default_factory=dict)
     session_id: str | None = None
     parent_tool_use_id: str | None = None

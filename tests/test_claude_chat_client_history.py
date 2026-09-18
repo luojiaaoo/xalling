@@ -42,6 +42,7 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
             "id",
             "event",
             "turn_id",
+            "model_turn_id",
             "data",
             "session_id",
             "parent_tool_use_id",
@@ -50,6 +51,11 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
         for event in events
     )
     assert all(event.turn_id == "user-1" for event in events)
+    assert all(
+        event.model_turn_id == "message-assistant-1"
+        for event in events
+        if event.event.startswith(("assistant.", "tool."))
+    )
 
     text_deltas = [event for event in events if event.event == "assistant.reply.delta"]
     assert len(text_deltas) == 1
@@ -102,6 +108,51 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
     assert turn_completed.data["content"] == "检查完成"
     assert turn_completed.data["usage"]["input_tokens"] == 10
     assert turn_completed.data["usage"]["output_tokens"] == 5
+
+
+def test_history_keeps_model_loops_separate_inside_one_user_turn() -> None:
+    messages = [
+        _user_message("user-1", "分两轮检查"),
+        _assistant_message(
+            "assistant-1",
+            [
+                {
+                    "type": "tool_use",
+                    "id": "tool-1",
+                    "name": "Read",
+                    "input": {"file_path": "one.py"},
+                }
+            ],
+        ),
+        _tool_result_message("result-1", "tool-1"),
+        _assistant_message(
+            "assistant-2",
+            [
+                {
+                    "type": "tool_use",
+                    "id": "tool-2",
+                    "name": "Grep",
+                    "input": {"pattern": "two"},
+                }
+            ],
+        ),
+        _tool_result_message("result-2", "tool-2"),
+    ]
+
+    events = assemble_session_messages(messages)
+    tool_events = [
+        event
+        for event in events
+        if event.event in {"tool.requested", "tool.completed"}
+    ]
+
+    assert {event.turn_id for event in tool_events} == {"user-1"}
+    assert [event.model_turn_id for event in tool_events] == [
+        "message-assistant-1",
+        "message-assistant-1",
+        "message-assistant-2",
+        "message-assistant-2",
+    ]
 
 
 def test_history_inserts_nested_subagent_events_after_matching_tool() -> None:
