@@ -419,6 +419,31 @@ async def _client_remembers_stop_requested_before_query_submission() -> None:
     assert _FakeSDK.instances[0].interrupted is True
 
 
+def test_client_finishes_when_a_subagent_is_stopped() -> None:
+    anyio.run(_client_finishes_when_a_subagent_is_stopped)
+
+
+async def _client_finishes_when_a_subagent_is_stopped() -> None:
+    _FakeSDK.batches = [
+        [
+            _task_started("plan", "Create the final plan"),
+            _result(origin={"kind": "human"}),
+        ],
+        [_task_stopped("plan", "Plan stopped")],
+    ]
+    client = ClaudeChatClient(ClaudeAgentOptions(model="test-model"))
+    events = []
+
+    async for event in client.stream("Start a plan"):
+        events.append(event)
+        if event.event == "turn.started":
+            await client.request_stop()
+
+    assert _FakeSDK.instances[0].interrupted is True
+    assert events[-1].event == "turn.completed"
+    assert not any(event.event == "turn.failed" for event in events)
+
+
 def test_client_normalizes_changing_stream_event_uuids() -> None:
     anyio.run(_client_normalizes_changing_stream_event_uuids)
 
@@ -578,6 +603,20 @@ def _task_completed(task_id: str, summary: str) -> TaskNotificationMessage:
         output_file=f"{task_id}.txt",
         summary=summary,
         uuid=f"{task_id}-completed",
+        session_id="session-1",
+        usage={"total_tokens": 100, "tool_uses": 1, "duration_ms": 1_000},
+    )
+
+
+def _task_stopped(task_id: str, summary: str) -> TaskNotificationMessage:
+    return TaskNotificationMessage(
+        subtype="task_notification",
+        data={},
+        task_id=task_id,
+        status="stopped",
+        output_file=f"{task_id}.txt",
+        summary=summary,
+        uuid=f"{task_id}-stopped",
         session_id="session-1",
         usage={"total_tokens": 100, "tool_uses": 1, "duration_ms": 1_000},
     )
