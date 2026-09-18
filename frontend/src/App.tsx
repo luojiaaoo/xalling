@@ -44,6 +44,10 @@ export default function App() {
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [modelsRevision, setModelsRevision] = useState(0);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // The sidebar selection may change while the current workspace keeps running.
+  // Keep the session used to initialise Workspace separate so selecting the
+  // newly-created history row does not make Workspace reload its own history.
+  const [workspaceSessionId, setWorkspaceSessionId] = useState<string | null>(null);
   const [projectExpansionRequest, setProjectExpansionRequest] = useState<{
     path: string;
     sequence: number;
@@ -170,6 +174,7 @@ export default function App() {
   function handleNewTask() {
     setView("workspace");
     setActiveSessionId(null);
+    setWorkspaceSessionId(null);
     setFocusMessageKey(null);
     setWorkspaceKey((key) => key + 1);
   }
@@ -179,6 +184,7 @@ export default function App() {
     setView("workspace");
     setSelectedProject(project.path ? project : null);
     setActiveSessionId(null);
+    setWorkspaceSessionId(null);
     setFocusMessageKey(null);
     setWorkspaceKey((key) => key + 1);
   }
@@ -186,11 +192,13 @@ export default function App() {
   function handleHistorySessionClick(sessionId: string) {
     setView("workspace");
     setActiveSessionId(sessionId);
+    setWorkspaceSessionId(sessionId);
     setFocusMessageKey(null);
     setWorkspaceKey((key) => key + 1);
   }
 
-  function handleConversationStart(project: ProjectFolder | null) {
+  function handleConversationStart(project: ProjectFolder | null, sessionId: string) {
+    setActiveSessionId(sessionId);
     if (!project?.path) {
       return;
     }
@@ -204,6 +212,7 @@ export default function App() {
   function handleSearchResultOpen(sessionId: string, messageKey: string | null) {
     setView("workspace");
     setActiveSessionId(sessionId);
+    setWorkspaceSessionId(sessionId);
     setFocusMessageKey(messageKey);
     setWorkspaceKey((key) => key + 1);
   }
@@ -260,7 +269,7 @@ export default function App() {
             effort={effort}
             focusMessageKey={focusMessageKey}
             hidden={view === "settings"}
-            initialSessionId={activeSessionId}
+            initialSessionId={workspaceSessionId}
             modelsRevision={modelsRevision}
             onEffortChange={setEffort}
             onPermissionModeChange={setPermissionMode}

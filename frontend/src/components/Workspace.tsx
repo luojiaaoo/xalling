@@ -318,7 +318,7 @@ type WorkspaceProps = {
   initialSessionId?: string | null;
   modelsRevision: number;
   onEffortChange: (value: number) => void;
-  onConversationStart?: (project: ProjectFolder | null) => void;
+  onConversationStart?: (project: ProjectFolder | null, sessionId: string) => void;
   onPermissionModeChange: (mode: ChatPermissionMode) => void;
   onProjectChange: Dispatch<SetStateAction<ProjectFolder | null>>;
   onSessionsChanged?: () => void;
@@ -727,7 +727,7 @@ export function Workspace({
     const startingNewConversation = !conversationStarted;
     const startConversation = () => {
       if (startingNewConversation) {
-        onConversationStart?.(draft.project);
+        onConversationStart?.(draft.project, sessionIdRef.current);
       }
       setMessages((current) => [
         ...current,
