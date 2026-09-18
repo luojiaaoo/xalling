@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from webview.errors import JavascriptException, WebViewException
 
 from backend.claude_chat_client import ChatEvent, ClaudeChatClient, ClaudeChatHistory
+from backend.claude_chat_client.models import render_event
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
     ModelConfig,
@@ -489,7 +490,12 @@ class ChatRouter(CommandRouter):
             raise ValueError("会话标识无效")
         try:
             snapshot = await asyncer.asyncify(self._history.get_session)(normalized)
-            return snapshot.to_dict()
+            payload = snapshot.to_dict()
+            payload["render_events"] = [
+                self._event_payload(event, normalized)
+                for event in snapshot.events
+            ]
+            return payload
         except ValueError:
             active_chat = self._active_chats.get(normalized)
             if active_chat is None or not active_chat.running:
@@ -510,7 +516,11 @@ class ChatRouter(CommandRouter):
             if event.event != "permission.requested"
             or event.data.get("request_id") in pending_ids
         ]
-        return {"session_id": normalized, "events": events}
+        return {
+            "session_id": normalized,
+            "events": events,
+            "render_events": events,
+        }
 
     async def stop_chat_message(self, session_id: str | None = None) -> bool:
         normalized = self._normalize_optional_session_id(session_id)
@@ -705,7 +715,9 @@ class ChatRouter(CommandRouter):
 
     @staticmethod
     def _event_payload(event: ChatEvent, session_id: str) -> dict[str, Any]:
-        return {**event.to_dict(), "session_id": session_id}
+        render = render_event(event)
+        render["session_id"] = session_id
+        return {**event.to_dict(), "session_id": session_id, "render": render}
 
     @staticmethod
     def _normalize_optional_session_id(value: object) -> str | None:

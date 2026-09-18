@@ -243,6 +243,140 @@ class ChatEvent:
         )
 
 
+def render_event(event: ChatEvent) -> dict[str, Any]:
+    """Build the UI-facing projection of a client event.
+
+    ``ChatEvent`` remains the internal/history protocol used by the Python
+    client.  The projection deliberately has no SDK objects or SDK field
+    names; it is the only event shape that the desktop renderer needs to
+    consume.  Keeping this at serialization time also makes live events and
+    history replay use the same contract.
+    """
+    data = cast(dict[str, Any], _jsonable(event.data))
+    render_data: dict[str, Any] = {}
+
+    if event.event in {"user.message", "user.proxy.message", "subagent.user.message"}:
+        render_data = {"content": data.get("content", "")}
+    elif event.event in {"assistant.reply.delta", "assistant.thinking.delta"}:
+        render_data = {
+            "text": data.get("text", data.get("thinking", "")),
+            "trace_id": data.get("block_id") or data.get("stream_uuid") or event.id,
+        }
+    elif event.event in {
+        "assistant.reply.started",
+        "assistant.reply.stopped",
+        "assistant.thinking.started",
+        "assistant.thinking.stopped",
+    }:
+        render_data = {
+            "trace_id": data.get("block_id") or data.get("stream_uuid") or event.id,
+        }
+    elif event.event in {"assistant.reply.completed", "subagent.reply.completed"}:
+        render_data = {
+            "text": data.get("text", ""),
+            "trace_id": data.get("message_id") or data.get("message_uuid") or event.id,
+        }
+    elif event.event in {"assistant.thinking.completed", "subagent.thinking.completed"}:
+        render_data = {
+            "text": data.get("thinking", ""),
+            "trace_id": data.get("message_id") or data.get("message_uuid") or event.id,
+        }
+    elif event.event in {
+        "tool.requested",
+        "subagent.tool.requested",
+        "subagent.started",
+        "ask_user.requested",
+        "plan.approval.requested",
+        "server_tool.requested",
+    }:
+        raw_input = data.get("input")
+        tool_input = raw_input if isinstance(raw_input, dict) else data
+        name = data.get("name") or data.get("tool_name") or event.event
+        summary = json.dumps(tool_input, ensure_ascii=False, separators=(",", ":"))
+        if len(summary) > 180:
+            summary = f"{summary[:177]}..."
+        render_data = {
+            "tool_id": data.get("tool_id") or event.id,
+            "name": name,
+            "input": tool_input,
+            "summary": summary,
+            "plan": data.get("plan"),
+        }
+    elif event.event in {
+        "tool.completed",
+        "subagent.tool.completed",
+        "subagent.completed",
+        "ask_user.completed",
+        "plan.approval.completed",
+        "server_tool.completed",
+    }:
+        render_data = {
+            "tool_id": data.get("tool_id") or event.id,
+            "is_error": data.get("is_error") is True,
+        }
+    elif event.event in {"task.started", "task.progress", "task.updated", "task.completed"}:
+        patch = data.get("patch") if isinstance(data.get("patch"), dict) else {}
+        status = data.get("status") or patch.get("status")
+        render_data = {
+            "task_id": data.get("task_id"),
+            "tool_id": data.get("tool_use_id"),
+            "status": status,
+        }
+    elif event.event == "permission.requested":
+        render_data = {
+            "request_id": data.get("request_id"),
+            "tool_id": data.get("tool_id"),
+            "tool_name": data.get("tool_name"),
+            "tool_input": data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {},
+            "title": data.get("title"),
+            "display_name": data.get("display_name"),
+            "description": data.get("description"),
+            "blocked_path": data.get("blocked_path"),
+            "suggestions": data.get("suggestions") if isinstance(data.get("suggestions"), list) else [],
+        }
+    elif event.event == "permission.resolved":
+        render_data = {
+            "request_id": data.get("request_id"),
+            "tool_id": data.get("tool_id"),
+            "tool_name": data.get("tool_name"),
+            "behavior": data.get("behavior"),
+            "denial_message": data.get("denial_message"),
+            "interrupt": data.get("interrupt") is True,
+        }
+    elif event.event == "turn.started":
+        render_data = {"user_turn": data.get("user_turn")}
+    elif event.event == "turn.proxy.completed":
+        render_data = {
+            "is_error": data.get("is_error") is True,
+            "subtype": data.get("subtype"),
+            "stop_reason": data.get("stop_reason"),
+            "terminal_reason": data.get("terminal_reason"),
+        }
+    elif event.event == "turn.completed":
+        render_data = {
+            "content": data.get("content", ""),
+            "is_error": data.get("is_error") is True,
+            "usage": data.get("usage"),
+        }
+    elif event.event == "turn.failed":
+        render_data = {"message": data.get("message", "")}
+    else:
+        # Non-rendering diagnostics/hooks remain visible as a typed no-op so
+        # clients can safely ignore them without inspecting SDK payloads.
+        render_data = {}
+
+    return {
+        "id": event.id,
+        "event": event.event,
+        "turn_id": event.turn_id,
+        "model_turn_id": event.model_turn_id,
+        "parent_tool_use_id": event.parent_tool_use_id,
+        "session_id": event.session_id,
+        "created_at": event.created_at,
+        "data": render_data,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class SubagentUsage:
     """Usage metrics available in both live and reconstructed turns."""

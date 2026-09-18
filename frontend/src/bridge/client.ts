@@ -171,7 +171,8 @@ export type ChatSearchMatch = ChatSessionSummary & {
 };
 
 export type ChatSessionHistory = ChatSessionSummary & {
-  events: ChatStreamEvent[];
+  events: ChatRenderEvent[];
+  render_events?: unknown;
 };
 
 export type ChatUserQuestionOption = {
@@ -188,10 +189,12 @@ export type ChatUserQuestion = {
 
 export type ChatPermissionAnswers = Record<string, string | string[]>;
 
-export type ChatStreamEvent = {
+export type ChatRenderEvent = {
   created_at: string;
   data: Record<string, unknown>;
+  /** @deprecated Use kind. */
   event: string;
+  kind: string;
   id: string;
   model_turn_id: string | null;
   parent_tool_use_id: string | null;
@@ -199,7 +202,7 @@ export type ChatStreamEvent = {
   turn_id: string;
 };
 
-export type ChatPermissionRequestEvent = ChatStreamEvent & {
+export type ChatPermissionRequestEvent = ChatRenderEvent & {
   data: {
     blocked_path: string | null;
     description: string | null;
@@ -211,7 +214,7 @@ export type ChatPermissionRequestEvent = ChatStreamEvent & {
     tool_input: Record<string, unknown>;
     tool_name: string;
   };
-  event: "permission.requested";
+  kind: "permission.requested";
 };
 
 export type ChatAskUserQuestionRequestEvent = ChatPermissionRequestEvent & {
@@ -225,19 +228,20 @@ export type ChatAskUserQuestionRequestEvent = ChatPermissionRequestEvent & {
 };
 
 export type ActiveChat = {
-  events: ChatStreamEvent[];
+  events: ChatRenderEvent[];
+  render_events?: unknown;
   session_id: string;
 };
 
 const CHAT_STREAM_EVENT = "xalling:chat-event";
 
-function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
+function isChatRenderEvent(value: unknown): value is ChatRenderEvent {
   return typeof value === "object"
     && value !== null
     && "id" in value
     && typeof value.id === "string"
-    && "event" in value
-    && typeof value.event === "string"
+    && "kind" in value
+    && typeof value.kind === "string"
     && "turn_id" in value
     && typeof value.turn_id === "string"
     && "model_turn_id" in value
@@ -260,11 +264,47 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     );
 }
 
+type ChatEventEnvelope = {
+  render?: unknown;
+  session_id?: unknown;
+};
+
+function decodeChatRenderEvent(value: unknown): ChatRenderEvent | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const envelope = value as ChatEventEnvelope;
+  // The Python bridge owns SDK -> UI normalization. Raw envelopes are
+  // intentionally rejected so rendering code cannot depend on SDK payloads.
+  if (
+    typeof envelope.render !== "object"
+    || envelope.render === null
+    || !("event" in envelope.render)
+    || typeof envelope.render.event !== "string"
+  ) {
+    return null;
+  }
+  const render = envelope.render as Omit<ChatRenderEvent, "kind"> & { event: string };
+  const decoded = { ...render, kind: render.event };
+  if (render.session_id === null && typeof envelope.session_id === "string") {
+    return { ...decoded, session_id: envelope.session_id };
+  }
+  return decoded;
+}
+
+function decodeEventList(value: unknown): ChatRenderEvent[] {
+  return Array.isArray(value)
+    ? value
+      .map(decodeChatRenderEvent)
+      .filter((event): event is ChatRenderEvent => event !== null)
+    : [];
+}
+
 export function isPermissionRequestEvent(
-  event: ChatStreamEvent,
+  event: ChatRenderEvent,
 ): event is ChatPermissionRequestEvent {
   const data = event.data;
-  return event.event === "permission.requested"
+  return event.kind === "permission.requested"
     && typeof data.request_id === "string"
     && typeof data.tool_name === "string"
     && typeof data.tool_input === "object"
@@ -467,7 +507,11 @@ export async function getChatSession(sessionId: string): Promise<ChatSessionHist
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.get_chat_session(sessionId);
+  const result = await api.get_chat_session(sessionId);
+  return {
+    ...result,
+    events: decodeEventList(result.render_events ?? result.events),
+  };
 }
 
 export async function getActiveChat(sessionId: string): Promise<ActiveChat | null> {
@@ -475,17 +519,21 @@ export async function getActiveChat(sessionId: string): Promise<ActiveChat | nul
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  return api.get_active_chat(sessionId);
+  const result = await api.get_active_chat(sessionId);
+  return result
+    ? { ...result, events: decodeEventList(result.render_events ?? result.events) }
+    : null;
 }
 
 export function subscribeChatEvents(
   sessionId: string,
-  onEvent: (event: ChatStreamEvent) => void,
+  onEvent: (event: ChatRenderEvent) => void,
 ): () => void {
   const handleStreamEvent: EventListener = (event) => {
     const detail = (event as CustomEvent<unknown>).detail;
-    if (isChatStreamEvent(detail) && detail.session_id === sessionId) {
-      onEvent(detail);
+    const renderEvent = decodeChatRenderEvent(detail);
+    if (renderEvent?.session_id === sessionId) {
+      onEvent(renderEvent);
     }
   };
   window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);

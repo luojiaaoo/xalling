@@ -8,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import { Think, ThoughtChain } from "@ant-design/x";
 
-import type { ChatStreamEvent } from "../bridge/client";
+import type { ChatRenderEvent } from "../bridge/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type TraceStatus = "error" | "running" | "success";
@@ -82,25 +82,19 @@ function completeStatus(
     : item;
 }
 
-function applyChatStreamEventAtLevel(
+function applyRenderEventAtLevel(
   items: AgentTraceItem[],
-  event: ChatStreamEvent,
+  event: ChatRenderEvent,
 ): AgentTraceItem[] {
   const parsedTime = Date.parse(event.created_at);
   const now = Number.isFinite(parsedTime) ? parsedTime : Date.now();
   const data = event.data;
-  const streamUuid = typeof data.stream_uuid === "string" ? data.stream_uuid : event.id;
-  const index = typeof data.index === "number" ? data.index : 0;
-  const messageId = typeof data.message_id === "string" ? data.message_id : undefined;
-  const messageUuid = typeof data.message_uuid === "string" ? data.message_uuid : event.id;
-  const blockId = typeof data.block_id === "string"
-    ? data.block_id
-    : `${streamUuid}:${index}`;
+  const traceId = typeof data.trace_id === "string" ? data.trace_id : event.id;
   const isThinking = event.event.startsWith("assistant.thinking")
     || event.event === "subagent.thinking.completed";
   const contentKey = event.event.endsWith(".completed")
-    ? `${messageId ?? messageUuid}:completed:${isThinking ? "thinking" : "reply"}`
-    : `${blockId}:${isThinking ? "thinking" : "reply"}`;
+    ? `${traceId}:completed:${isThinking ? "thinking" : "reply"}`
+    : `${traceId}:${isThinking ? "thinking" : "reply"}`;
 
   if (event.event === "assistant.thinking.started" || event.event === "assistant.reply.started") {
     const kind = isThinking ? "thinking" : "output";
@@ -122,9 +116,7 @@ function applyChatStreamEventAtLevel(
 
   if (event.event === "assistant.thinking.delta" || event.event === "assistant.reply.delta") {
     const kind = isThinking ? "thinking" : "output";
-    const text = isThinking
-      ? (typeof data.thinking === "string" ? data.thinking : "")
-      : (typeof data.text === "string" ? data.text : "");
+    const text = typeof data.text === "string" ? data.text : "";
     const existingIndex = items.findIndex((item) => item.key === contentKey);
     if (existingIndex === -1) {
       return [
@@ -152,18 +144,11 @@ function applyChatStreamEventAtLevel(
   }
 
   if (event.event.endsWith(".reply.completed") || event.event.endsWith(".thinking.completed")) {
-    const content = isThinking
-      ? (typeof data.thinking === "string" ? data.thinking : "")
-      : (typeof data.text === "string" ? data.text : "");
+    const content = typeof data.text === "string" ? data.text : "";
     const kind = isThinking ? "thinking" : "output";
-    const completedMessageIds = [messageId, messageUuid]
-      .filter((value): value is string => typeof value === "string");
     if (
       !content
-      || items.some((item) => (
-        item.kind === kind
-        && completedMessageIds.some((id) => item.key.startsWith(`${id}:`))
-      ))
+      || items.some((item) => item.kind === kind && item.key.startsWith(`${traceId}:`))
     ) {
       return items;
     }
@@ -195,11 +180,7 @@ function applyChatStreamEventAtLevel(
       : typeof data.tool_name === "string"
         ? data.tool_name
         : event.event;
-    const input = typeof data.input === "object" && data.input !== null
-      ? data.input
-      : data;
-    const rawSummary = JSON.stringify(input);
-    const summary = rawSummary.length > 180 ? `${rawSummary.slice(0, 177)}...` : rawSummary;
+    const summary = typeof data.summary === "string" ? data.summary : "";
     const plan = typeof data.plan === "string" && data.plan.trim()
       ? data.plan.trim()
       : undefined;
@@ -367,10 +348,10 @@ function applyChatStreamEventAtLevel(
   return items;
 }
 
-function applyNestedChatStreamEvent(
+function applyNestedRenderEvent(
   items: AgentTraceItem[],
   parentToolId: string,
-  event: ChatStreamEvent,
+  event: ChatRenderEvent,
 ): { applied: boolean; items: AgentTraceItem[] } {
   let applied = false;
   const nextItems = items.map((item) => {
@@ -382,13 +363,13 @@ function applyNestedChatStreamEvent(
         applied = true;
         return {
           ...call,
-          trace: applyChatStreamEventAtLevel(call.trace, event),
+          trace: applyRenderEventAtLevel(call.trace, event),
         };
       }
       if (!call.trace.length) {
         return call;
       }
-      const nested = applyNestedChatStreamEvent(call.trace, parentToolId, event);
+      const nested = applyNestedRenderEvent(call.trace, parentToolId, event);
       if (!nested.applied) {
         return call;
       }
@@ -400,18 +381,18 @@ function applyNestedChatStreamEvent(
   return { applied, items: applied ? nextItems : items };
 }
 
-export function applyChatStreamEvent(
+export function applyRenderEvent(
   items: AgentTraceItem[],
-  event: ChatStreamEvent,
+  event: ChatRenderEvent,
 ): AgentTraceItem[] {
   if (event.parent_tool_use_id !== null) {
-    return applyNestedChatStreamEvent(
+    return applyNestedRenderEvent(
       items,
       event.parent_tool_use_id,
       event,
     ).items;
   }
-  return applyChatStreamEventAtLevel(items, event);
+  return applyRenderEventAtLevel(items, event);
 }
 
 export function stripExitPlanContent(

@@ -24,7 +24,7 @@ import {
   type ChatPermissionMode,
   type ChatPlanExecutionMode,
   type ChatPermissionRequestEvent,
-  type ChatStreamEvent,
+  type ChatRenderEvent,
   type ChatUsage,
   type ProjectFolder,
   type SubagentUsage,
@@ -32,7 +32,7 @@ import {
 import { pickQuote } from "../quotes";
 import {
   AgentTrace,
-  applyChatStreamEvent,
+  applyRenderEvent,
   finishAgentTrace,
   stripExitPlanContent,
   type AgentTraceItem,
@@ -188,7 +188,7 @@ function errorText(error: unknown): string {
 
 function applyEventToAssistant(
   message: ConversationMessage,
-  event: ChatStreamEvent,
+  event: ChatRenderEvent,
 ): ConversationMessage {
   const trace = message.trace ?? [];
   const isTopLevelEvent = event.parent_tool_use_id === null;
@@ -199,15 +199,9 @@ function applyEventToAssistant(
   const currentContent = foldsCurrentOutput ? "" : message.content;
   const currentOutputKey = foldsCurrentOutput ? undefined : message.finalOutputKey;
   const isOutputEvent = event.event.startsWith("assistant.reply.")
-    && typeof event.data.block_id === "string";
-  const streamUuid = typeof event.data.stream_uuid === "string"
-    ? event.data.stream_uuid
-    : event.id;
-  const index = typeof event.data.index === "number" ? event.data.index : 0;
-  const blockId = typeof event.data.block_id === "string"
-    ? event.data.block_id
-    : `${streamUuid}:${index}`;
-  const outputKey = `${blockId}:reply`;
+    && typeof event.data.trace_id === "string";
+  const traceId = typeof event.data.trace_id === "string" ? event.data.trace_id : event.id;
+  const outputKey = `${traceId}:reply`;
   const startsNewOutput = (
     event.event === "assistant.reply.started"
     || event.event === "assistant.reply.delta"
@@ -218,7 +212,7 @@ function applyEventToAssistant(
   const nextContent = event.event === "assistant.reply.delta" && isTopLevelEvent
     ? `${currentContent}${separator}${delta}`
     : `${currentContent}${separator}`;
-  const nextTrace = applyChatStreamEvent(trace, event);
+  const nextTrace = applyRenderEvent(trace, event);
   return {
     ...message,
     content: stripExitPlanContent(nextContent, nextTrace),
@@ -230,7 +224,7 @@ function applyEventToAssistant(
   };
 }
 
-function eventTime(event: ChatStreamEvent): number {
+function eventTime(event: ChatRenderEvent): number {
   const value = Date.parse(event.created_at);
   return Number.isFinite(value) ? value : Date.now();
 }
@@ -248,7 +242,7 @@ function isStoppedUsage(usage: ChatUsage | undefined): boolean {
     || usage?.stop_reason === "interrupted";
 }
 
-function conversationFromEvents(events: ChatStreamEvent[]): ConversationMessage[] {
+function conversationFromEvents(events: ChatRenderEvent[]): ConversationMessage[] {
   const messages: ConversationMessage[] = [];
   for (const event of events) {
     const userKey = turnUserKey(event.turn_id);
@@ -360,7 +354,7 @@ export function Workspace({
   const processedEventIdsRef = useRef(new Set<string>());
   const historyLoadingRef = useRef(Boolean(initialSessionId));
   const messageNumberRef = useRef(0);
-  const queuedEventsRef = useRef<ChatStreamEvent[]>([]);
+  const queuedEventsRef = useRef<ChatRenderEvent[]>([]);
   const startedAtRef = useRef<number | null>(null);
   const stopRequestedRef = useRef(false);
   const copyFeedbackTimerRef = useRef<number | null>(null);
@@ -369,7 +363,7 @@ export function Workspace({
   const focusBubbleKeyRef = useRef(focusMessageKey);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
 
-  const applyLiveEvent = useCallback((event: ChatStreamEvent) => {
+  const applyLiveEvent = useCallback((event: ChatRenderEvent) => {
     if (processedEventIdsRef.current.has(event.id)) {
       return;
     }
