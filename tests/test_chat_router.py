@@ -238,7 +238,11 @@ def test_chat_router_streams_public_events_and_returns_public_result(
 
     router = bridge_factory()
     router._window = WindowStub()
-    monkeypatch.setattr(router._history, "has_session", lambda _session_id: False)
+
+    async def has_session(_session_id):
+        return False
+
+    monkeypatch.setattr(router._history, "has_session", has_session)
 
     reply = router.send_chat_message(
         "检查项目",
@@ -277,15 +281,19 @@ def test_chat_router_lists_new_history_models_and_merges_running_session(
     running_id = str(uuid4())
     persisted_id = str(uuid4())
     router = bridge_factory()
-    router._history.list_sessions = lambda: [
-        ChatSessionInfo(
-            session_id=persisted_id,
-            title="Persisted",
-            summary="Persisted",
-            last_modified=100,
-            cwd=str(tmp_path),
-        )
-    ]
+
+    async def list_sessions():
+        return [
+            ChatSessionInfo(
+                session_id=persisted_id,
+                title="Persisted",
+                summary="Persisted",
+                last_modified=100,
+                cwd=str(tmp_path),
+            )
+        ]
+
+    router._history.list_sessions = list_sessions
 
     class StubClient:
         pending_permission_ids: tuple[str, ...] = ()
@@ -335,19 +343,22 @@ def test_chat_router_returns_history_and_search_in_the_public_event_protocol(
         data={"content": "hello"},
     )
     router = bridge_factory()
-    router._history.get_session = lambda _session_id: ChatSessionSnapshot(
-        session=info,
-        events=(user_event,),
-    )
-    router._history.search_sessions = lambda _query: [
-        ChatSearchMatch(
-            session=info,
-            snippet="hello",
-            event_id=user_event.id,
-            turn_id=user_event.turn_id,
-            role="user",
-        )
-    ]
+    async def get_session(_session_id):
+        return ChatSessionSnapshot(session=info, events=(user_event,))
+
+    async def search_sessions(_query):
+        return [
+            ChatSearchMatch(
+                session=info,
+                snippet="hello",
+                event_id=user_event.id,
+                turn_id=user_event.turn_id,
+                role="user",
+            )
+        ]
+
+    router._history.get_session = get_session
+    router._history.search_sessions = search_sessions
 
     history = router.get_chat_session(session_id)
     matches = router.search_chat_sessions("hello")

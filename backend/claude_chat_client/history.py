@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Literal, cast
 from uuid import UUID
 
+import asyncer
 from claude_agent_sdk import (
     AssistantMessage,
     MessageOrigin,
@@ -20,11 +21,11 @@ from claude_agent_sdk import (
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
-    get_session_info,
-    get_session_messages,
-    get_subagent_messages,
-    list_sessions,
-    list_subagents,
+    get_session_info_from_store,
+    get_session_messages_from_store,
+    get_subagent_messages_from_store,
+    list_sessions_from_store,
+    list_subagents_from_store,
 )
 
 from .message_adapter import _EventFactory, _MessageAdapter
@@ -36,6 +37,7 @@ from .models import (
     TurnUsage,
 )
 from .session_debug import write_history_messages
+from .session_store import session_store
 from .usage import _subagent_usage
 
 _TASK_NOTIFICATION_OPEN = "<task-notification>"
@@ -50,26 +52,38 @@ class ClaudeChatHistory:
     values, and the missing ResultMessage is reconstructed as ``turn.completed``.
     """
 
-    def list_sessions(
+    async def list_sessions(
         self,
         *,
         directory: str | None = None,
         limit: int | None = None,
         offset: int = 0,
-        include_worktrees: bool = True,
     ) -> list[ChatSessionInfo]:
         """List persisted sessions using wrapper-owned metadata models."""
-        return [
-            _session_info(session)
-            for session in list_sessions(
+        if directory is None:
+            sdk_sessions: list[SDKSessionInfo] = []
+            for project_directory in await session_store.list_project_directories():
+                sdk_sessions.extend(
+                    await list_sessions_from_store(
+                        session_store,
+                        directory=str(project_directory),
+                    )
+                )
+            sdk_sessions.sort(key=lambda session: session.last_modified, reverse=True)
+            if offset > 0:
+                sdk_sessions = sdk_sessions[offset:]
+            if limit is not None and limit > 0:
+                sdk_sessions = sdk_sessions[:limit]
+        else:
+            sdk_sessions = await list_sessions_from_store(
+                session_store,
                 directory=directory,
                 limit=limit,
                 offset=offset,
-                include_worktrees=include_worktrees,
             )
-        ]
+        return [_session_info(session) for session in sdk_sessions]
 
-    def has_session(
+    async def has_session(
         self,
         session_id: str,
         *,
@@ -77,9 +91,18 @@ class ClaudeChatHistory:
     ) -> bool:
         """Return whether a valid persisted session exists."""
         normalized = _normalize_session_id(session_id)
-        return get_session_info(normalized, directory=directory) is not None
+        if directory is None:
+            directory = await session_store.find_session_directory(normalized)
+        if directory is None:
+            return False
+        session = await get_session_info_from_store(
+            session_store,
+            normalized,
+            directory=directory,
+        )
+        return session is not None
 
-    def get_session(
+    async def get_session(
         self,
         session_id: str,
         *,
@@ -87,27 +110,32 @@ class ClaudeChatHistory:
     ) -> ChatSessionSnapshot:
         """Load session metadata and replayable events in one snapshot."""
         normalized = _normalize_session_id(session_id)
-        session = get_session_info(normalized, directory=directory)
+        if directory is None:
+            directory = await session_store.find_session_directory(normalized)
+        session = await get_session_info_from_store(
+            session_store,
+            normalized,
+            directory=directory,
+        )
         if session is None:
             raise ValueError("Claude session does not exist or is no longer available")
         history_directory = directory or session.cwd
         return ChatSessionSnapshot(
             session=_session_info(session),
             events=tuple(
-                self.get_session_events(
+                await self.get_session_events(
                     normalized,
                     directory=history_directory,
                 )
             ),
         )
 
-    def search_sessions(
+    async def search_sessions(
         self,
         query: str,
         *,
         directory: str | None = None,
         limit: int = 30,
-        include_worktrees: bool = True,
     ) -> list[ChatSearchMatch]:
         """Search titles and visible user/assistant text, newest first."""
         normalized_query = query.strip().casefold()
@@ -115,10 +143,7 @@ class ClaudeChatHistory:
             return []
 
         matches: list[ChatSearchMatch] = []
-        sessions = self.list_sessions(
-            directory=directory,
-            include_worktrees=include_worktrees,
-        )
+        sessions = await self.list_sessions(directory=directory)
         for session in sessions:
             title_index = session.title.casefold().find(normalized_query)
             if title_index >= 0:
@@ -136,7 +161,7 @@ class ClaudeChatHistory:
                     return matches
 
             try:
-                events = self.get_session_events(
+                events = await self.get_session_events(
                     session.session_id,
                     directory=directory or session.cwd,
                 )
@@ -163,24 +188,39 @@ class ClaudeChatHistory:
                     return matches
         return matches
 
-    def get_session_events(
+    async def get_session_events(
         self,
         session_id: str,
         *,
         directory: str | None = None,
     ) -> list[ChatEvent]:
         """Return one persisted session as realtime-compatible events."""
-        messages = list(get_session_messages(session_id, directory=directory))
-        subagent_messages = [
-            message
-            for agent_id in list_subagents(session_id, directory=directory)
-            for message in get_subagent_messages(
-                session_id,
-                agent_id,
-                directory=directory,
+        if directory is None:
+            directory = await session_store.find_session_directory(session_id)
+        messages = await get_session_messages_from_store(
+            session_store,
+            session_id,
+            directory=directory,
+        )
+        agent_ids = await list_subagents_from_store(
+            session_store,
+            session_id,
+            directory=directory,
+        )
+        subagent_messages: list[SessionMessage] = []
+        for agent_id in agent_ids:
+            subagent_messages.extend(
+                await get_subagent_messages_from_store(
+                    session_store,
+                    session_id,
+                    agent_id,
+                    directory=directory,
+                )
             )
-        ]
-        write_history_messages(session_id, [*messages, *subagent_messages])
+        await asyncer.asyncify(write_history_messages)(
+            session_id,
+            [*messages, *subagent_messages],
+        )
         return self.assemble(messages, subagent_messages=subagent_messages)
 
     @staticmethod

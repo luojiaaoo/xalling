@@ -12,9 +12,14 @@ from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
 import aiofiles
-from claude_agent_sdk import ClaudeAgentOptions, PermissionMode, SdkPluginConfig
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    PermissionMode,
+    SdkPluginConfig,
+)
 
 from backend.claude_chat_client import ClaudeChatClient
+from backend.claude_chat_client.session_store import session_store
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 
@@ -92,6 +97,8 @@ def _agent_options(
     config: ClaudeConnectionConfig,
     settings_path: Path,
 ) -> ClaudeAgentOptions:
+    # session_store的方法都是key参数，没有路径，所以需要提前注册两者的映射关系
+    session_store.register_project_directory(config.project)
     return ClaudeAgentOptions(
         cwd=config.project,
         effort=config.effort,
@@ -102,6 +109,7 @@ def _agent_options(
         plugins=discover_plugins(project=config.project),
         resume=None if config.is_new_session else config.session_id,
         session_id=config.session_id if config.is_new_session else None,
+        session_store=session_store,
         settings=str(settings_path),
         setting_sources=["user", "project", "local"],
         system_prompt={
