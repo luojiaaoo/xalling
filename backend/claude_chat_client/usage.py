@@ -93,18 +93,24 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
             usage = event.data.get("usage")
             if isinstance(usage, Mapping):
                 message_agent_ids.add(parent_id)
+                message_key = (
+                    event.data.get("message_id")
+                    or event.data.get("message_uuid")
+                    or event.id
+                )
+                if isinstance(message_key, str):
+                    # Keep the newest snapshot, but only include it in the
+                    # settled total after this agent reaches a terminal frame.
+                    message_usages[message_key] = (parent_id, usage)
             stop_reason = event.data.get("stop_reason")
             if not isinstance(stop_reason, str) or not stop_reason:
                 continue
-            message_key = (
-                event.data.get("message_id")
-                or event.data.get("message_uuid")
-                or event.id
-            )
-            if isinstance(message_key, str) and isinstance(usage, Mapping):
-                message_usages[message_key] = (parent_id, usage)
-                agent_ids.add(parent_id)
-                finalized_agent_ids.add(parent_id)
+            # The terminal AssistantMessage may omit usage because the SDK
+            # emitted it on an earlier snapshot of the same message.  The
+            # non-empty stop reason is the completion signal independently of
+            # whether this particular frame carries a usage payload.
+            finalized_agent_ids.add(parent_id)
+            agent_ids.add(parent_id)
 
     if not agent_ids:
         return None
