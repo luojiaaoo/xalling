@@ -35,6 +35,7 @@ from .models import (
     ChatSessionSnapshot,
     TurnUsage,
 )
+from .usage import _subagent_usage
 
 _TASK_NOTIFICATION_OPEN = "<task-notification>"
 _TASK_NOTIFICATION_CLOSE = "</task-notification>"
@@ -320,6 +321,7 @@ def _history_turn_completed(
     events: Iterable[ChatEvent],
 ) -> ChatEvent:
     """Synthesize the terminal event absent from persisted transcripts."""
+    events = tuple(events)
     raw_usage_by_message: dict[str, Mapping[str, Any]] = {}
     for event in events:
         if (
@@ -352,6 +354,7 @@ def _history_turn_completed(
         model=adapter.main_models[-1] if adapter.main_models else None,
         stop_reason=adapter.last_main_stop_reason,
         terminal_reason=None,
+        subagent_usage=_subagent_usage(events),
     )
     content = "\n\n".join(part for part in adapter.main_text if part)
     return factory.make(

@@ -244,8 +244,20 @@ class ChatEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class SubagentUsage:
+    """Usage metrics available in both live and reconstructed turns."""
+
+    count: int
+    total_tokens: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe subagent usage payload."""
+        return cast(dict[str, Any], _jsonable(asdict(self)))
+
+
+@dataclass(frozen=True, slots=True)
 class TurnUsage:
-    """Top-level agent usage for one human-submitted turn."""
+    """Top-level and subagent usage for one human-submitted turn."""
 
     input_tokens: int
     output_tokens: int
@@ -254,6 +266,7 @@ class TurnUsage:
     model: str | None
     stop_reason: str | None
     terminal_reason: str | None
+    subagent_usage: SubagentUsage | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe usage payload."""

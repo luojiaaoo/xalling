@@ -27,6 +27,7 @@ from .models import (
     PermissionResolvedData,
     PlanApprovalMode,
     SpecialEventData,
+    SubagentUsage,
     TurnUsage,
 )
 
@@ -53,6 +54,7 @@ __all__ = [
     "PermissionResolvedData",
     "PlanApprovalMode",
     "SpecialEventData",
+    "SubagentUsage",
     "TurnUsage",
     "assemble_session_messages",
 ]

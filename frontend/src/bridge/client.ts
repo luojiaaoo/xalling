@@ -120,6 +120,11 @@ export type ChatPermissionMode =
 
 export type ChatPlanExecutionMode = Exclude<ChatPermissionMode, "plan"> | null;
 
+export type SubagentUsage = {
+  count: number;
+  total_tokens: number;
+};
+
 export type ChatUsage = {
   cache_creation_input_tokens: number;
   cache_read_input_tokens: number;
@@ -127,6 +132,7 @@ export type ChatUsage = {
   model: string | null;
   output_tokens: number;
   stop_reason: string | null;
+  subagent_usage?: SubagentUsage | null;
   terminal_reason: string | null;
 };
 

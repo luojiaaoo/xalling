@@ -33,6 +33,7 @@ def test_package_exports_are_available() -> None:
         "PermissionResolvedData",
         "PlanApprovalMode",
         "SpecialEventData",
+        "SubagentUsage",
         "TurnUsage",
         "assemble_session_messages",
     }

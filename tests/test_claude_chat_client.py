@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     TaskStartedMessage,
     TextBlock,
     ToolPermissionContext,
+    ToolUseBlock,
     UserMessage,
 )
 
@@ -242,6 +243,9 @@ async def _client_waits_for_chained_background_agents_before_completing() -> Non
     assert result.content == "Final implementation plan"
     assert result.usage.input_tokens == 70
     assert result.usage.output_tokens == 29
+    assert result.usage.subagent_usage is not None
+    assert result.usage.subagent_usage.count == 2
+    assert result.usage.subagent_usage.total_tokens == 200
     assert [event.event for event in events].count("turn.completed") == 1
     assert [event.event for event in events].count("turn.proxy.completed") == 3
     assert [event.event for event in events].count("user.message") == 1
@@ -252,6 +256,61 @@ async def _client_waits_for_chained_background_agents_before_completing() -> Non
     ]
     assert events[-1].event == "turn.completed"
     assert events[-1].data["content"] == "Final implementation plan"
+    assert events[-1].data["usage"]["subagent_usage"] == {
+        "count": 2,
+        "total_tokens": 200,
+    }
+
+
+def test_client_aggregates_foreground_subagent_usage() -> None:
+    anyio.run(_client_aggregates_foreground_subagent_usage)
+
+
+async def _client_aggregates_foreground_subagent_usage() -> None:
+    _FakeSDK.batches = [
+        [
+            AssistantMessage(
+                content=[
+                    ToolUseBlock(
+                        id="agent-tool",
+                        name="Agent",
+                        input={"prompt": "Inspect the tests"},
+                    )
+                ],
+                model="test-model",
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="Tests look good")],
+                model="subagent-model",
+                parent_tool_use_id="agent-tool",
+                message_id="subagent-message",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_read_input_tokens": 2,
+                    "cache_creation_input_tokens": 3,
+                },
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="Final answer")],
+                model="test-model",
+                stop_reason="end_turn",
+            ),
+            _result(origin={"kind": "human"}),
+        ]
+    ]
+    client = ClaudeChatClient(ClaudeAgentOptions(model="test-model"))
+    events = [event async for event in client.stream("Inspect the tests")]
+
+    result = client.last_result
+    assert result is not None
+    assert result.usage.subagent_usage is not None
+    assert result.usage.subagent_usage.count == 1
+    assert result.usage.subagent_usage.total_tokens == 20
+    assert events[-1].data["usage"]["subagent_usage"] == {
+        "count": 1,
+        "total_tokens": 20,
+    }
 
 
 def test_client_emits_permission_events_and_accepts_resolution() -> None:

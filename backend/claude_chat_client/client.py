@@ -48,7 +48,7 @@ from .models import (
     PlanApprovalMode,
     _jsonable,
 )
-from .usage import _turn_usage
+from .usage import _subagent_usage, _turn_usage
 
 _STREAM_END = object()
 
@@ -438,6 +438,7 @@ class ClaudeChatClient:
         requested_result: ResultMessage | None = None
         deferred_human_result: ResultMessage | None = None
         logical_results: list[ResultMessage] = []
+        turn_events: list[ChatEvent] = []
         active_task_ids: set[str] = set()
         pending_notification_turns = 0
         background_chain_started = False
@@ -485,7 +486,9 @@ class ClaudeChatClient:
                         and message.origin.get("kind") == "human"
                     )
                     if not is_submitted_echo:
-                        for event in adapter.adapt(message):
+                        adapted_events = adapter.adapt(message)
+                        turn_events.extend(adapted_events)
+                        for event in adapted_events:
                             await queue.put(event)
 
                     if not isinstance(message, ResultMessage):
@@ -563,6 +566,7 @@ class ClaudeChatClient:
                 logical_results,
                 primary_model,
                 adapter.last_main_stop_reason,
+                _subagent_usage(turn_events),
             )
             content = requested_result.result
             if content is None:

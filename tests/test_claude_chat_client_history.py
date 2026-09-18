@@ -199,6 +199,10 @@ def test_history_inserts_nested_subagent_events_after_matching_tool() -> None:
     turn_completed = events[-1]
     assert turn_completed.data["usage"]["input_tokens"] == 10
     assert turn_completed.data["usage"]["output_tokens"] == 5
+    assert turn_completed.data["usage"]["subagent_usage"] == {
+        "count": 1,
+        "total_tokens": 15,
+    }
     assert not any(
         event.event == "assistant.reply.delta" and event.parent_tool_use_id == "agent-tool" for event in events
     )

@@ -812,6 +812,7 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .response-status-success { color: #4f946d; }
 .response-status-abort { color: #aa7a34; }
 .response-status-error { color: #c74747; }
+.subagent-usage-button { color: #6d5dfc; }
 .response-usage-card { width: 286px; padding: 3px 1px; color: #4f505c; font-size: 12px; font-variant-numeric: tabular-nums; }
 .response-usage-title { margin-bottom: 9px; color: #30313b; }
 .response-usage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; margin: 0; }
@@ -843,6 +844,7 @@ html[data-theme="dark"] .message-action-button { color: rgba(255, 255, 255, .72)
 html[data-theme="dark"] .message-action-button:hover { color: #b0a6ff; background: rgba(169, 156, 255, .1); }
 html[data-theme="dark"] .message-action-button.is-copied { color: #73c99c; background: rgba(115, 201, 156, .09); }
 html[data-theme="dark"] .response-status-success { color: #73c99c; }
+html[data-theme="dark"] .subagent-usage-button { color: #a99cff; }
 html[data-theme="dark"] .response-usage-card { color: rgba(255, 255, 255, .7); }
 html[data-theme="dark"] .response-usage-title, html[data-theme="dark"] .response-usage-grid dd { color: rgba(255, 255, 255, .82); }
 html[data-theme="dark"] .response-usage-grid dt { color: rgba(255, 255, 255, .42); }

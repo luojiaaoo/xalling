@@ -3,6 +3,7 @@ import {
   CheckOutlined,
   CopyOutlined,
   PaperClipOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
 import { Popover } from "antd";
@@ -26,6 +27,7 @@ import {
   type ChatStreamEvent,
   type ChatUsage,
   type ProjectFolder,
+  type SubagentUsage,
 } from "../bridge/client";
 import { pickQuote } from "../quotes";
 import {
@@ -132,6 +134,20 @@ function ResponseUsageDetails({ usage }: { usage: ChatUsage }) {
         <div className="response-usage-wide">
           <dt>停止原因</dt><dd>{stopReasonLabel(usage.stop_reason)}</dd>
         </div>
+      </dl>
+    </div>
+  );
+}
+
+function SubagentUsageDetails({ usage }: { usage: SubagentUsage }) {
+  return (
+    <div className="response-usage-card">
+      <div className="response-usage-title">
+        <strong>子智能体消耗</strong>
+      </div>
+      <dl className="response-usage-grid">
+        <div><dt>子智能体</dt><dd>{usage.count}</dd></div>
+        <div><dt>总 Token</dt><dd>{formatTokenCount(usage.total_tokens)}</dd></div>
       </dl>
     </div>
   );
@@ -917,6 +933,22 @@ export function Workspace({
               >
                 <BarChartOutlined />
                 <span className="message-action-label">查看响应用量</span>
+              </button>
+            </Popover>
+          )}
+          {item.usage?.subagent_usage && item.usage.subagent_usage.count > 0 && (
+            <Popover
+              content={<SubagentUsageDetails usage={item.usage.subagent_usage} />}
+              mouseEnterDelay={0.12}
+              placement="topLeft"
+            >
+              <button
+                aria-label="查看本次子智能体消耗"
+                className="message-action-button subagent-usage-button"
+                type="button"
+              >
+                <RobotOutlined />
+                <span className="message-action-label">查看子智能体消耗</span>
               </button>
             </Popover>
           )}

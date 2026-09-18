@@ -188,12 +188,12 @@ turn.started
 
 - 累加本逻辑回合中所有主 Agent `ResultMessage.usage` 的 `input_tokens`、`output_tokens`、`cache_read_input_tokens` 和 `cache_creation_input_tokens`。
 - 动态工作流里中间主 Agent 响应和最终主 Agent 响应都会计入。
-- 排除 `TaskNotificationMessage.usage`，因此后台 Explore、Plan 等子 Agent 自身消耗不会混进主 Agent 的单条回复用量。
+- 子 Agent 自身消耗不会混进主 Agent 的四项 Token；存在子 Agent 时，另以 `subagent_usage.count` 和 `subagent_usage.total_tokens` 返回。
 - 排除当前用户请求之前到达的无关代理结果。
 - `model` 取本回合主 Agent 的模型；`stop_reason` 和 `terminal_reason` 取最终结果。
-- 历史回放会聚合该回合所有顶层 `assistant.message.completed` 的 usage，并排除带 `parent_tool_use_id` 的子 Agent 消息，保持与实时统计一致。
+- 历史回放会分别聚合顶层和带 `parent_tool_use_id` 的子 Agent 消息；子 Agent 仅保留实时通知与历史 transcript 都能重建的数量和总 Token 两项交集指标。
 
-界面只在每条最终 AI 回复下提供“查看响应用量”弹层，不再展示对话框底部的总 token、总耗时、工具次数或缓存命中率汇总。弹层中的“总 Token”是上述四个 token 字段之和。
+界面在每条最终 AI 回复下提供“查看响应用量”弹层；运行过子 Agent 时，会在旁边增加“查看子智能体消耗”入口。主 Agent 弹层中的“总 Token”是上述四个 token 字段之和。
 
 ### 实时与历史的渲染一致性
 
