@@ -208,6 +208,60 @@ def test_history_inserts_nested_subagent_events_after_matching_tool() -> None:
     )
 
 
+def test_history_uses_task_notification_usage_for_background_subagents() -> None:
+    notification = _user_message(
+        "notification-1",
+        """<task-notification>
+<task-id>background-agent</task-id>
+<tool-use-id>agent-tool</tool-use-id>
+<status>completed</status>
+<usage><subagent_tokens>12128</subagent_tokens></usage>
+</task-notification>""",
+    )
+    messages = [
+        _user_message("user-1", "璇峰埗瀹氭梾娓告柟妗?"),
+        _assistant_message(
+            "assistant-1",
+            [
+                {
+                    "type": "tool_use",
+                    "id": "agent-tool",
+                    "name": "Agent",
+                    "input": {"prompt": "Plan the trip"},
+                }
+            ],
+        ),
+        _tool_result_message("result-1", "agent-tool"),
+        notification,
+        _assistant_message(
+            "assistant-2",
+            [{"type": "text", "text": "璇濋宸插畬鎴?"}],
+        ),
+    ]
+    subagent_messages = [
+        _user_message(
+            "sub-user",
+            "Plan the trip",
+            parent_tool_use_id="agent-tool",
+        ),
+        _assistant_message(
+            "sub-assistant",
+            [{"type": "text", "text": "Plan complete"}],
+            parent_tool_use_id="agent-tool",
+        ),
+    ]
+
+    events = assemble_session_messages(
+        messages,
+        subagent_messages=subagent_messages,
+    )
+
+    assert events[-1].data["usage"]["subagent_usage"] == {
+        "count": 1,
+        "total_tokens": 12128,
+    }
+
+
 def test_history_keeps_task_notifications_inside_the_human_turn() -> None:
     messages = [
         _user_message("user-1", "Explore, then plan"),

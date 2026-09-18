@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from claude_agent_sdk import ResultMessage
 
 from .models import ChatEvent, SubagentUsage, TurnUsage
+
+_TASK_ID_RE = re.compile(r"<task-id>\s*([^<]+?)\s*</task-id>", re.DOTALL)
+_TOOL_USE_ID_RE = re.compile(r"<tool-use-id>\s*([^<]+?)\s*</tool-use-id>", re.DOTALL)
+_SUBAGENT_TOKENS_RE = re.compile(
+    r"<usage>.*?<subagent_tokens>\s*(\d+)\s*</subagent_tokens>.*?</usage>",
+    re.DOTALL,
+)
 
 
 def _turn_usage(
@@ -49,8 +57,8 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
 
     The SDK can emit an ``AssistantMessage`` snapshot with ``output_tokens``
     still at zero before it emits the same message with its final
-    ``stop_reason``.  Realtime accounting must wait for that terminal
-    snapshot instead of settling the intermediate value.
+    ``stop_reason``.  Realtime accounting waits for that terminal snapshot,
+    unless a completed background task notification supplies its aggregate.
     """
     agent_task_ids: dict[str, str] = {}
     agent_ids: set[str] = set()
@@ -60,6 +68,24 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
     task_usages: dict[str, Mapping[str, Any]] = {}
 
     for event in events:
+        if event.event == "user.proxy.message":
+            notification = _task_notification_usage(event.data)
+            if notification is not None:
+                task_id, tool_use_id, total_tokens = notification
+                mapped_agent_id = agent_task_ids.get(task_id)
+                if (
+                    tool_use_id is not None
+                    and mapped_agent_id is not None
+                    and mapped_agent_id != tool_use_id
+                ):
+                    agent_ids.discard(mapped_agent_id)
+                agent_id = tool_use_id or mapped_agent_id or task_id
+                agent_task_ids[task_id] = agent_id
+                agent_ids.add(agent_id)
+                finalized_agent_ids.add(agent_id)
+                task_usages[agent_id] = {"total_tokens": total_tokens}
+            continue
+
         if event.event == "task.started":
             task_id = event.data.get("task_id")
             task_type = event.data.get("task_type")
@@ -78,9 +104,21 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
         if event.event == "task.completed":
             task_id = event.data.get("task_id")
             usage = event.data.get("usage")
-            if isinstance(task_id, str) and isinstance(usage, Mapping):
-                agent_id = agent_task_ids.get(task_id)
+            if isinstance(task_id, str):
+                tool_use_id = event.data.get("tool_use_id")
+                mapped_agent_id = agent_task_ids.get(task_id)
+                agent_id = tool_use_id if isinstance(tool_use_id, str) else mapped_agent_id
+                if (
+                    isinstance(tool_use_id, str)
+                    and mapped_agent_id is not None
+                    and mapped_agent_id != tool_use_id
+                ):
+                    agent_ids.discard(mapped_agent_id)
+                    agent_task_ids[task_id] = tool_use_id
                 if agent_id is not None:
+                    agent_ids.add(agent_id)
+                    finalized_agent_ids.add(agent_id)
+                if agent_id is not None and isinstance(usage, Mapping):
                     task_usages[agent_id] = usage
             continue
 
@@ -122,39 +160,54 @@ def _subagent_usage(events: Iterable[ChatEvent]) -> SubagentUsage | None:
     if message_agent_ids - finalized_agent_ids:
         return None
 
-    raw_message_usages = tuple(usage for _, usage in message_usages.values())
-    input_tokens = sum(
-        _usage_integer(raw, "input_tokens") for raw in raw_message_usages
+    detailed_totals: dict[str, int] = {}
+    for agent_id, usage in message_usages.values():
+        detailed_totals[agent_id] = detailed_totals.get(agent_id, 0) + sum(
+            _usage_integer(usage, key)
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            )
+        )
+
+    # Background task notifications provide the authoritative aggregate for
+    # an async agent.  Prefer it over the intermediate parent-tool snapshot;
+    # history replay extracts the same value from the persisted notification.
+    detailed_total = sum(
+        total
+        for agent_id, total in detailed_totals.items()
+        if agent_id not in task_usages
     )
-    output_tokens = sum(
-        _usage_integer(raw, "output_tokens") for raw in raw_message_usages
-    )
-    cache_read_input_tokens = sum(
-        _usage_integer(raw, "cache_read_input_tokens")
-        for raw in raw_message_usages
-    )
-    cache_creation_input_tokens = sum(
-        _usage_integer(raw, "cache_creation_input_tokens")
-        for raw in raw_message_usages
-    )
-    detailed_total = (
-        input_tokens
-        + output_tokens
-        + cache_read_input_tokens
-        + cache_creation_input_tokens
-    )
-    detailed_agent_ids = {
-        agent_id for agent_id, _ in message_usages.values()
-    }
-    background_only_total = sum(
-        _usage_integer(raw, "total_tokens")
-        for agent_id, raw in task_usages.items()
-        if agent_id not in detailed_agent_ids
+    task_total = sum(
+        _usage_integer(usage, "total_tokens")
+        for usage in task_usages.values()
     )
     return SubagentUsage(
         count=len(agent_ids),
-        total_tokens=detailed_total + background_only_total,
+        total_tokens=detailed_total + task_total,
     )
+
+
+def _task_notification_usage(
+    data: Mapping[str, Any],
+) -> tuple[str, str | None, int] | None:
+    """Extract the stable aggregate usage embedded in a task notification."""
+    origin = data.get("origin")
+    if not isinstance(origin, Mapping) or origin.get("kind") != "task-notification":
+        return None
+    content = data.get("content")
+    if not isinstance(content, str):
+        return None
+    task_match = _TASK_ID_RE.search(content)
+    token_match = _SUBAGENT_TOKENS_RE.search(content)
+    if task_match is None or token_match is None:
+        return None
+    task_id = task_match.group(1).strip()
+    tool_match = _TOOL_USE_ID_RE.search(content)
+    tool_use_id = tool_match.group(1).strip() if tool_match is not None else None
+    return task_id, tool_use_id, int(token_match.group(1))
 
 
 def _usage_integer(usage: Mapping[str, Any], key: str) -> int:

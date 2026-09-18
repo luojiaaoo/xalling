@@ -402,6 +402,75 @@ async def _client_settles_usage_when_terminal_snapshot_omits_usage() -> None:
     assert result.usage.subagent_usage.total_tokens == 20
 
 
+def test_client_uses_completed_background_task_usage() -> None:
+    anyio.run(_client_uses_completed_background_task_usage)
+
+
+async def _client_uses_completed_background_task_usage() -> None:
+    _FakeSDK.batches = [
+        [
+            TaskStartedMessage(
+                subtype="task_started",
+                data={},
+                task_id="background-agent",
+                description="Plan the trip",
+                uuid="background-started",
+                session_id="session-1",
+                tool_use_id="agent-tool",
+                task_type="local_agent",
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="The background agent is working")],
+                model="subagent-model",
+                parent_tool_use_id="agent-tool",
+                message_id="subagent-message",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 0,
+                    "cache_read_input_tokens": 20,
+                },
+            ),
+            AssistantMessage(
+                content=[TextBlock(text="The task is complete")],
+                model="test-model",
+                stop_reason="end_turn",
+            ),
+            _result(origin={"kind": "human"}),
+        ],
+        [
+            TaskNotificationMessage(
+                subtype="task_notification",
+                data={},
+                task_id="background-agent",
+                status="completed",
+                output_file="background-agent.txt",
+                summary="Plan complete",
+                uuid="background-completed",
+                session_id="session-1",
+                tool_use_id="agent-tool",
+                usage={"total_tokens": 12128},
+            ),
+            _result(
+                origin={"kind": "task-notification"},
+                input_tokens=1,
+                output_tokens=1,
+            ),
+        ],
+    ]
+    client = ClaudeChatClient(ClaudeAgentOptions(model="test-model"))
+    events = [event async for event in client.stream("Plan the trip")]
+
+    result = client.last_result
+    assert result is not None
+    assert result.usage.subagent_usage is not None
+    assert result.usage.subagent_usage.count == 1
+    assert result.usage.subagent_usage.total_tokens == 12128
+    assert events[-1].data["usage"]["subagent_usage"] == {
+        "count": 1,
+        "total_tokens": 12128,
+    }
+
+
 def test_client_emits_permission_events_and_accepts_resolution() -> None:
     anyio.run(_client_emits_permission_events_and_accepts_resolution)
 
