@@ -11,8 +11,6 @@ from types import TracebackType
 from typing import Any, Self, cast, get_args
 from uuid import uuid4
 
-from loguru import logger
-
 from claude_agent_sdk import (
     TERMINAL_TASK_STATUSES,
     ClaudeAgentOptions,
@@ -33,6 +31,7 @@ from claude_agent_sdk import (
     Transport,
     UserMessage,
 )
+from loguru import logger
 
 from .message_adapter import (
     _EXIT_PLAN_MODE_TOOL_NAME,
@@ -50,6 +49,7 @@ from .models import (
     PlanApprovalMode,
     _jsonable,
 )
+from .session_debug import logged_realtime_messages
 from .usage import _subagent_usage, _turn_usage
 
 _STREAM_END = object()
@@ -463,7 +463,10 @@ class ClaudeChatClient:
                 await sdk.interrupt()
             while requested_result is None:
                 received_result = False
-                async for message in sdk.receive_response():
+                async for message in logged_realtime_messages(
+                    sdk.receive_response(),
+                    session_id=session_id,
+                ):
                     if isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
                         active_task_ids.add(message.task_id)
                         background_chain_started = True

@@ -35,6 +35,7 @@ from .models import (
     ChatSessionSnapshot,
     TurnUsage,
 )
+from .session_debug import write_history_message
 from .usage import _subagent_usage
 
 _TASK_NOTIFICATION_OPEN = "<task-notification>"
@@ -169,7 +170,9 @@ class ClaudeChatHistory:
         directory: str | None = None,
     ) -> list[ChatEvent]:
         """Return one persisted session as realtime-compatible events."""
-        messages = get_session_messages(session_id, directory=directory)
+        messages = list(get_session_messages(session_id, directory=directory))
+        for message in messages:
+            write_history_message(session_id, message)
         subagent_messages = [
             message
             for agent_id in list_subagents(session_id, directory=directory)
@@ -179,6 +182,8 @@ class ClaudeChatHistory:
                 directory=directory,
             )
         ]
+        for message in subagent_messages:
+            write_history_message(session_id, message)
         return self.assemble(messages, subagent_messages=subagent_messages)
 
     @staticmethod
