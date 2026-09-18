@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +34,20 @@ def _warn(message: str) -> None:
     _session_debug_logger.warning(message)
 
 
-def write_history_message(session_id: str, message: object) -> None:
-    """Append one historical SDK message to the session debug log."""
-    _append_message("history", session_id, message)
+def write_history_messages(session_id: str, messages: Iterable[object]) -> None:
+    """Replace a session's historical debug log with the given snapshot."""
+    try:
+        path = session_debug_filepath("history", session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as file:
+            for message in messages:
+                file.write(serialize_native_message(message))
+                file.write("\n")
+    except OSError as error:
+        _warn(
+            f"Could not write history session debug event | "
+            f"session_id={session_id} error={error}"
+        )
 
 
 async def write_realtime_message(session_id: str, message: object) -> None:
@@ -65,16 +76,3 @@ async def logged_realtime_messages(
         await write_realtime_message(session_id, message)
         yield message
 
-
-def _append_message(kind: str, session_id: str, message: object) -> None:
-    try:
-        path = session_debug_filepath(kind, session_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as file:
-            file.write(serialize_native_message(message))
-            file.write("\n")
-    except OSError as error:
-        _warn(
-            f"Could not write {kind} session debug event | "
-            f"session_id={session_id} error={error}"
-        )
