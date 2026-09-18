@@ -9,14 +9,15 @@ from typing import Any, cast
 
 from loguru import logger
 
-LOG_DIRECTORY = Path.home() / ".xalling" / "log"
-ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"
-BROWSER_LOG_FILEPATH = LOG_DIRECTORY / "browser.log"
-ERROR_LOG_FILEPATH = LOG_DIRECTORY / "error.log"
-SESSION_DEBUG_DIRECTORY = Path.home() / ".xalling" / "session_debug"
+from backend.config.setting import (
+    ACCESS_LOG_FILEPATH,
+    BROWSER_LOG_FILEPATH,
+    ERROR_LOG_FILEPATH,
+    LOG_DIRECTORY,
+)
+
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token")
-SESSION_DEBUG_KINDS = frozenset({"realtime", "history"})
 
 # 高频调用、刷日志没意义的桥接方法：不打 call/result 访问日志，但异常仍记录
 SILENT_ACCESS_LOG_CALLS = frozenset({"WindowRouter.resize_window", "ChatRouter.list_chat_sessions"})
@@ -25,14 +26,7 @@ _logging_configured = False
 _access_logger = logger.bind(channel="access")
 _browser_logger = logger.bind(channel="browser")
 _error_logger = logger.bind(channel="error")
-_session_debug_logger = logger.bind(channel="session_debug")
-
-
-def session_debug_filepath(kind: str, session_id: str) -> Path:
-    """Return the JSONL path for one session debug message stream."""
-    if kind not in SESSION_DEBUG_KINDS:
-        raise ValueError("kind must be 'realtime' or 'history'")
-    return SESSION_DEBUG_DIRECTORY / f"{kind}-{session_id}.jsonl"
+session_debug_logger = logger.bind(channel="session_debug")
 
 
 def configure_logging() -> None:
@@ -107,10 +101,7 @@ def _redact(value: Any, key: object = None) -> Any:
     if _is_sensitive_key(key):
         return _mask(value)
     if isinstance(value, dict):
-        return {
-            item_key: _redact(item_value, item_key)
-            for item_key, item_value in value.items()
-        }
+        return {item_key: _redact(item_value, item_key) for item_key, item_value in value.items()}
     if isinstance(value, list):
         return [_redact(item) for item in value]
     if isinstance(value, tuple):
@@ -142,26 +133,15 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
             _ensure_logging_configured()
             if log_access:
-                _access_logger.info(
-                    f"JS-Python call: {func.__qualname__} | "
-                    f"input={_call_input(func, args, kwargs)!r}"
-                )
+                _access_logger.info(f"JS-Python call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
             try:
                 result = await func(*args, **kwargs)
             except Exception as error:
-                _access_logger.info(
-                    f"JS-Python result: {func.__qualname__} | "
-                    f"error={type(error).__name__}: {error}"
-                )
-                _error_logger.exception(
-                    f"JS-Python bridge call failed: {func.__qualname__}"
-                )
+                _access_logger.info(f"JS-Python result: {func.__qualname__} | error={type(error).__name__}: {error}")
+                _error_logger.exception(f"JS-Python bridge call failed: {func.__qualname__}")
                 raise
             if log_access:
-                _access_logger.info(
-                    f"JS-Python result: {func.__qualname__} | "
-                    f"output={_redact(result)!r}"
-                )
+                _access_logger.info(f"JS-Python result: {func.__qualname__} | output={_redact(result)!r}")
             return result
 
         async_wrapper.__bridge_error_captured__ = True
@@ -171,26 +151,15 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         _ensure_logging_configured()
         if log_access:
-            _access_logger.info(
-                f"JS-Python call: {func.__qualname__} | "
-                f"input={_call_input(func, args, kwargs)!r}"
-            )
+            _access_logger.info(f"JS-Python call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
         try:
             result = func(*args, **kwargs)
         except Exception as error:
-            _access_logger.info(
-                f"JS-Python result: {func.__qualname__} | "
-                f"error={type(error).__name__}: {error}"
-            )
-            _error_logger.exception(
-                f"JS-Python bridge call failed: {func.__qualname__}"
-            )
+            _access_logger.info(f"JS-Python result: {func.__qualname__} | error={type(error).__name__}: {error}")
+            _error_logger.exception(f"JS-Python bridge call failed: {func.__qualname__}")
             raise
         if log_access:
-            _access_logger.info(
-                f"JS-Python result: {func.__qualname__} | "
-                f"output={_redact(result)!r}"
-            )
+            _access_logger.info(f"JS-Python result: {func.__qualname__} | output={_redact(result)!r}")
         return result
 
     wrapper.__bridge_error_captured__ = True

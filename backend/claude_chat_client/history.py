@@ -53,59 +53,46 @@ class ClaudeChatHistory:
     def list_sessions(
         self,
         *,
-        directory: str | None = None,
-        limit: int | None = None,
-        offset: int = 0,
         include_worktrees: bool = True,
     ) -> list[ChatSessionInfo]:
-        """List persisted sessions using wrapper-owned metadata models."""
-        return [
-            _session_info(session)
-            for session in list_sessions(
-                directory=directory,
-                limit=limit,
-                offset=offset,
+        """List persisted sessions across every configured project."""
+        sessions = list(
+            list_sessions(
                 include_worktrees=include_worktrees,
             )
+        )
+        sessions.sort(key=lambda session: session.last_modified, reverse=True)
+        return [
+            _session_info(session)
+            for session in sessions
         ]
 
     def has_session(
         self,
         session_id: str,
-        *,
-        directory: str | None = None,
     ) -> bool:
         """Return whether a valid persisted session exists."""
         normalized = _normalize_session_id(session_id)
-        return get_session_info(normalized, directory=directory) is not None
+        return get_session_info(normalized) is not None
 
     def get_session(
         self,
         session_id: str,
-        *,
-        directory: str | None = None,
     ) -> ChatSessionSnapshot:
         """Load session metadata and replayable events in one snapshot."""
         normalized = _normalize_session_id(session_id)
-        session = get_session_info(normalized, directory=directory)
+        session = get_session_info(normalized)
         if session is None:
             raise ValueError("Claude session does not exist or is no longer available")
-        history_directory = directory or session.cwd
         return ChatSessionSnapshot(
             session=_session_info(session),
-            events=tuple(
-                self.get_session_events(
-                    normalized,
-                    directory=history_directory,
-                )
-            ),
+            events=tuple(self._get_session_events(normalized)),
         )
 
     def search_sessions(
         self,
         query: str,
         *,
-        directory: str | None = None,
         limit: int = 30,
         include_worktrees: bool = True,
     ) -> list[ChatSearchMatch]:
@@ -114,19 +101,22 @@ class ClaudeChatHistory:
         if not normalized_query or limit <= 0:
             return []
 
+        sessions = list_sessions(include_worktrees=include_worktrees)
+
         matches: list[ChatSearchMatch] = []
-        sessions = self.list_sessions(
-            directory=directory,
-            include_worktrees=include_worktrees,
-        )
-        for session in sessions:
-            title_index = session.title.casefold().find(normalized_query)
+        for session in sorted(
+            sessions,
+            key=lambda item: item.last_modified,
+            reverse=True,
+        ):
+            chat_session = _session_info(session)
+            title_index = chat_session.title.casefold().find(normalized_query)
             if title_index >= 0:
                 matches.append(
                     ChatSearchMatch(
-                        session=session,
+                        session=chat_session,
                         snippet=_match_snippet(
-                            session.title,
+                            chat_session.title,
                             title_index,
                             len(query.strip()),
                         ),
@@ -136,10 +126,7 @@ class ClaudeChatHistory:
                     return matches
 
             try:
-                events = self.get_session_events(
-                    session.session_id,
-                    directory=directory or session.cwd,
-                )
+                events = self._get_session_events(session.session_id)
             except Exception:  # noqa: BLE001 - one corrupt transcript must not abort a global search
                 events = []
             for event, role, text in _visible_text_events(events):
@@ -148,7 +135,7 @@ class ClaudeChatHistory:
                     continue
                 matches.append(
                     ChatSearchMatch(
-                        session=session,
+                        session=chat_session,
                         snippet=_match_snippet(
                             text,
                             text_index,
@@ -166,22 +153,26 @@ class ClaudeChatHistory:
     def get_session_events(
         self,
         session_id: str,
-        *,
-        directory: str | None = None,
     ) -> list[ChatEvent]:
         """Return one persisted session as realtime-compatible events."""
-        messages = list(get_session_messages(session_id, directory=directory))
+        return self._get_session_events(session_id)
+
+    @staticmethod
+    def _get_session_events(
+        session_id: str,
+    ) -> list[ChatEvent]:
+        """Read a session and its subagents across configured projects."""
+        messages = list(get_session_messages(session_id))
         subagent_messages = [
             message
-            for agent_id in list_subagents(session_id, directory=directory)
+            for agent_id in list_subagents(session_id)
             for message in get_subagent_messages(
                 session_id,
                 agent_id,
-                directory=directory,
             )
         ]
         write_history_messages(session_id, [*messages, *subagent_messages])
-        return self.assemble(messages, subagent_messages=subagent_messages)
+        return assemble_session_messages(messages, subagent_messages=subagent_messages)
 
     @staticmethod
     def assemble(

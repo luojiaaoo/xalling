@@ -15,6 +15,7 @@ import aiofiles
 from claude_agent_sdk import ClaudeAgentOptions, PermissionMode, SdkPluginConfig
 
 from backend.claude_chat_client import ClaudeChatClient
+from backend.config.setting import USER_CONF_DIRPATH
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 
@@ -68,6 +69,7 @@ def _provider_settings(config: ClaudeConnectionConfig) -> dict[str, Any]:
         "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CONFIG_DIR": str(USER_CONF_DIRPATH),
     }
     if config.max_context_tokens == 0:
         environment["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] = "1"
@@ -134,4 +136,5 @@ async def configured_claude_client(
                 )
             )
         async with ClaudeChatClient(_agent_options(config, settings_path)) as client:
+            settings_path.unlink() # 马上删除配置文件，里面有token等数据
             yield client

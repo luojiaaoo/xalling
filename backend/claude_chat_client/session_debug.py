@@ -9,7 +9,18 @@ from typing import Any
 
 import aiofiles
 
+from backend.config.setting import SESSION_DEBUG_DIRECTORY
 from .models import _jsonable
+
+
+SESSION_DEBUG_KINDS = frozenset({"realtime", "history"})
+
+
+def session_debug_filepath(kind: str, session_id: str) -> Path:
+    """Return the JSONL path for one session debug message stream."""
+    if kind not in SESSION_DEBUG_KINDS:
+        raise ValueError("kind must be 'realtime' or 'history'")
+    return SESSION_DEBUG_DIRECTORY / f"{kind}-{session_id}.jsonl"
 
 
 def serialize_native_message(message: object) -> str:
@@ -21,17 +32,10 @@ def serialize_native_message(message: object) -> str:
     )
 
 
-def session_debug_filepath(kind: str, session_id: str) -> Path:
-    """Return the central JSONL path for one session debug stream."""
-    from ..router.log import session_debug_filepath as _session_debug_filepath
-
-    return _session_debug_filepath(kind, session_id)
-
-
 def _warn(message: str) -> None:
-    from ..router.log import _session_debug_logger
+    from ..router.log import session_debug_logger
 
-    _session_debug_logger.warning(message)
+    session_debug_logger.warning(message)
 
 
 def write_history_messages(session_id: str, messages: Iterable[object]) -> None:
@@ -44,10 +48,7 @@ def write_history_messages(session_id: str, messages: Iterable[object]) -> None:
                 file.write(serialize_native_message(message))
                 file.write("\n")
     except OSError as error:
-        _warn(
-            f"Could not write history session debug event | "
-            f"session_id={session_id} error={error}"
-        )
+        _warn(f"Could not write history session debug event | session_id={session_id} error={error}")
 
 
 async def write_realtime_message(session_id: str, message: object) -> None:
@@ -60,10 +61,7 @@ async def write_realtime_message(session_id: str, message: object) -> None:
             await file.write(line)
             await file.flush()
     except OSError as error:
-        _warn(
-            f"Could not write realtime session debug event | "
-            f"session_id={session_id} error={error}"
-        )
+        _warn(f"Could not write realtime session debug event | session_id={session_id} error={error}")
 
 
 async def logged_realtime_messages(
@@ -75,4 +73,3 @@ async def logged_realtime_messages(
     async for message in messages:
         await write_realtime_message(session_id, message)
         yield message
-

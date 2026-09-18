@@ -310,22 +310,21 @@ def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None
 
     monkeypatch.setattr(
         "backend.claude_chat_client.history.get_session_messages",
-        lambda session_id, directory=None: calls.append(("main", session_id, directory)) or main,
+        lambda session_id: calls.append(("main", session_id)) or main,
     )
     monkeypatch.setattr(
         "backend.claude_chat_client.history.list_subagents",
-        lambda session_id, directory=None: calls.append(("list", session_id, directory)) or ["agent-1"],
+        lambda session_id: calls.append(("list", session_id)) or ["agent-1"],
     )
     monkeypatch.setattr(
         "backend.claude_chat_client.history.get_subagent_messages",
-        lambda session_id, agent_id, directory=None: (
-            calls.append(("nested", session_id, agent_id, directory)) or nested
+        lambda session_id, agent_id: (
+            calls.append(("nested", session_id, agent_id)) or nested
         ),
     )
 
     events = ClaudeChatHistory().get_session_events(
         "session-id",
-        directory="project-dir",
     )
 
     assert [event.event for event in events] == [
@@ -334,9 +333,44 @@ def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None
         "turn.completed",
     ]
     assert calls == [
-        ("main", "session-id", "project-dir"),
-        ("list", "session-id", "project-dir"),
-        ("nested", "session-id", "agent-1", "project-dir"),
+        ("main", "session-id"),
+        ("list", "session-id"),
+        ("nested", "session-id", "agent-1"),
+    ]
+
+
+def test_history_lists_sessions_from_all_configured_projects(monkeypatch) -> None:
+    first = SDKSessionInfo(
+        session_id=str(uuid4()),
+        summary="First project",
+        last_modified=100,
+        cwd="C:/work/first",
+    )
+    second = SDKSessionInfo(
+        session_id=str(uuid4()),
+        summary="Second project",
+        last_modified=200,
+        cwd="C:/work/second",
+    )
+    calls: list[bool] = []
+
+    def fake_list_sessions(
+        *, include_worktrees: bool
+    ) -> list[SDKSessionInfo]:
+        calls.append(include_worktrees)
+        return [first, second]
+
+    monkeypatch.setattr(
+        "backend.claude_chat_client.history.list_sessions",
+        fake_list_sessions,
+    )
+
+    sessions = ClaudeChatHistory().list_sessions()
+
+    assert calls == [True]
+    assert [session.session_id for session in sessions] == [
+        second.session_id,
+        first.session_id,
     ]
 
 
@@ -367,19 +401,19 @@ def test_history_exposes_session_snapshots_and_search(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "backend.claude_chat_client.history.get_session_info",
-        lambda requested_id, directory=None: (
+        lambda requested_id: (
             session if requested_id == session_id else None
         ),
     )
     monkeypatch.setattr(
         "backend.claude_chat_client.history.get_session_messages",
-        lambda requested_id, directory=None: (
+        lambda requested_id: (
             messages if requested_id == session_id else []
         ),
     )
     monkeypatch.setattr(
         "backend.claude_chat_client.history.list_subagents",
-        lambda _session_id, directory=None: [],
+        lambda _session_id: [],
     )
 
     history = ClaudeChatHistory()
@@ -400,7 +434,7 @@ def test_history_exposes_session_snapshots_and_search(monkeypatch) -> None:
 def test_history_rejects_invalid_or_missing_session(monkeypatch) -> None:
     monkeypatch.setattr(
         "backend.claude_chat_client.history.get_session_info",
-        lambda _session_id, directory=None: None,
+        lambda _session_id: None,
     )
 
     history = ClaudeChatHistory()
