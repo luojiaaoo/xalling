@@ -26,5 +26,5 @@ uv run pyinstaller --noconfirm %MODE% --windowed --name Xalling ^
     --hidden-import clr ^
     main.py || exit /b 1
 
-echo [5/5] Done. The package is in dist\Xalling
-exit /b 0
+echo [5/5] Done. The package is in dist\Xalling.exe
+pause
