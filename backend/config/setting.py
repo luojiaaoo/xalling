@@ -14,10 +14,10 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-USER_CONF_DIRPATH = Path.home() / ".xalling"
+USER_CONF_DIRPATH = Path(os.getcwd()) / ".xalling"
 # 给 history 中获取历史数据的函数使用，设置环境变量
 os.environ["CLAUDE_CONFIG_DIR"] = str(USER_CONF_DIRPATH)
-CLAUDE_PROJECTS_DIRECTORY = USER_CONF_DIRPATH / "projects" # CC默认项目路径
+CLAUDE_PROJECTS_DIRECTORY = USER_CONF_DIRPATH / "projects"  # CC默认项目路径
 CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
 
 # Application log output paths.
@@ -51,10 +51,7 @@ class ModelConfig(BaseModel):
     @model_validator(mode="after")
     def validate_max_context_tokens(self) -> "ModelConfig":
         """Only accept context sizes offered by the model settings UI."""
-        if (
-            self.max_context_tokens is not None
-            and self.max_context_tokens not in CONTEXT_TOKEN_OPTIONS
-        ):
+        if self.max_context_tokens is not None and self.max_context_tokens not in CONTEXT_TOKEN_OPTIONS:
             raise ValueError("上下文长度不是支持的选项")
         return self
 
