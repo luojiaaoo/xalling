@@ -20,7 +20,7 @@ def hide_claude_console_windows() -> None:
     async def open_process(command: Any, *args: Any, **kwargs: Any) -> Any:
         # SDK 传入的是 [cli_path, "--flag", ...] 参数列表；只认 claude，避免误伤其他子进程
         executable = command[0] if isinstance(command, (list, tuple)) and command else command
-        if Path(str(executable)).stem.lower() == "claude":
+        if Path(str(executable)).stem.lower() in {"claude", "claude-proxy-rust"}:
             creationflags = int(kwargs.get("creationflags") or 0)
             kwargs["creationflags"] = creationflags | subprocess.CREATE_NO_WINDOW
         return await original_open_process(command, *args, **kwargs)

@@ -52,6 +52,7 @@ def test_model_router_manages_sites_and_returns_api_keys(
             "name": "Provider A",
             "api_url": "https://api.example.com/v1",
             "api_key": "secret",
+            "api_protocol": "anthropic",
             "models": [
                 {
                     "name": "model-a",
@@ -66,10 +67,11 @@ def test_model_router_manages_sites_and_returns_api_keys(
         assert tomllib.load(file) == {
             "model": [
                 {
-                    "name": "Provider B",
-                    "api_key": "replacement-secret",
-                    "api_url": "https://api.example.com/v2",
-                    "models": [
+                        "name": "Provider B",
+                        "api_key": "replacement-secret",
+                        "api_url": "https://api.example.com/v2",
+                        "api_protocol": "anthropic",
+                        "models": [
                         {
                             "name": "model-b",
                             "image_vision": True,

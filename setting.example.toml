@@ -2,6 +2,8 @@
 name = "火山方舟"
 api_key = ""
 api_url = "https://ark.cn-beijing.volces.com/api/plan"
+# 可选值：anthropic、chat、responses；后两者会通过本地代理转换为 Anthropic Messages
+api_protocol = "anthropic"
 [[model.models]]
 name = "glm-5.3-flash"
 image_vision = true

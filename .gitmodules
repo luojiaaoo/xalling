@@ -1,0 +1,3 @@
+[submodule "plugins/claude-proxy-rust"]
+	path = plugins/claude-proxy-rust
+	url = https://github.com/luojiaaoo/claude-proxy-rust.git

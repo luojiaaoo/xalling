@@ -15,10 +15,14 @@ import aiofiles
 from claude_agent_sdk import ClaudeAgentOptions, PermissionMode, SdkPluginConfig
 
 from backend.claude_chat_client import ClaudeChatClient
-from backend.config.setting import USER_CONF_DIRPATH
+from backend.claude_proxy import open_claude_proxy
+from backend.config.setting import (
+    CLAUDE_PROXY_LOG_FILEPATH,
+    USER_CONF_DIRPATH,
+)
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
-
+type ApiProtocol = Literal["anthropic", "chat", "responses"]
 
 @dataclass(frozen=True, slots=True)
 class ClaudeConnectionConfig:
@@ -33,6 +37,7 @@ class ClaudeConnectionConfig:
     permission_mode: PermissionMode
     project: Path
     session_id: str
+    api_protocol: ApiProtocol = "anthropic"
 
 
 def discover_plugins(
@@ -55,10 +60,14 @@ def discover_plugins(
     ]
 
 
-def _provider_settings(config: ClaudeConnectionConfig) -> dict[str, Any]:
+def _provider_settings(
+    config: ClaudeConnectionConfig,
+    api_url: str | None = None,
+) -> dict[str, Any]:
+    """Build the temporary Claude settings file for one connection."""
     environment = {
         "ANTHROPIC_AUTH_TOKEN": config.api_key,
-        "ANTHROPIC_BASE_URL": config.api_url,
+        "ANTHROPIC_BASE_URL": api_url or config.api_url,
         "ANTHROPIC_MODEL": config.model,
         "ANTHROPIC_DEFAULT_MODEL": config.model,
         "ANTHROPIC_DEFAULT_FABLE_MODEL": config.model,
@@ -125,12 +134,36 @@ async def configured_claude_client(
     config: ClaudeConnectionConfig,
 ) -> AsyncIterator[ClaudeChatClient]:
     """Keep provider settings alive for the complete client lifecycle."""
+    proxy_context = (
+        open_claude_proxy(
+            config.api_url,
+            "Chat" if config.api_protocol == "chat" else "Responses",
+            CLAUDE_PROXY_LOG_FILEPATH,
+        )
+        if config.api_protocol != "anthropic"
+        else None
+    )
+    if proxy_context is None:
+        async with _configured_client(config, config.api_url) as client:
+            yield client
+        return
+
+    async with proxy_context as proxy, _configured_client(config, proxy.base_url) as client:
+        yield client
+
+
+@asynccontextmanager
+async def _configured_client(
+    config: ClaudeConnectionConfig,
+    api_url: str,
+) -> AsyncIterator[ClaudeChatClient]:
+    """Create the SDK client with a short-lived, token-bearing settings file."""
     with TemporaryDirectory(prefix="xalling-claude-") as directory:
         settings_path = Path(directory) / "settings.json"
         async with aiofiles.open(settings_path, "w", encoding="utf-8") as file:
             await file.write(
                 json.dumps(
-                    _provider_settings(config),
+                    _provider_settings(config, api_url),
                     ensure_ascii=False,
                     separators=(",", ":"),
                 )

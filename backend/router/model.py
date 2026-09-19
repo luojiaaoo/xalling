@@ -1,6 +1,6 @@
 """Model-related methods exposed to the local Web UI."""
 
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import asyncer
 import httpx
@@ -45,6 +45,7 @@ class ModelSiteView(TypedDict):
     api_url: str
     api_key: str
     models: list[ModelInfo]
+    api_protocol: Literal["anthropic", "chat", "responses"]
 
 
 class _RemoteModel(BaseModel):
@@ -86,11 +87,13 @@ class ModelRouter:
     async def get_model_sites(self) -> list[ModelSiteView]:
         """Return provider configuration with API keys for in-app editing."""
         settings = await get_settings()
-        return [
-            {
+        sites: list[ModelSiteView] = []
+        for site in settings.model:
+            view: ModelSiteView = {
                 "name": site.name,
                 "api_url": site.api_url,
                 "api_key": site.api_key,
+                "api_protocol": site.api_protocol,
                 "models": [
                     {
                         "name": model.name,
@@ -100,8 +103,8 @@ class ModelRouter:
                     for model in site.models
                 ],
             }
-            for site in settings.model
-        ]
+            sites.append(view)
+        return sites
 
     async def fetch_model_names(self, api_url: str, api_key: str) -> list[str]:
         """Fetch model names from an Anthropic/OpenAI-compatible provider."""
@@ -158,6 +161,7 @@ class ModelRouter:
         api_url: str,
         api_key: str,
         models: list[dict[str, object]],
+        api_protocol: str = "anthropic",
     ) -> None:
         """Create or update one provider and persist its model list."""
         normalized_original = self._validate_optional_name(original_name)
@@ -165,6 +169,7 @@ class ModelRouter:
         normalized_url = self._validate_text(api_url, "API 地址", 2048)
         normalized_key = self._validate_secret(api_key)
         normalized_models = self._validate_models(models)
+        normalized_protocol = self._validate_api_protocol(api_protocol)
 
         settings = await get_settings()
         existing = next(
@@ -182,6 +187,7 @@ class ModelRouter:
             api_url=normalized_url,
             api_key=normalized_key,
             models=normalized_models,
+            api_protocol=normalized_protocol,
         )
         if existing is None:
             settings.model.append(replacement)
@@ -225,7 +231,8 @@ class ModelRouter:
         if not isinstance(site, str) or not isinstance(model, str):
             raise TypeError("模型站点和模型名称必须是字符串")
 
-        selection = self._find_selection(await get_settings(), site, model)
+        settings = await get_settings()
+        selection = self._find_selection(settings, site, model)
         if selection is None:
             raise ValueError("所选模型不在当前配置中")
         self._write_selection(selection)
@@ -285,6 +292,19 @@ class ModelRouter:
         if len(normalized) > 4096:
             raise ValueError("API Key 不能超过 4096 个字符")
         return normalized
+
+    @staticmethod
+    def _validate_api_protocol(
+        value: object,
+    ) -> Literal["anthropic", "chat", "responses"]:
+        """Validate which wire protocol the configured provider exposes."""
+        if not isinstance(value, str) or value not in {
+            "anthropic",
+            "chat",
+            "responses",
+        }:
+            raise ValueError("API 协议必须是 anthropic、chat 或 responses")
+        return value
 
     @staticmethod
     def _models_endpoint(api_url: str) -> URL:

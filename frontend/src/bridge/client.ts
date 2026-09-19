@@ -1,3 +1,5 @@
+export type ApiProtocol = "anthropic" | "chat" | "responses";
+
 type PyWebviewApi = {
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
@@ -22,6 +24,7 @@ type PyWebviewApi = {
     apiUrl: string,
     apiKey: string,
     models: ModelConfig[],
+    apiProtocol?: ApiProtocol,
   ) => Promise<void>;
   delete_model_site: (name: string) => Promise<void>;
   get_current_model: () => Promise<ModelSelection | null>;
@@ -82,6 +85,7 @@ export type ModelSite = {
   api_url: string;
   api_key: string;
   models: ModelConfig[];
+  api_protocol: ApiProtocol;
 };
 
 export type ModelSelection = {
@@ -445,12 +449,20 @@ export async function saveModelSite(
   apiUrl: string,
   apiKey: string,
   models: ModelConfig[],
+  apiProtocol: ApiProtocol = "anthropic",
 ): Promise<void> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  await api.save_model_site(originalName, name, apiUrl, apiKey, models);
+  await api.save_model_site(
+    originalName,
+    name,
+    apiUrl,
+    apiKey,
+    models,
+    apiProtocol,
+  );
 }
 
 export async function deleteModelSite(name: string): Promise<void> {

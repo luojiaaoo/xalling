@@ -339,14 +339,36 @@ Set-Location ..
 
 `dist/`、`build/`、`*.spec` 是可再生打包产物，不应提交到仓库；相应规则已在 `.gitignore` 中维护。
 
+### OpenAI 兼容代理插件
+
+项目通过 `plugins/claude-proxy-rust` Git 子模块纳入 Rust 代理源码，并把编译后的
+`claude-proxy-rust.exe` 作为 `plugins/bin/` 下的本地插件。模型供应商的“API 协议”
+可以选择 `anthropic`、`chat` 或 `responses`；后两者会启动本地代理，将 Claude
+Agent SDK 的 Anthropic Messages 请求转换为对应的 OpenAI 接口。
+
+首次构建 Windows 包前，请安装 Rust 工具链，并执行：
+
+```powershell
+git submodule update --init --recursive
+.\script\build_claude_proxy.bat
+.\script\package_windows.bat
+```
+
+随后运行现有的打包脚本；如果供应商使用 OpenAI API，请把 API 地址填写为
+OpenAI 兼容服务的基础地址（通常以 `/v1` 结尾），并选择对应的接口类型。
+应用会为每个 Claude 会话启动一个仅监听 `127.0.0.1` 的代理进程，连接关闭后
+自动回收，不会把 API Key 写入项目文件。
+
 ### Windows
 
 前置条件：Windows 10/11，以及 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)；pywebview 在 Windows 使用 Edge Chromium 时依赖该运行时。
 
 ```powershell
+.\script\build_claude_proxy.bat
 uv run pyinstaller --noconfirm --clean --windowed --onedir `
   --name Xalling `
   --add-data "frontend/dist:frontend/dist" `
+  --add-binary "plugins/bin/claude-proxy-rust.exe;plugins/bin" `
   main.py
 
 .\dist\Xalling\Xalling.exe

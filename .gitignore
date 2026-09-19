@@ -231,3 +231,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local plugin build artifacts
+plugins/bin/

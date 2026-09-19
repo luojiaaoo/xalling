@@ -270,6 +270,7 @@ class ChatRouter(CommandRouter):
             permission_mode=request.permission_mode,
             project=request.project_path,
             session_id=active_session_id,
+            api_protocol=site.api_protocol,
         )
         active_chat = await self._get_or_create_chat(config)
         client = active_chat.client
@@ -390,6 +391,7 @@ class ChatRouter(CommandRouter):
             permission_mode="default",
             project=project,
             session_id=normalized_session_id,
+            api_protocol=site.api_protocol,
         )
         active_chat = await self._get_or_create_chat(config)
         try:

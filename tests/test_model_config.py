@@ -81,6 +81,7 @@ def test_write_writes_all_settings_and_creates_parent_directory(
                     "name": "内部部署",
                     "api_key": "secret",
                     "api_url": "https://api.example.com",
+                    "api_protocol": "anthropic",
                     "models": [
                         {
                             "name": "model-a",

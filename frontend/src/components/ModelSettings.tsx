@@ -17,6 +17,7 @@ import {
   Modal,
   Popconfirm,
   Radio,
+  Select,
   Switch,
   Tooltip,
 } from "antd";
@@ -27,6 +28,7 @@ import {
   fetchModelNames,
   getModelSites,
   saveModelSite,
+  type ApiProtocol,
   type ModelConfig,
   type ModelSite,
 } from "../bridge/client";
@@ -36,6 +38,7 @@ type ProviderDraft = {
   name: string;
   apiUrl: string;
   apiKey: string;
+  apiProtocol: ApiProtocol;
   models: ModelDraft[];
 };
 
@@ -58,6 +61,7 @@ function newDraft(): ProviderDraft {
     name: "",
     apiUrl: "",
     apiKey: "",
+    apiProtocol: "anthropic",
     models: [],
   };
 }
@@ -68,6 +72,7 @@ function draftFromSite(site: ModelSite): ProviderDraft {
     name: site.name,
     apiUrl: site.api_url,
     apiKey: site.api_key,
+    apiProtocol: site.api_protocol,
     models: site.models.map((model) => ({
       ...model,
       draftId: crypto.randomUUID(),
@@ -237,6 +242,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
           image_vision: model.image_vision,
           max_context_tokens: model.max_context_tokens,
         })),
+        draft.apiProtocol,
       );
       await reload(nextName);
       onModelsChanged();
@@ -400,6 +406,21 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                 maxLength={2048}
                 disabled={fetchingModels}
                 onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))}
+              />
+            </label>
+            <label className="settings-field">
+              <span>API 协议</span>
+              <Select
+                value={draft.apiProtocol}
+                options={[
+                  { label: "Anthropic Messages (/v1/messages)", value: "anthropic" },
+                  { label: "Chat Completions (/chat/completions)", value: "chat" },
+                  { label: "Responses (/responses)", value: "responses" },
+                ]}
+                onChange={(apiProtocol: ApiProtocol) => setDraft((current) => ({
+                  ...current,
+                  apiProtocol,
+                }))}
               />
             </label>
             <label className="settings-field settings-field-wide">

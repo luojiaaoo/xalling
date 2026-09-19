@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import asyncer
 import tomli_w
@@ -24,6 +25,7 @@ LOG_DIRECTORY = USER_CONF_DIRPATH / "log"
 ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"
 BROWSER_LOG_FILEPATH = LOG_DIRECTORY / "browser.log"
 ERROR_LOG_FILEPATH = LOG_DIRECTORY / "error.log"
+CLAUDE_PROXY_LOG_FILEPATH = LOG_DIRECTORY / "claude-proxy.log"
 
 SESSION_DEBUG_DIRECTORY = USER_CONF_DIRPATH / "session_debug"
 
@@ -63,6 +65,7 @@ class ModelSiteConfig(BaseModel):
     name: str
     api_key: str = Field(default="", repr=False)
     api_url: str = ""
+    api_protocol: Literal["anthropic", "chat", "responses"] = "anthropic"
     models: list[ModelConfig] = Field(default_factory=list)
 
 
