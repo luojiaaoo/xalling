@@ -172,7 +172,7 @@ function getGreeting(hour: number): string {
 function buildPrompt(text: string, attachmentPaths: string[]): string {
   const parts = [text];
   if (attachmentPaths.length) {
-    const bullets = attachmentPaths.map((path) => `- ${path}`).join("\n");
+    const bullets = attachmentPaths.map((path, index) => `${index + 1}. @${path}`).join("\n");
     parts.push(`attachments:\n${bullets}`);
   }
   return parts.filter(Boolean).join("\n\n");
