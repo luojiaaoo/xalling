@@ -595,7 +595,7 @@ export function TaskComposer({
     return false;
   };
 
-  const addPastedFiles = (files: FileList) => {
+  const addPastedFiles = (files: File[] | FileList) => {
     const availableSlots = MAX_ATTACHMENTS - attachmentItems.length;
     const acceptedFiles = Array.from(files)
       .filter((file) => {
@@ -608,10 +608,7 @@ export function TaskComposer({
       .slice(0, availableSlots)
       .map((file, index): UploadFile => {
         const uid = `pasted-${Date.now()}-${index}`;
-        const originFile = Object.assign(file, {
-          uid,
-          lastModifiedDate: new Date(file.lastModified),
-        }) as RcFile;
+        const originFile = Object.assign(file, { uid }) as RcFile;
         return {
           uid,
           name: file.name,
@@ -627,6 +624,30 @@ export function TaskComposer({
     if (acceptedFiles.length) {
       setAttachmentItems((current) => [...current, ...acceptedFiles]);
       setAttachmentsOpen(true);
+    }
+  };
+
+  // 处理剪切板中的图片（截图等）与文件：`onPasteFile` 仅覆盖 clipboardData.files，
+  // 截图等以 image/* 形式出现在 clipboardData.items 中，需在此手动提取。
+  const handlePaste = (event: React.ClipboardEvent) => {
+    const data = event.clipboardData;
+    if (!data) {
+      return;
+    }
+    const files = Array.from(data.items)
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+      .map((file) => {
+        // 截图等剪切板图片可能没有文件名，补一个默认名避免附件列表显示为空。
+        if (file.name) {
+          return file;
+        }
+        const extension = file.type === "image/png" ? "png" : file.type.split("/")[1] ?? "png";
+        return new File([file], `粘贴图片-${Date.now()}.${extension}`, { type: file.type });
+      });
+    if (files.length) {
+      addPastedFiles(files);
     }
   };
 
@@ -910,6 +931,7 @@ export function TaskComposer({
           return false;
         }}
         onSubmit={(value) => void handleSubmit(value)}
+        onPaste={handlePaste}
         onPasteFile={addPastedFiles}
         loading={busy}
         submitType="enter"
