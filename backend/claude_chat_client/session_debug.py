@@ -20,7 +20,7 @@ def session_debug_filepath(kind: str, session_id: str) -> Path:
     """Return the JSONL path for one session debug message stream."""
     if kind not in SESSION_DEBUG_KINDS:
         raise ValueError("kind must be 'realtime' or 'history'")
-    return SESSION_DEBUG_DIRECTORY / f"{kind}-{session_id}.jsonl"
+    return SESSION_DEBUG_DIRECTORY / f"{session_id}-{kind}.jsonl"
 
 
 def serialize_native_message(message: object) -> str:
