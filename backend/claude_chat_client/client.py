@@ -260,6 +260,9 @@ class ClaudeChatClient:
         if self._sdk is None:  # pragma: no cover - guarded by connect
             raise RuntimeError("Claude SDK client is not connected")
         await self._sdk.set_permission_mode(mode)
+        # Keep the wrapper's effective options in sync with the live SDK
+        # session so a later retained turn does not revert this change.
+        self._options = replace(self._options, permission_mode=mode)
 
     async def set_model(self, model: str | None) -> None:
         """Change the model used by the live connection."""

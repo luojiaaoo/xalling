@@ -530,6 +530,7 @@ async def _client_forwards_connection_controls() -> None:
     assert (await client.get_context_usage())["totalTokens"] == 12
     await client.set_model("next-model")
     await client.set_permission_mode("acceptEdits")
+    assert client.options.permission_mode == "acceptEdits"
     await client.reconnect_mcp_server("memory")
     await client.toggle_mcp_server("memory", enabled=False)
     await client.stop_task("task-1")

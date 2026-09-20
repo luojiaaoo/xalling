@@ -319,7 +319,7 @@ type WorkspaceProps = {
   modelsRevision: number;
   onEffortChange: (value: number) => void;
   onConversationStart?: (project: ProjectFolder | null, sessionId: string) => void;
-  onPermissionModeChange: (mode: ChatPermissionMode) => void;
+  onPermissionModeChange: (mode: ChatPermissionMode, sessionId: string) => void;
   onProjectChange: Dispatch<SetStateAction<ProjectFolder | null>>;
   onSessionsChanged?: () => void;
   permissionMode: ChatPermissionMode;
@@ -690,7 +690,7 @@ export function Workspace({
     }
     if (allowed && request.data.tool_name === "ExitPlanMode") {
       if (executionMode) {
-        onPermissionModeChange(executionMode);
+        onPermissionModeChange(executionMode, sessionIdRef.current);
       } else {
         const suggestion = request.data.suggestions.find((item) => (
           item.type === "setMode"
@@ -704,12 +704,17 @@ export function Workspace({
         onPermissionModeChange(
           (suggestion?.mode as Exclude<ChatPermissionMode, "plan"> | undefined)
           ?? "default",
+          sessionIdRef.current,
         );
       }
     }
     setPermissionRequests((current) => current.filter(
       (item) => item.data.request_id !== request.data.request_id,
     ));
+  };
+
+  const handlePermissionModeChange = (mode: ChatPermissionMode) => {
+    onPermissionModeChange(mode, sessionIdRef.current);
   };
 
   const handleSend = (draft: ComposerDraft) => {
@@ -1039,7 +1044,7 @@ export function Workspace({
             modelsRevision={modelsRevision}
             onEffortChange={onEffortChange}
             onPermissionDecision={handlePermissionDecision}
-            onPermissionModeChange={onPermissionModeChange}
+            onPermissionModeChange={handlePermissionModeChange}
             onProjectChange={onProjectChange}
             onSend={handleSend}
             onStop={() => void handleStop()}

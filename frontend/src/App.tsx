@@ -13,6 +13,7 @@ import { Workspace } from "./components/Workspace";
 import {
   getCurrentTheme,
   listChatSessions,
+  setChatPermissionMode,
   setCurrentTheme,
   type ChatPermissionMode,
   type ChatSessionSummary,
@@ -59,6 +60,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<ProjectFolder | null>(null);
   const [effort, setEffort] = useState(2);
   const [permissionMode, setPermissionMode] = useState<ChatPermissionMode>("default");
+  const permissionModeRequestRef = useRef(0);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [chatSessionsLoading, setChatSessionsLoading] = useState(true);
   const chatSessionsRequestIdRef = useRef(0);
@@ -171,6 +173,22 @@ export default function App() {
     void setCurrentTheme(next).catch(() => undefined);
   }
 
+  const handlePermissionModeChange = useCallback((
+    nextMode: ChatPermissionMode,
+    sessionId: string,
+  ) => {
+    const previousMode = permissionMode;
+    const requestId = permissionModeRequestRef.current + 1;
+    permissionModeRequestRef.current = requestId;
+    setPermissionMode(nextMode);
+    void setChatPermissionMode(sessionId, nextMode).catch(() => {
+      // Do not let a failed live update affect the mode used by the next turn.
+      if (permissionModeRequestRef.current === requestId) {
+        setPermissionMode(previousMode);
+      }
+    });
+  }, [permissionMode]);
+
   function handleNewTask() {
     setView("workspace");
     setActiveSessionId(null);
@@ -272,7 +290,7 @@ export default function App() {
             initialSessionId={workspaceSessionId}
             modelsRevision={modelsRevision}
             onEffortChange={setEffort}
-            onPermissionModeChange={setPermissionMode}
+            onPermissionModeChange={handlePermissionModeChange}
             onConversationStart={handleConversationStart}
             onProjectChange={setSelectedProject}
             onSessionsChanged={refreshChatSessions}

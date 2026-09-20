@@ -36,6 +36,10 @@ type PyWebviewApi = {
     effort: ChatEffort,
     permissionMode: ChatPermissionMode,
   ) => Promise<ChatReply>;
+  set_chat_permission_mode: (
+    sessionId: string,
+    permissionMode: ChatPermissionMode,
+  ) => Promise<boolean>;
   list_chat_sessions: () => Promise<ChatSessionSummary[]>;
   search_chat_sessions: (query: string) => Promise<ChatSearchMatch[]>;
   get_chat_session: (sessionId: string) => Promise<ChatSessionHistory>;
@@ -502,6 +506,17 @@ export async function sendChatMessage(
     effort,
     permissionMode,
   );
+}
+
+export async function setChatPermissionMode(
+  sessionId: string,
+  permissionMode: ChatPermissionMode,
+): Promise<boolean> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("妗岄潰搴旂敤妗ユ帴灏氭湭鍑嗗濂?");
+  }
+  return api.set_chat_permission_mode(sessionId, permissionMode);
 }
 
 export async function listChatSessions(): Promise<ChatSessionSummary[]> {

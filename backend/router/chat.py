@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from time import time
@@ -39,6 +39,9 @@ from backend.router._claude_options import (
 from backend.router.command import CommandRouter, is_allowed_leading_slash
 
 CHAT_CLIENT_IDLE_SECONDS = 5 * 60
+_UI_PERMISSION_MODES = frozenset(
+    {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
+)
 EMPTY_COMMAND_RESULTS = {"compact": "上下文已压缩。"}
 
 
@@ -125,13 +128,20 @@ class _ChatMessageRequest(BaseModel):
     @field_validator("permission_mode", mode="before")
     @classmethod
     def _validate_permission_mode(cls, value: object) -> object:
-        if not isinstance(value, str) or value not in {
-            "default",
-            "acceptEdits",
-            "plan",
-            "auto",
-            "bypassPermissions",
-        }:
+        if not isinstance(value, str) or value not in _UI_PERMISSION_MODES:
+            raise ValueError("权限模式无效")
+        return value
+
+
+class _ChatPermissionModeRequest(BaseModel):
+    """Validated payload for changing a live chat's permission mode."""
+
+    permission_mode: PermissionMode
+
+    @field_validator("permission_mode", mode="before")
+    @classmethod
+    def _validate_permission_mode(cls, value: object) -> object:
+        if not isinstance(value, str) or value not in _UI_PERMISSION_MODES:
             raise ValueError("权限模式无效")
         return value
 
@@ -542,6 +552,37 @@ class ChatRouter(CommandRouter):
             if active_chat is None or not active_chat.running:
                 return False
         await active_chat.client.request_stop()
+        return True
+
+    async def set_chat_permission_mode(
+        self,
+        session_id: str | None = None,
+        permission_mode: str = "default",
+    ) -> bool:
+        """Update a retained chat's live SDK permission mode.
+
+        A chat that has not created a client yet simply keeps the UI-selected
+        mode for its next turn.  Existing clients are updated in place so a
+        mode change made while a turn is running takes effect immediately.
+        """
+        normalized = self._normalize_optional_session_id(session_id)
+        if normalized is None:
+            raise ValueError("浼氳瘽鏍囪瘑鏃犳晥")
+        try:
+            request = _ChatPermissionModeRequest.model_validate(
+                {"permission_mode": permission_mode}
+            )
+        except ValidationError as error:
+            raise _user_facing_error(error) from error
+
+        active_chat = self._active_chats.get(normalized)
+        if active_chat is None:
+            return False
+        await active_chat.client.set_permission_mode(request.permission_mode)
+        active_chat.config = replace(
+            active_chat.config,
+            permission_mode=request.permission_mode,
+        )
         return True
 
     def respond_chat_permission(

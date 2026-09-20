@@ -977,7 +977,6 @@ export function TaskComposer({
               >
                 <Button
                   aria-label="选择 Claude 权限模式"
-                  disabled={busy}
                   type="text"
                   icon={<ThunderboltOutlined />}
                 >

@@ -638,6 +638,41 @@ def test_chat_router_stops_active_client(
     assert client.stopped
 
 
+def test_chat_router_updates_live_permission_mode_and_retains_config(
+    tmp_path: Path,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    session_id = str(uuid4())
+
+    class StubClient:
+        pending_permission_ids: tuple[str, ...] = ()
+        permission_mode: str | None = None
+
+        async def set_permission_mode(self, mode: str) -> None:
+            self.permission_mode = mode
+
+    client = StubClient()
+    router = bridge_factory()
+    router._active_chats[session_id] = _ActiveChat(
+        client=client,  # type: ignore[arg-type]
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[],
+        metadata={},
+        running=True,
+    )
+
+    assert router.set_chat_permission_mode(session_id, "acceptEdits")
+    assert client.permission_mode == "acceptEdits"
+    assert router._active_chats[session_id].config.permission_mode == "acceptEdits"
+
+
+def test_chat_router_permission_mode_update_returns_false_without_client(
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    assert not bridge_factory().set_chat_permission_mode(str(uuid4()), "default")
+
+
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])
 def test_chat_router_rejects_invalid_effort(
     effort: str,
