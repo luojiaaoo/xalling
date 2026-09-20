@@ -17,7 +17,6 @@ from claude_agent_sdk import (
     PermissionMode,
     SdkPluginConfig,
 )
-from loguru import logger
 
 from backend.claude_chat_client import ClaudeChatClient
 from backend.claude_proxy import open_claude_proxy
@@ -25,6 +24,7 @@ from backend.config.setting import (
     CLAUDE_PROXY_LOG_FILEPATH,
     USER_CONF_DIRPATH,
 )
+from backend.router.log import claude_sdk_logger
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ApiProtocol = Literal["anthropic", "chat", "responses"]
@@ -120,7 +120,7 @@ def _agent_options(
         session_id=config.session_id if is_new_session else None,
         settings=str(settings_path),
         setting_sources=["user", "project", "local"],
-        stderr=lambda line: logger.error("Claude CLI stderr: {}", line),
+        stderr=lambda line: claude_sdk_logger.error("Claude CLI stderr: {}", line),
         system_prompt={
             "type": "preset",
             "preset": "claude_code",

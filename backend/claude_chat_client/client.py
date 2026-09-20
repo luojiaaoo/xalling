@@ -31,7 +31,7 @@ from claude_agent_sdk import (
     Transport,
     UserMessage,
 )
-from loguru import logger
+from backend.router.log import claude_sdk_logger
 
 from .message_adapter import (
     _EXIT_PLAN_MODE_TOOL_NAME,
@@ -53,7 +53,6 @@ from .session_debug import logged_realtime_messages
 from .usage import _subagent_usage, _turn_usage
 
 _STREAM_END = object()
-_SDK_LOGGER = logger.bind(channel="access")
 _EXIT_PLAN_EXECUTION_MODES = ("default", "acceptEdits", "auto")
 
 
@@ -477,7 +476,7 @@ class ClaudeChatClient:
                     if isinstance(message, (TaskStartedMessage, TaskProgressMessage)):
                         active_task_ids.add(message.task_id)
                         background_chain_started = True
-                        _SDK_LOGGER.info(
+                        claude_sdk_logger.info(
                             "Claude SDK task lifecycle | kind={} task_id={} "
                             "active_tasks={} pending_notifications={}",
                             type(message).__name__,
@@ -498,7 +497,7 @@ class ClaudeChatClient:
                                 and deferred_human_result is not None
                             ):
                                 requested_result = deferred_human_result
-                                _SDK_LOGGER.info(
+                                claude_sdk_logger.info(
                                     "Claude SDK stopped task selected deferred result | "
                                     "task_id={} active_tasks={}",
                                     message.task_id,
@@ -507,7 +506,7 @@ class ClaudeChatClient:
                         else:
                             pending_notification_turns += 1
                             background_chain_started = True
-                        _SDK_LOGGER.info(
+                        claude_sdk_logger.info(
                             "Claude SDK task lifecycle | kind={} task_id={} "
                             "status={} stop_requested={} active_tasks={} "
                             "pending_notifications={}",
@@ -528,7 +527,7 @@ class ClaudeChatClient:
                         elif status is not None:
                             active_task_ids.add(message.task_id)
                             background_chain_started = True
-                        _SDK_LOGGER.info(
+                        claude_sdk_logger.info(
                             "Claude SDK task lifecycle | kind={} task_id={} "
                             "status={} active_tasks={} pending_notifications={}",
                             type(message).__name__,
@@ -563,7 +562,7 @@ class ClaudeChatClient:
                     received_result = True
                     origin = dict(message.origin) if message.origin else None
                     origin_kind = origin.get("kind") if origin else None
-                    _SDK_LOGGER.info(
+                    claude_sdk_logger.info(
                         "Claude SDK ResultMessage | origin_kind={} subtype={} "
                         "is_error={} stop_reason={} terminal_reason={} "
                         "active_tasks={} pending_notifications={} background_chain={}",
@@ -599,7 +598,7 @@ class ClaudeChatClient:
                         and not waiting_for_background
                     ):
                         requested_result = message
-                        _SDK_LOGGER.info(
+                        claude_sdk_logger.info(
                             "Claude SDK ResultMessage selected as requested result | "
                             "origin_kind={} active_tasks={} pending_notifications={}",
                             origin_kind,
@@ -634,7 +633,7 @@ class ClaudeChatClient:
                         and not waiting_for_background
                     ):
                         requested_result = message
-                        _SDK_LOGGER.info(
+                        claude_sdk_logger.info(
                             "Claude SDK continuation ResultMessage selected | "
                             "origin_kind={} active_tasks={} pending_notifications={}",
                             origin_kind,
@@ -643,7 +642,7 @@ class ClaudeChatClient:
                         )
 
                 if not received_result:
-                    _SDK_LOGGER.warning(
+                    claude_sdk_logger.warning(
                         "Claude SDK receive_response ended without ResultMessage | "
                         "active_tasks={} pending_notifications={} deferred_human_result={} "
                         "background_chain={}",

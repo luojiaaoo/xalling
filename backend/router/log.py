@@ -13,6 +13,7 @@ from backend.config.setting import (
     ACCESS_LOG_FILEPATH,
     BROWSER_LOG_FILEPATH,
     ERROR_LOG_FILEPATH,
+    CLAUDE_SDK_FILEPATH,
     LOG_DIRECTORY,
 )
 
@@ -34,6 +35,7 @@ _access_logger = logger.bind(channel="access")
 _browser_logger = logger.bind(channel="browser")
 _error_logger = logger.bind(channel="error")
 session_debug_logger = logger.bind(channel="session_debug")
+claude_sdk_logger = logger.bind(channel="claude_sdk")
 
 
 def configure_logging() -> None:
@@ -70,6 +72,17 @@ def configure_logging() -> None:
         backtrace=True,
         diagnose=False,
         filter=lambda record: record["extra"].get("channel") == "error",
+    )
+    logger.add(
+        CLAUDE_SDK_FILEPATH,
+        level="INFO",
+        format=LOG_FORMAT,
+        encoding="utf-8",
+        rotation="10 MB",
+        retention="14 days",
+        backtrace=True,
+        diagnose=False,
+        filter=lambda record: record["extra"].get("channel") == "claude_sdk",
     )
     logger.add(
         BROWSER_LOG_FILEPATH,
