@@ -2,7 +2,6 @@ import {
   BarChartOutlined,
   CheckOutlined,
   CopyOutlined,
-  PaperClipOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
@@ -17,6 +16,7 @@ import {
   getHomeFolder,
   isPermissionRequestEvent,
   respondChatPermission,
+  saveAttachment,
   sendChatMessage,
   stopChatMessage,
   subscribeChatEvents,
@@ -54,7 +54,6 @@ const greetingsByPeriod: string[][] = [
 ];
 
 type ConversationMessage = {
-  attachments?: ComposerAttachment[];
   content: string;
   expandedTraceItemKeys?: string[];
   finalOutputKey?: string;
@@ -170,13 +169,41 @@ function getGreeting(hour: number): string {
   return options[Math.floor(Math.random() * options.length)];
 }
 
-function requestPrompt(draft: ComposerDraft): string {
-  const text = draft.text || "请处理这次附加的文件。";
-  if (!draft.attachments.length) {
-    return text;
+function buildPrompt(text: string, attachmentPaths: string[]): string {
+  const parts = [text];
+  if (attachmentPaths.length) {
+    const bullets = attachmentPaths.map((path) => `- ${path}`).join("\n");
+    parts.push(`attachments:\n${bullets}`);
   }
-  const fileNames = draft.attachments.map((file) => file.name).join("、");
-  return `${text}\n\n本次附加文件：${fileNames}。如果这些文件位于当前项目中，请读取后再处理。`;
+  return parts.filter(Boolean).join("\n\n");
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return file.arrayBuffer().then((buffer) => {
+    const bytes = new Uint8Array(buffer);
+    // 分块转换，避免超大文件一次性展开导致调用栈溢出。
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+  });
+}
+
+async function uploadAttachments(
+  attachments: ComposerAttachment[],
+): Promise<string[]> {
+  const paths: string[] = [];
+  for (const attachment of attachments) {
+    if (!attachment.file) {
+      continue;
+    }
+    const data = await fileToBase64(attachment.file);
+    const saved = await saveAttachment(attachment.name, data);
+    paths.push(saved.path);
+  }
+  return paths;
 }
 
 function errorText(error: unknown): string {
@@ -431,7 +458,7 @@ export function Workspace({
           return [...current, { content, key: userKey, role: "user", status: "success" }];
         }
         return current.map((item, index) => (
-          index === candidateIndex ? { ...item, key: userKey } : item
+          index === candidateIndex ? { ...item, key: userKey, content } : item
         ));
       });
       return;
@@ -735,8 +762,7 @@ export function Workspace({
         {
           key: userKey,
           role: "user",
-          content: draft.text || "已添加附件",
-          attachments: draft.attachments,
+          content: draft.text,
           status: "success",
         },
         {
@@ -769,8 +795,9 @@ export function Workspace({
     }
 
     void conversationReady
-      .then(() => sendChatMessage(
-        requestPrompt(draft),
+      .then(() => uploadAttachments(draft.attachments))
+      .then((attachmentPaths) => sendChatMessage(
+        buildPrompt(draft.text, attachmentPaths),
         draft.project?.path ?? null,
         sessionIdRef.current,
         draft.effort,
@@ -985,13 +1012,6 @@ export function Workspace({
       ) : (
         <div className="user-message">
           <div className="chat-message-text">{item.content}</div>
-          {!!item.attachments?.length && (
-            <div className="chat-message-files">
-              {item.attachments.map((file, index) => (
-                <span key={`${file.name}-${index}`}><PaperClipOutlined />{file.name}</span>
-              ))}
-            </div>
-          )}
         </div>
       ),
     };

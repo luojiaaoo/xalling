@@ -1,27 +1,62 @@
-"""Project file search methods exposed to the local Web UI."""
+"""Project file methods exposed to the local Web UI."""
 
+import base64
+import binascii
 import os
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
-IGNORED_DIR_NAMES = frozenset({
-    ".git",
-    ".hg",
-    ".idea",
-    ".svn",
-    ".venv",
-    ".vscode",
-    "__pycache__",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-})
+from backend.config.setting import ATTACHMENTS_DIRECTORY
+
+IGNORED_DIR_NAMES = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".idea",
+        ".svn",
+        ".venv",
+        ".vscode",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+        "venv",
+    }
+)
 MAX_SCANNED_ENTRIES = 20000
 DEFAULT_LIMIT = 30
+MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 class FileRouter:
-    """Search files and folders inside the selected project folder."""
+    """Search files inside the project and persist UI attachments."""
+
+    def save_attachment(self, filename: str, data: str) -> dict[str, str]:
+        """Save one attachment and return its on-disk absolute path."""
+        if not isinstance(filename, str):
+            raise TypeError("附件名称必须是字符串")
+        if not isinstance(data, str):
+            raise TypeError("附件内容必须是字符串")
+
+        safe_name = Path(filename).name.strip()
+        if not safe_name:
+            raise ValueError("附件名称不能为空")
+
+        try:
+            content = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("附件内容不是有效的 Base64 编码") from error
+        if not content:
+            raise ValueError("附件内容为空")
+        if len(content) > MAX_ATTACHMENT_BYTES:
+            raise ValueError("单个附件不能超过 50 MB")
+
+        ATTACHMENTS_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        # 前缀加短随机串，避免同名附件互相覆盖。
+        target = ATTACHMENTS_DIRECTORY / f"{datetime.now().astimezone().strftime("%Y%m%d%H%M%S")}-{uuid4().hex[:8]}-{safe_name}"
+        target.write_bytes(content)
+        return {"path": str(target.resolve()), "name": safe_name}
 
     def search_project_files(
         self,
@@ -48,7 +83,8 @@ class FileRouter:
     def _list_top_level(self, root: Path, limit: int) -> list[dict[str, object]]:
         entries = sorted(
             (
-                entry for entry in root.iterdir()
+                entry
+                for entry in root.iterdir()
                 if not entry.name.startswith(".") and entry.name not in IGNORED_DIR_NAMES
             ),
             key=lambda entry: (not entry.is_dir(), entry.name.lower()),
@@ -64,10 +100,7 @@ class FileRouter:
         scored: list[tuple[int, str, dict[str, object]]] = []
         scanned = 0
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [
-                name for name in dirnames
-                if name not in IGNORED_DIR_NAMES and not name.startswith(".")
-            ]
+            dirnames[:] = [name for name in dirnames if name not in IGNORED_DIR_NAMES and not name.startswith(".")]
             for name in (*dirnames, *filenames):
                 scanned += 1
                 if scanned > MAX_SCANNED_ENTRIES:

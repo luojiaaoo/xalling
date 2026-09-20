@@ -21,6 +21,9 @@ os.environ["CLAUDE_CONFIG_DIR"] = str(USER_CONF_DIRPATH)
 CLAUDE_PROJECTS_DIRECTORY = USER_CONF_DIRPATH / "projects"  # CC默认项目路径
 CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
 
+# UI 上传的附件落盘目录，路径会注入到提示词中供模型读取。
+ATTACHMENTS_DIRECTORY = USER_CONF_DIRPATH / "attachments"
+
 # Application log output paths.
 LOG_DIRECTORY = USER_CONF_DIRPATH / "log"
 ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"

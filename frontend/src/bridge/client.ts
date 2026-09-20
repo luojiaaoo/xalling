@@ -12,6 +12,10 @@ type PyWebviewApi = {
     query: string,
     limit?: number,
   ) => Promise<ProjectFileMatch[]>;
+  save_attachment: (
+    filename: string,
+    data: string,
+  ) => Promise<{ path: string; name: string }>;
   get_commands: (sessionId: string) => Promise<ClaudeCommand[]>;
   get_allowed_command_names: () => Promise<string[]>;
   get_skills: (sessionId: string) => Promise<ClaudeCommand[]>;
@@ -417,6 +421,17 @@ export async function searchProjectFiles(
 ): Promise<ProjectFileMatch[]> {
   const api = await getBridgeApi();
   return (await api?.search_project_files(projectPath, query, limit)) ?? [];
+}
+
+export async function saveAttachment(
+  filename: string,
+  data: string,
+): Promise<{ path: string; name: string }> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.save_attachment(filename, data);
 }
 
 export async function getCommands(sessionId: string): Promise<ClaudeCommand[]> {

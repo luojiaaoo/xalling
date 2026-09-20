@@ -87,6 +87,8 @@ export type ComposerAttachment = {
   name: string;
   size?: number;
   type?: string;
+  // 原始文件对象，用于上传内容到后端附件目录；仅提交时使用。
+  file?: File;
 };
 
 export type ComposerDraft = {
@@ -529,6 +531,7 @@ export function TaskComposer({
         name: file.name,
         size: file.size,
         type: file.type,
+        file: file.originFileObj,
       })),
     });
     setPrompt("");

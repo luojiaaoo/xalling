@@ -25,6 +25,7 @@ SILENT_ACCESS_LOG_CALLS = frozenset(
         "WindowRouter.resize_window",
         "ChatRouter.list_chat_sessions",
         "ChatRouter.get_context_usage",
+        "FileRouter.save_attachment"
     }
 )
 
