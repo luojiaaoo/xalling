@@ -371,7 +371,8 @@ class ChatRouter(CommandRouter):
         self._schedule_client_cleanup(config.session_id, active_chat)
         return active_chat
 
-    async def _get_chat_server_info(self, session_id: str) -> dict[str, Any]:
+    async def _resolve_session_chat(self, session_id: str | None) -> _ActiveChat:
+        """Return (or create) the retained chat client for a session."""
         normalized_session_id = self._normalize_optional_session_id(session_id)
         if normalized_session_id is None:
             raise ValueError("会话标识无效")
@@ -402,12 +403,30 @@ class ChatRouter(CommandRouter):
             session_id=normalized_session_id,
             api_protocol=site.api_protocol,
         )
-        active_chat = await self._get_or_create_chat(config)
+        return await self._get_or_create_chat(config)
+
+    async def _get_chat_server_info(self, session_id: str) -> dict[str, Any]:
+        active_chat = await self._resolve_session_chat(session_id)
         try:
             return await active_chat.client.get_server_info() or {}
         finally:
             if not active_chat.running:
-                self._schedule_client_cleanup(normalized_session_id, active_chat)
+                self._schedule_client_cleanup(
+                    active_chat.config.session_id,
+                    active_chat,
+                )
+
+    async def get_context_usage(self, session_id: str) -> dict[str, Any]:
+        """Return the live context-window usage for a retained chat session."""
+        active_chat = await self._resolve_session_chat(session_id)
+        try:
+            return dict(await active_chat.client.get_context_usage())
+        finally:
+            if not active_chat.running:
+                self._schedule_client_cleanup(
+                    active_chat.config.session_id,
+                    active_chat,
+                )
 
     def _schedule_client_cleanup(
         self,

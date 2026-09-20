@@ -270,6 +270,47 @@ def test_chat_router_streams_public_events_and_returns_public_result(
     assert not closed
 
 
+def test_chat_router_returns_context_usage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bridge_factory: Callable[[], ApplicationBridge],
+) -> None:
+    configure_model(tmp_path, monkeypatch)
+    session_id = str(uuid4())
+    sample = {
+        "categories": [{"name": "System prompt", "tokens": 1200, "color": "#aabbcc"}],
+        "totalTokens": 3456,
+        "maxTokens": 200000,
+        "rawMaxTokens": 200000,
+        "percentage": 1.728,
+        "model": "claude-sonnet",
+        "isAutoCompactEnabled": False,
+        "memoryFiles": [],
+        "mcpTools": [],
+        "agents": [],
+        "gridRows": [],
+    }
+    captured_configs: list[ClaudeConnectionConfig] = []
+
+    class StubClient:
+        pending_permission_ids: tuple[str, ...] = ()
+
+        async def get_context_usage(self) -> dict[str, Any]:
+            return sample
+
+    @asynccontextmanager
+    async def configured(config: ClaudeConnectionConfig):
+        captured_configs.append(config)
+        yield StubClient()
+
+    monkeypatch.setattr("backend.router.chat.configured_claude_client", configured)
+    router = bridge_factory()
+    monkeypatch.setattr(router._history, "has_session", lambda _session_id: False)
+
+    assert router.get_context_usage(session_id) == sample
+    assert captured_configs[0].session_id == session_id
+
+
 def test_chat_router_lists_new_history_models_and_merges_running_session(
     tmp_path: Path,
     bridge_factory: Callable[[], ApplicationBridge],

@@ -44,6 +44,7 @@ type PyWebviewApi = {
   search_chat_sessions: (query: string) => Promise<ChatSearchMatch[]>;
   get_chat_session: (sessionId: string) => Promise<ChatSessionHistory>;
   get_active_chat: (sessionId: string) => Promise<ActiveChat | null>;
+  get_context_usage: (sessionId: string) => Promise<ContextUsage | null>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
   respond_chat_permission: (
     permissionId: string,
@@ -142,6 +143,27 @@ export type ChatUsage = {
   stop_reason: string | null;
   subagent_usage?: SubagentUsage | null;
   terminal_reason: string | null;
+};
+
+export type ContextUsageCategory = {
+  color: string;
+  isDeferred?: boolean;
+  name: string;
+  tokens: number;
+};
+
+export type ContextUsage = {
+  agents: Record<string, unknown>[];
+  categories: ContextUsageCategory[];
+  gridRows: Record<string, unknown>[][];
+  isAutoCompactEnabled: boolean;
+  maxTokens: number;
+  mcpTools: Record<string, unknown>[];
+  memoryFiles: Record<string, unknown>[];
+  model: string;
+  percentage: number;
+  rawMaxTokens: number;
+  totalTokens: number;
 };
 
 export type ChatReply = {
@@ -550,6 +572,11 @@ export async function getActiveChat(sessionId: string): Promise<ActiveChat | nul
   return result
     ? { ...result, events: decodeEventList(result.render_events ?? result.events) }
     : null;
+}
+
+export async function getContextUsage(sessionId: string): Promise<ContextUsage | null> {
+  const api = await getBridgeApi();
+  return (await api?.get_context_usage(sessionId)) ?? null;
 }
 
 export function subscribeChatEvents(

@@ -56,6 +56,7 @@ import {
   type ProjectFolder,
 } from "../bridge/client";
 import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
+import { ContextUsageIndicator } from "./ContextUsageIndicator";
 import { ExitPlanModeDialog } from "./ExitPlanModeDialog";
 
 type TaskComposerProps = {
@@ -985,6 +986,9 @@ export function TaskComposer({
               </Dropdown>
             </Space>
             <Space size={6}>
+              {conversationStarted && (
+                <ContextUsageIndicator sessionId={sessionId} busy={busy} />
+              )}
               <Cascader<ModelOption>
                 aria-label="选择模型"
                 className="model-select"
