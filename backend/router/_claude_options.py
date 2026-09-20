@@ -12,7 +12,12 @@ from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
 import aiofiles
-from claude_agent_sdk import ClaudeAgentOptions, PermissionMode, SdkPluginConfig
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    PermissionMode,
+    SdkPluginConfig,
+)
+from loguru import logger
 
 from backend.claude_chat_client import ClaudeChatClient
 from backend.claude_proxy import open_claude_proxy
@@ -31,7 +36,6 @@ class ClaudeConnectionConfig:
     api_key: str
     api_url: str
     effort: ChatEffort
-    is_new_session: bool
     max_context_tokens: int | None
     model: str
     permission_mode: PermissionMode
@@ -102,6 +106,7 @@ def _provider_settings(
 def _agent_options(
     config: ClaudeConnectionConfig,
     settings_path: Path,
+    is_new_session:bool,
 ) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         cwd=config.project,
@@ -111,10 +116,11 @@ def _agent_options(
         model=config.model,
         permission_mode=config.permission_mode,
         plugins=discover_plugins(project=config.project),
-        resume=None if config.is_new_session else config.session_id,
-        session_id=config.session_id if config.is_new_session else None,
+        resume=config.session_id if not is_new_session else None,
+        session_id=config.session_id if is_new_session else None,
         settings=str(settings_path),
         setting_sources=["user", "project", "local"],
+        stderr=lambda line: logger.error("Claude CLI stderr: {}", line),
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
@@ -132,6 +138,7 @@ def _agent_options(
 @asynccontextmanager
 async def configured_claude_client(
     config: ClaudeConnectionConfig,
+    is_new_session: bool,
 ) -> AsyncIterator[ClaudeChatClient]:
     """Keep provider settings alive for the complete client lifecycle."""
     proxy_context = (
@@ -144,11 +151,11 @@ async def configured_claude_client(
         else None
     )
     if proxy_context is None:
-        async with _configured_client(config, config.api_url) as client:
+        async with _configured_client(config, config.api_url, is_new_session) as client:
             yield client
         return
 
-    async with proxy_context as proxy, _configured_client(config, proxy.base_url) as client:
+    async with proxy_context as proxy, _configured_client(config, proxy.base_url, is_new_session) as client:
         yield client
 
 
@@ -156,6 +163,7 @@ async def configured_claude_client(
 async def _configured_client(
     config: ClaudeConnectionConfig,
     api_url: str,
+    is_new_session: bool,
 ) -> AsyncIterator[ClaudeChatClient]:
     """Create the SDK client with a short-lived, token-bearing settings file."""
     with TemporaryDirectory(prefix="xalling-claude-") as directory:
@@ -168,6 +176,6 @@ async def _configured_client(
                     separators=(",", ":"),
                 )
             )
-        async with ClaudeChatClient(_agent_options(config, settings_path)) as client:
+        async with ClaudeChatClient(_agent_options(config, settings_path, is_new_session)) as client:
             settings_path.unlink() # 马上删除配置文件，里面有token等数据
             yield client

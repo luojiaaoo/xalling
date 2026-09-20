@@ -322,8 +322,13 @@ export function TaskComposer({
     }
     slashRequestedRef.current = true;
     const requestedSessionId = sessionId;
+    const requestedProjectPath = selectedProject?.path ?? null;
+    const requestedEffort = effortValues[effort];
     setSlashLoading(true);
-    Promise.all([getSkills(requestedSessionId), getCommands(requestedSessionId)])
+    Promise.all([
+      getSkills(requestedSessionId, requestedProjectPath, requestedEffort, permissionMode),
+      getCommands(requestedSessionId, requestedProjectPath, requestedEffort, permissionMode),
+    ])
       .then(([skills, commands]) => {
         if (sessionIdRef.current !== requestedSessionId) {
           return;
@@ -506,7 +511,12 @@ export function TaskComposer({
       try {
         const [allowedCommands, skills] = await Promise.all([
           getAllowedCommandNames(),
-          getSkills(sessionId),
+          getSkills(
+            sessionId,
+            selectedProject?.path ?? null,
+            effortValues[effort],
+            permissionMode,
+          ),
         ]);
         const allowedNames = new Set([
           ...allowedCommands,

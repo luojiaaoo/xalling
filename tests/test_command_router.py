@@ -40,7 +40,12 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
     router = ApplicationBridge()
     requested_sessions: list[str] = []
 
-    async def get_server_info(session_id: str):
+    async def get_server_info(
+        session_id: str,
+        project_path=None,
+        effort="high",
+        permission_mode="default",
+    ):
         requested_sessions.append(session_id)
         return server_info
 
@@ -93,7 +98,12 @@ def test_command_router_handles_missing_command_list(monkeypatch) -> None:
     monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
     router = ApplicationBridge()
 
-    async def get_server_info(_session_id: str) -> dict[str, object]:
+    async def get_server_info(
+        _session_id: str,
+        project_path=None,
+        effort="high",
+        permission_mode="default",
+    ) -> dict[str, object]:
         return {"commands": None}
 
     monkeypatch.setattr(

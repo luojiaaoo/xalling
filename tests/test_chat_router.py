@@ -94,7 +94,6 @@ def connection_config(tmp_path: Path, session_id: str) -> ClaudeConnectionConfig
         api_key="secret",
         api_url="https://api.example.com",
         effort="high",
-        is_new_session=True,
         max_context_tokens=None,
         model="claude-sonnet",
         permission_mode="default",
@@ -139,25 +138,24 @@ def test_xalling_claude_options_preserve_provider_and_session_settings(
 ) -> None:
     session_id = str(uuid4())
     config = connection_config(tmp_path, session_id)
-    config = replace(
-        config,
-        is_new_session=False,
-        max_context_tokens=0,
-    )
+    config = replace(config, max_context_tokens=0)
     monkeypatch.setattr("backend.router._claude_options.platform.system", lambda: "Windows")
     settings = _provider_settings(config)
     settings_path = tmp_path / "settings.json"
-    options = _agent_options(config, settings_path)
+    options_new = _agent_options(config, settings_path, is_new_session=True)
+    options_resume = _agent_options(config, settings_path, is_new_session=False)
 
     assert settings["env"]["ANTHROPIC_AUTH_TOKEN"] == "secret"
     assert settings["env"]["ANTHROPIC_BASE_URL"] == "https://api.example.com"
     assert settings["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] == "1"
     assert settings["env"]["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] == "1"
     assert settings["defaultShell"] == "powershell"
-    assert options.resume == session_id
-    assert options.session_id is None
-    assert options.settings == str(settings_path)
-    assert options.model == "claude-sonnet"
+    assert options_new.resume is None
+    assert options_new.session_id == session_id
+    assert options_resume.resume == session_id
+    assert options_resume.session_id is None
+    assert options_new.settings == str(settings_path)
+    assert options_new.model == "claude-sonnet"
 
 
 def test_discover_plugins_includes_existing_user_and_project_roots(
@@ -184,6 +182,7 @@ def test_chat_router_streams_public_events_and_returns_public_result(
     configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
     captured_configs: list[ClaudeConnectionConfig] = []
+    new_session_flags: list[bool] = []
     closed: list[bool] = []
 
     class StubClient:
@@ -222,8 +221,12 @@ def test_chat_router_streams_public_events_and_returns_public_result(
             return None
 
     @asynccontextmanager
-    async def configured(config: ClaudeConnectionConfig):
+    async def configured(
+        config: ClaudeConnectionConfig,
+        is_new_session: bool,
+    ):
         captured_configs.append(config)
+        new_session_flags.append(is_new_session)
         try:
             yield StubClient()
         finally:
@@ -238,7 +241,6 @@ def test_chat_router_streams_public_events_and_returns_public_result(
 
     router = bridge_factory()
     router._window = WindowStub()
-    monkeypatch.setattr(router._history, "has_session", lambda _session_id: False)
 
     reply = router.send_chat_message(
         "检查项目",
@@ -252,6 +254,7 @@ def test_chat_router_streams_public_events_and_returns_public_result(
     assert captured_configs[0].session_id == session_id
     assert captured_configs[0].permission_mode == "acceptEdits"
     assert captured_configs[0].project == tmp_path.resolve()
+    assert new_session_flags == [True]
     details = [
         json.loads(
             script.removeprefix(
@@ -272,10 +275,8 @@ def test_chat_router_streams_public_events_and_returns_public_result(
 
 def test_chat_router_returns_context_usage(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
-    configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
     sample = {
         "categories": [{"name": "System prompt", "tokens": 1200, "color": "#aabbcc"}],
@@ -290,25 +291,34 @@ def test_chat_router_returns_context_usage(
         "agents": [],
         "gridRows": [],
     }
-    captured_configs: list[ClaudeConnectionConfig] = []
 
     class StubClient:
-        pending_permission_ids: tuple[str, ...] = ()
-
         async def get_context_usage(self) -> dict[str, Any]:
             return sample
 
-    @asynccontextmanager
-    async def configured(config: ClaudeConnectionConfig):
-        captured_configs.append(config)
-        yield StubClient()
-
-    monkeypatch.setattr("backend.router.chat.configured_claude_client", configured)
     router = bridge_factory()
-    monkeypatch.setattr(router._history, "has_session", lambda _session_id: False)
 
+    # 没有存活客户端时不主动建连接，直接返回 None，前端显示占位
+    assert router.get_context_usage(session_id) is None
+
+    # 已有存活客户端时返回实时占用
+    router._active_chats[session_id] = _ActiveChat(
+        client=StubClient(),
+        config=ClaudeConnectionConfig(
+            api_key="secret",
+            api_url="https://api.example.com",
+            effort="high",
+            max_context_tokens=None,
+            model="claude-sonnet",
+            permission_mode="default",
+            project=tmp_path,
+            session_id=session_id,
+        ),
+        resources=AsyncExitStack(),
+        events=[],
+        metadata={"session_id": session_id, "last_modified": 0},
+    )
     assert router.get_context_usage(session_id) == sample
-    assert captured_configs[0].session_id == session_id
 
 
 def test_chat_router_lists_new_history_models_and_merges_running_session(

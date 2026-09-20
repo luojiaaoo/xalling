@@ -98,10 +98,21 @@ def is_allowed_leading_slash(name: str, server_info: dict[str, Any]) -> bool:
 class CommandRouter(ABC):
     """Expose live commands through clients retained by ChatRouter."""
 
-    async def get_commands(self, session_id: str) -> list[ClaudeCommand]:
+    async def get_commands(
+        self,
+        session_id: str,
+        project_path: str | None = None,
+        effort: str = "high",
+        permission_mode: str = "default",
+    ) -> list[ClaudeCommand]:
         """Return regular commands from the session's live SDK client."""
         return _get_server_commands(
-            await self._get_chat_server_info(session_id),
+            await self._get_chat_server_info(
+                session_id,
+                project_path=project_path,
+                effort=effort,
+                permission_mode=permission_mode,
+            ),
             skills=False,
         )
 
@@ -109,13 +120,30 @@ class CommandRouter(ABC):
         """Return command names the chat API allows at the prompt start."""
         return sorted(ALLOWED_COMMAND_NAMES)
 
-    async def get_skills(self, session_id: str) -> list[ClaudeCommand]:
+    async def get_skills(
+        self,
+        session_id: str,
+        project_path: str | None = None,
+        effort: str = "high",
+        permission_mode: str = "default",
+    ) -> list[ClaudeCommand]:
         """Return skills from the session's live SDK client."""
         return _get_server_commands(
-            await self._get_chat_server_info(session_id),
+            await self._get_chat_server_info(
+                session_id,
+                project_path=project_path,
+                effort=effort,
+                permission_mode=permission_mode,
+            ),
             skills=True,
         )
 
     @abstractmethod
-    async def _get_chat_server_info(self, session_id: str) -> dict[str, Any]:
+    async def _get_chat_server_info(
+        self,
+        session_id: str,
+        project_path: str | None = None,
+        effort: str = "high",
+        permission_mode: str = "default",
+    ) -> dict[str, Any]:
         """Return live server metadata for a retained chat session."""

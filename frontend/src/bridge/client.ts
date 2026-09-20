@@ -16,9 +16,19 @@ type PyWebviewApi = {
     filename: string,
     data: string,
   ) => Promise<{ path: string; name: string }>;
-  get_commands: (sessionId: string) => Promise<ClaudeCommand[]>;
+  get_commands: (
+    sessionId: string,
+    projectPath: string | null,
+    effort: ChatEffort,
+    permissionMode: ChatPermissionMode,
+  ) => Promise<ClaudeCommand[]>;
   get_allowed_command_names: () => Promise<string[]>;
-  get_skills: (sessionId: string) => Promise<ClaudeCommand[]>;
+  get_skills: (
+    sessionId: string,
+    projectPath: string | null,
+    effort: ChatEffort,
+    permissionMode: ChatPermissionMode,
+  ) => Promise<ClaudeCommand[]>;
   get_model_groups: () => Promise<ModelGroup[]>;
   get_model_sites: () => Promise<ModelSite[]>;
   fetch_model_names: (apiUrl: string, apiKey: string) => Promise<string[]>;
@@ -434,9 +444,16 @@ export async function saveAttachment(
   return api.save_attachment(filename, data);
 }
 
-export async function getCommands(sessionId: string): Promise<ClaudeCommand[]> {
+export async function getCommands(
+  sessionId: string,
+  projectPath: string | null,
+  effort: ChatEffort,
+  permissionMode: ChatPermissionMode,
+): Promise<ClaudeCommand[]> {
   const api = await getBridgeApi();
-  return (await api?.get_commands(sessionId)) ?? [];
+  return (
+    (await api?.get_commands(sessionId, projectPath, effort, permissionMode)) ?? []
+  );
 }
 
 export async function getAllowedCommandNames(): Promise<string[]> {
@@ -444,9 +461,16 @@ export async function getAllowedCommandNames(): Promise<string[]> {
   return (await api?.get_allowed_command_names()) ?? [];
 }
 
-export async function getSkills(sessionId: string): Promise<ClaudeCommand[]> {
+export async function getSkills(
+  sessionId: string,
+  projectPath: string | null,
+  effort: ChatEffort,
+  permissionMode: ChatPermissionMode,
+): Promise<ClaudeCommand[]> {
   const api = await getBridgeApi();
-  return (await api?.get_skills(sessionId)) ?? [];
+  return (
+    (await api?.get_skills(sessionId, projectPath, effort, permissionMode)) ?? []
+  );
 }
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {

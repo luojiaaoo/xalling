@@ -56,7 +56,7 @@ class FileRouter:
         # 前缀加短随机串，避免同名附件互相覆盖。
         target = ATTACHMENTS_DIRECTORY / f"{datetime.now().astimezone().strftime("%Y%m%d%H%M%S")}-{uuid4().hex[:8]}-{safe_name}"
         target.write_bytes(content)
-        return {"path": str(target.resolve()), "name": safe_name}
+        return {"path": target.resolve().as_posix(), "name": safe_name}
 
     def search_project_files(
         self,
