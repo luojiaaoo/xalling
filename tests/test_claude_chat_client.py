@@ -12,6 +12,7 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     ResultMessage,
     StreamEvent,
+    SystemMessage,
     TaskNotificationMessage,
     TaskStartedMessage,
     TextBlock,
@@ -21,6 +22,7 @@ from claude_agent_sdk import (
 )
 
 from backend.claude_chat_client import ClaudeChatClient
+from backend.claude_chat_client.message_adapter import _tool_result_mapping
 
 
 class _FakeSDK:
@@ -498,6 +500,44 @@ async def _client_emits_permission_events_and_accepts_resolution() -> None:
         "permission.resolved",
     ]
     assert client.pending_permission_ids == ()
+
+
+def test_client_emits_sdk_confirmed_permission_mode_changes() -> None:
+    anyio.run(_client_emits_sdk_confirmed_permission_mode_changes)
+
+
+async def _client_emits_sdk_confirmed_permission_mode_changes() -> None:
+    _FakeSDK.batches = [[
+        SystemMessage(
+            subtype="status",
+            data={
+                "permissionMode": "default",
+                "session_id": "session-1",
+            },
+        ),
+        _result(origin={"kind": "human"}),
+    ]]
+    client = ClaudeChatClient()
+
+    events = [event async for event in client.stream("Continue the plan")]
+
+    mode_events = [
+        event for event in events if event.event == "permission.mode.changed"
+    ]
+    assert len(mode_events) == 1
+    assert mode_events[0].data == {"mode": "default"}
+    assert client.options.permission_mode == "default"
+
+
+def test_tool_result_mapping_tolerates_sdk_string_errors() -> None:
+    assert _tool_result_mapping(
+        "InputValidationError: invalid tool input",
+        "InputValidationError: invalid tool input",
+    ) == {}
+    assert _tool_result_mapping(
+        "fallback",
+        '{"approved": true}',
+    ) == {"approved": True}
 
 
 def test_client_discards_broken_connection_after_stream_error() -> None:

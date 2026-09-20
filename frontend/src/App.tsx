@@ -189,6 +189,13 @@ export default function App() {
     });
   }, [permissionMode]);
 
+  const handlePermissionModeObserved = useCallback((nextMode: ChatPermissionMode) => {
+    // The SDK status event is authoritative; invalidate any optimistic mode
+    // update that is still waiting for a bridge response.
+    permissionModeRequestRef.current += 1;
+    setPermissionMode(nextMode);
+  }, []);
+
   function handleNewTask() {
     setView("workspace");
     setActiveSessionId(null);
@@ -291,6 +298,7 @@ export default function App() {
             modelsRevision={modelsRevision}
             onEffortChange={setEffort}
             onPermissionModeChange={handlePermissionModeChange}
+            onPermissionModeObserved={handlePermissionModeObserved}
             onConversationStart={handleConversationStart}
             onProjectChange={setSelectedProject}
             onSessionsChanged={refreshChatSessions}

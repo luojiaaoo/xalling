@@ -8,7 +8,6 @@ import { Button, Input, Select, Tooltip } from "antd";
 import { useState } from "react";
 
 import type {
-  ChatPermissionMode,
   ChatPlanExecutionMode,
   ChatPermissionRequestEvent,
 } from "../bridge/client";
@@ -26,22 +25,18 @@ type ExitPlanModeDialogProps = {
   stopping?: boolean;
 };
 
-const permissionModeLabels: Record<Exclude<ChatPermissionMode, "plan">, string> = {
+const permissionModeLabels: Record<ChatPlanExecutionMode, string> = {
   default: "变更前确认",
   acceptEdits: "自动编辑",
   auto: "帮我批准",
-  bypassPermissions: "完全访问",
 };
 
-type ExecutionModeSelection = "previous" | Exclude<ChatPermissionMode, "plan">;
-
-const previousPermissionModeLabel = "默认权限（之前的权限）";
+type ExecutionModeSelection = ChatPlanExecutionMode;
 
 const executionModeOptions: { label: string; value: ExecutionModeSelection }[] = [
-  { label: previousPermissionModeLabel, value: "previous" },
   ...Object.entries(permissionModeLabels).map(([value, label]) => ({
     label,
-    value: value as Exclude<ChatPermissionMode, "plan">,
+    value: value as ChatPlanExecutionMode,
   })),
 ];
 
@@ -53,10 +48,8 @@ export function ExitPlanModeDialog({
   stopping = false,
 }: ExitPlanModeDialogProps) {
   const [feedback, setFeedback] = useState("");
-  const [executionMode, setExecutionMode] = useState<ExecutionModeSelection>("previous");
-  const executionModeLabel = executionMode === "previous"
-    ? previousPermissionModeLabel
-    : permissionModeLabels[executionMode];
+  const [executionMode, setExecutionMode] = useState<ExecutionModeSelection>("default");
+  const executionModeLabel = permissionModeLabels[executionMode];
   const disabled = decision !== null || stopping;
   const rawPlan = request.data.tool_input.plan;
   const plan = typeof rawPlan === "string" ? rawPlan.trim() : "";
@@ -137,7 +130,7 @@ export function ExitPlanModeDialog({
             onClick={() => void onDecision(
               true,
               undefined,
-              executionMode === "previous" ? null : executionMode,
+              executionMode,
             )}
             type="primary"
           >

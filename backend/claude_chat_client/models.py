@@ -44,6 +44,7 @@ type EventName = Literal[
     "ask_user.completed",
     "permission.requested",
     "permission.resolved",
+    "permission.mode.changed",
     "plan.approval.requested",
     "plan.approval.completed",
     "subagent.started",
@@ -170,9 +171,10 @@ class ExitPlanModeRequestedData(TypedDict):
 class ExitPlanModeCompletedData(TypedDict):
     """Payload for ``plan.approval.completed``.
 
-    On approval, ``mode=None`` means restore the permission mode that was
-    active before entering plan mode. A non-null value is the explicit SDK
-    permission mode selected by the caller. On denial, ``mode`` is ignored.
+    On approval, ``mode`` records the explicit permission update sent with
+    the approval, when one was supplied. ``None`` means that no explicit
+    update was sent; the effective mode must be read from the SDK-confirmed
+    ``permission.mode.changed`` event. On denial, ``mode`` is ignored.
     """
 
     tool_id: str
@@ -184,11 +186,18 @@ class ExitPlanModeCompletedData(TypedDict):
     is_error: bool
 
 
+class PermissionModeChangedData(TypedDict):
+    """Payload for an SDK-confirmed effective permission mode change."""
+
+    mode: PermissionMode
+
+
 type SpecialEventData = (
     AskUserQuestionRequestedData
     | AskUserQuestionCompletedData
     | PermissionRequestedData
     | PermissionResolvedData
+    | PermissionModeChangedData
     | ExitPlanModeRequestedData
     | ExitPlanModeCompletedData
 )
@@ -343,6 +352,8 @@ def render_event(event: ChatEvent) -> dict[str, Any]:
             "denial_message": data.get("denial_message"),
             "interrupt": data.get("interrupt") is True,
         }
+    elif event.event == "permission.mode.changed":
+        render_data = {"mode": data.get("mode")}
     elif event.event == "turn.started":
         render_data = {"user_turn": data.get("user_turn")}
     elif event.event == "turn.proxy.completed":

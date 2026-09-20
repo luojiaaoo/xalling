@@ -50,7 +50,7 @@ type PyWebviewApi = {
     allowed: boolean,
     answers: ChatPermissionAnswers | null,
     feedback: string | null,
-    executionMode: ChatPlanExecutionMode,
+    executionMode: ChatPlanExecutionMode | null,
   ) => Promise<boolean>;
   get_current_theme: () => Promise<string>;
   set_current_theme: (name: string) => Promise<void>;
@@ -126,7 +126,7 @@ export type ChatPermissionMode =
   | "auto"
   | "bypassPermissions";
 
-export type ChatPlanExecutionMode = Exclude<ChatPermissionMode, "plan"> | null;
+export type ChatPlanExecutionMode = "default" | "acceptEdits" | "auto";
 
 export type SubagentUsage = {
   count: number;
@@ -580,7 +580,7 @@ export async function respondChatPermission(
   allowed: boolean,
   answers?: ChatPermissionAnswers,
   feedback?: string,
-  executionMode: ChatPlanExecutionMode = null,
+  executionMode?: ChatPlanExecutionMode,
 ): Promise<boolean> {
   const api = await getBridgeApi();
   if (!api) {
@@ -591,7 +591,7 @@ export async function respondChatPermission(
     allowed,
     answers ?? null,
     feedback?.trim() || null,
-    executionMode,
+    executionMode ?? null,
   );
 }
 

@@ -29,6 +29,7 @@ def test_package_exports_are_available() -> None:
         "ExitPlanModeCompletedData",
         "ExitPlanModeRequestedData",
         "PermissionHandler",
+        "PermissionModeChangedData",
         "PermissionRequestedData",
         "PermissionResolvedData",
         "PlanApprovalMode",

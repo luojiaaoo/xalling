@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from types import TracebackType
-from typing import Any, Self, cast, get_args
+from typing import Any, Self, cast
 from uuid import uuid4
 
 from claude_agent_sdk import (
@@ -54,6 +54,7 @@ from .usage import _subagent_usage, _turn_usage
 
 _STREAM_END = object()
 _SDK_LOGGER = logger.bind(channel="access")
+_EXIT_PLAN_EXECUTION_MODES = ("default", "acceptEdits", "auto")
 
 
 @dataclass(slots=True)
@@ -216,10 +217,12 @@ class ClaudeChatClient:
     ) -> None:
         """Resolve an ``ExitPlanMode`` request with an explicit mode choice.
 
-        ``mode`` is intentionally a required keyword argument. Pass ``None``
-        to let Claude Code restore the mode active before plan mode. Pass a
-        concrete :class:`PermissionMode` to switch the session to that mode.
-        ``mode`` has no effect when ``approved`` is false.
+        The selected mode is sent to Claude Code as a session permission
+        update. The resulting SDK ``system/status`` event is the authoritative
+        effective mode and is surfaced as ``permission.mode.changed``. A
+        ``None`` mode sends no explicit update and is retained only for
+        low-level SDK compatibility; it has no effect when ``approved`` is
+        false.
         """
         try:
             pending = self._pending_permissions[request_id]
@@ -229,9 +232,10 @@ class ClaudeChatClient:
             raise ValueError(f"Permission request {request_id!r} is for {pending.tool_name!r}, not ExitPlanMode")
         if pending.future.done():
             raise RuntimeError(f"Permission request is already resolved: {request_id}")
-        permission_modes = get_args(PermissionMode)
-        if mode is not None and mode not in permission_modes:
-            modes = ", ".join(permission_modes)
+        if approved and mode is None:
+            raise ValueError("Approved ExitPlanMode requires an explicit permission mode")
+        if mode is not None and mode not in _EXIT_PLAN_EXECUTION_MODES:
+            modes = ", ".join(_EXIT_PLAN_EXECUTION_MODES)
             raise ValueError(f"Unknown permission mode {mode!r}; expected one of: {modes}")
 
         if not approved:
@@ -544,6 +548,13 @@ class ClaudeChatClient:
                         adapted_events = adapter.adapt(message)
                         turn_events.extend(adapted_events)
                         for event in adapted_events:
+                            if event.event == "permission.mode.changed":
+                                mode = event.data.get("mode")
+                                if isinstance(mode, str):
+                                    self._options = replace(
+                                        self._options,
+                                        permission_mode=mode,
+                                    )
                             await queue.put(event)
 
                     if not isinstance(message, ResultMessage):

@@ -155,7 +155,6 @@ class _ChatPermissionDecision(BaseModel):
         "default",
         "acceptEdits",
         "auto",
-        "bypassPermissions",
     ] | None = None
 
     @field_validator("permission_id", mode="before")
@@ -614,6 +613,8 @@ class ChatRouter(CommandRouter):
             tool_name != "ExitPlanMode" or not decision.allowed
         ):
             raise ValueError("只有执行计划时才能选择执行方式")
+        if tool_name == "ExitPlanMode" and decision.allowed and decision.execution_mode is None:
+            raise ValueError("ExitPlanMode requires an explicit execution mode")
         normalized_answers = self._validate_tool_answers(
             tool_name,
             tool_input,
@@ -709,6 +710,13 @@ class ChatRouter(CommandRouter):
         active_chat = self._active_chats.get(session_id)
         if active_chat is not None:
             active_chat.events.append(event)
+            if event.event == "permission.mode.changed":
+                mode = event.data.get("mode")
+                if isinstance(mode, str) and mode in _UI_PERMISSION_MODES:
+                    active_chat.config = replace(
+                        active_chat.config,
+                        permission_mode=mode,
+                    )
         if self._window is None:
             self._deny_undeliverable_permission(active_chat, event)
             return False

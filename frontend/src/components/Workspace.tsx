@@ -258,6 +258,7 @@ function conversationFromEvents(events: ChatRenderEvent[]): ConversationMessage[
       event.event === "turn.started"
       || event.event === "permission.requested"
       || event.event === "permission.resolved"
+      || event.event === "permission.mode.changed"
     ) {
       continue;
     }
@@ -320,6 +321,7 @@ type WorkspaceProps = {
   onEffortChange: (value: number) => void;
   onConversationStart?: (project: ProjectFolder | null, sessionId: string) => void;
   onPermissionModeChange: (mode: ChatPermissionMode, sessionId: string) => void;
+  onPermissionModeObserved: (mode: ChatPermissionMode) => void;
   onProjectChange: Dispatch<SetStateAction<ProjectFolder | null>>;
   onSessionsChanged?: () => void;
   permissionMode: ChatPermissionMode;
@@ -335,6 +337,7 @@ export function Workspace({
   onEffortChange,
   onConversationStart,
   onPermissionModeChange,
+  onPermissionModeObserved,
   onProjectChange,
   onSessionsChanged,
   permissionMode,
@@ -384,6 +387,19 @@ export function Workspace({
       setPermissionRequests((current) => current.filter(
         (item) => item.data.request_id !== requestId,
       ));
+      return;
+    }
+    if (event.event === "permission.mode.changed") {
+      const mode = event.data.mode;
+      if (
+        mode === "default"
+        || mode === "acceptEdits"
+        || mode === "plan"
+        || mode === "auto"
+        || mode === "bypassPermissions"
+      ) {
+        onPermissionModeObserved(mode);
+      }
       return;
     }
     if (event.event === "turn.started") {
@@ -497,7 +513,7 @@ export function Workspace({
         item.key === assistantKey ? applyEventToAssistant(item, event) : item
       ));
     });
-  }, [onSessionsChanged]);
+  }, [onPermissionModeObserved, onSessionsChanged]);
 
   useEffect(() => subscribeChatEvents(sessionIdRef.current, (event) => {
     if (historyLoadingRef.current) {
@@ -687,26 +703,6 @@ export function Workspace({
     );
     if (!resolved) {
       throw new Error("权限请求已失效，请等待当前任务更新。");
-    }
-    if (allowed && request.data.tool_name === "ExitPlanMode") {
-      if (executionMode) {
-        onPermissionModeChange(executionMode, sessionIdRef.current);
-      } else {
-        const suggestion = request.data.suggestions.find((item) => (
-          item.type === "setMode"
-          && (
-            item.mode === "default"
-            || item.mode === "acceptEdits"
-            || item.mode === "auto"
-            || item.mode === "bypassPermissions"
-          )
-        ));
-        onPermissionModeChange(
-          (suggestion?.mode as Exclude<ChatPermissionMode, "plan"> | undefined)
-          ?? "default",
-          sessionIdRef.current,
-        );
-      }
     }
     setPermissionRequests((current) => current.filter(
       (item) => item.data.request_id !== request.data.request_id,

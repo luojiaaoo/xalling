@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -13,6 +13,7 @@ from claude_agent_sdk import (
     HookEventMessage,
     Message,
     MirrorErrorMessage,
+    PermissionMode,
     PermissionResult,
     PermissionResultDeny,
     RateLimitEvent,
@@ -48,6 +49,7 @@ from .models import (
 _AGENT_TOOL_NAMES = frozenset({"Agent", "Task"})
 _ASK_USER_TOOL_NAME = "AskUserQuestion"
 _EXIT_PLAN_MODE_TOOL_NAME = "ExitPlanMode"
+_PERMISSION_MODES = frozenset(get_args(PermissionMode))
 
 
 @dataclass(slots=True)
@@ -139,26 +141,27 @@ def _normalize_ask_user_answers(
 
 def _tool_result_mapping(
     content: Any,
-    tool_use_result: dict[str, Any] | None,
+    tool_use_result: Any,
 ) -> Mapping[str, Any]:
-    if tool_use_result is not None:
-        return tool_use_result
-    if isinstance(content, Mapping):
-        return content
-    if isinstance(content, str):
-        try:
-            decoded = json.loads(content)
-        except json.JSONDecodeError:
-            return {}
-        return decoded if isinstance(decoded, Mapping) else {}
-    if isinstance(content, list):
-        for item in content:
-            if not isinstance(item, Mapping):
+    candidates = (tool_use_result, content)
+    for candidate in candidates:
+        if isinstance(candidate, Mapping):
+            return candidate
+        if isinstance(candidate, str):
+            try:
+                decoded = json.loads(candidate)
+            except json.JSONDecodeError:
                 continue
-            if item.get("type") == "text":
-                parsed = _tool_result_mapping(item.get("text"), None)
-                if parsed:
-                    return parsed
+            if isinstance(decoded, Mapping):
+                return decoded
+        if isinstance(candidate, list):
+            for item in candidate:
+                if not isinstance(item, Mapping):
+                    continue
+                if item.get("type") == "text":
+                    parsed = _tool_result_mapping(item.get("text"), None)
+                    if parsed:
+                        return parsed
     return {}
 
 
@@ -266,6 +269,18 @@ class _MessageAdapter:
                 )
             ]
         if isinstance(message, SystemMessage):
+            mode = message.data.get("permissionMode")
+            if (
+                isinstance(mode, str)
+                and mode in _PERMISSION_MODES
+            ):
+                return [
+                    self.factory.make(
+                        "permission.mode.changed",
+                        {"mode": mode},
+                        session_id=_string_or_none(message.data.get("session_id")),
+                    )
+                ]
             return [
                 self.factory.make(
                     "system.message",
@@ -582,7 +597,7 @@ class _MessageAdapter:
         model_turn_id: str | None,
         parent_tool_use_id: str | None,
         session_id: str | None,
-        tool_use_result: dict[str, Any] | None,
+        tool_use_result: Any,
     ) -> ChatEvent:
         call = self.tools.get(block.tool_use_id)
         resolved_model_turn_id = (
