@@ -11,10 +11,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from backend.config.setting import USER_CONF_DIRPATH
-
-CURRENT_CONF_FILEPATH = USER_CONF_DIRPATH / "current.toml"
-
+from backend.config.setting import CURRENT_CONF_FILEPATH
 
 class CurrentModelConfig(BaseModel):
     """The currently selected model site and model name."""

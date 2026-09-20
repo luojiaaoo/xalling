@@ -15,6 +15,7 @@ from pydantic_settings import (
 )
 
 USER_CONF_DIRPATH = Path(os.getcwd()) / ".xalling"
+CURRENT_CONF_FILEPATH = USER_CONF_DIRPATH / "current.toml"
 # 给 history 中获取历史数据的函数使用，设置环境变量
 os.environ["CLAUDE_CONFIG_DIR"] = str(USER_CONF_DIRPATH)
 CLAUDE_PROJECTS_DIRECTORY = USER_CONF_DIRPATH / "projects"  # CC默认项目路径
