@@ -493,7 +493,7 @@ function TraceTimeline({
       {!items.length && (
         loading ? (
           <div
-            aria-label="等待 Claude 响应"
+            aria-label="等待响应"
             className="agent-trace-empty agent-trace-waiting"
             role="status"
           >

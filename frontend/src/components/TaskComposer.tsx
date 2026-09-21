@@ -738,7 +738,7 @@ export function TaskComposer({
             <span className="tool-permission-icon"><SafetyCertificateOutlined /></span>
             <div className="tool-permission-copy">
               <strong id="tool-permission-title">
-                {permissionRequest.data.title || `Claude 请求使用 ${permissionRequest.data.tool_name}`}
+                {permissionRequest.data.title || `请求使用 ${permissionRequest.data.tool_name}`}
               </strong>
               <span>{permissionRequest.data.description || "此操作需要你的确认后才能继续。"}</span>
             </div>
@@ -1038,7 +1038,7 @@ export function TaskComposer({
                 trigger={["click"]}
               >
                 <Button
-                  aria-label="选择 Claude 权限模式"
+                  aria-label="选择权限模式"
                   type="text"
                   icon={<ThunderboltOutlined />}
                 >

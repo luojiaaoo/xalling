@@ -67,7 +67,7 @@ export function ExitPlanModeDialog({
           <strong id={`exit-plan-mode-title-${request.data.request_id}`}>
             计划已准备好
           </strong>
-          <span>确认后，Claude 将退出计划模式并开始执行。</span>
+          <span>确认后，将退出计划模式并开始执行。</span>
         </div>
         <span className="exit-plan-mode-transition">
           计划模式 <ArrowRightOutlined /> {executionModeLabel}
@@ -85,16 +85,16 @@ export function ExitPlanModeDialog({
         </section>
       )}
       <Input.TextArea
-        aria-label="告诉 Claude 如何继续规划"
+        aria-label="填写规划反馈"
         autoSize={{ minRows: 2, maxRows: 4 }}
         disabled={disabled}
         maxLength={20_000}
         onChange={(event) => setFeedback(event.target.value)}
-        placeholder="如需调整，请告诉 Claude 还要补充或修改什么（可选）"
+        placeholder="如需调整，请说明还要补充或修改什么（可选）"
         value={feedback}
       />
       <div className="exit-plan-mode-footer">
-        <span>填写反馈后选择“继续规划”，Claude 会按你的要求修改方案。</span>
+        <span>填写反馈后选择“继续规划”，将按你的要求修改方案。</span>
         <div className="tool-permission-actions">
           {onStop && (
             <Tooltip title={stopping ? "正在停止…" : "停止生成"}>

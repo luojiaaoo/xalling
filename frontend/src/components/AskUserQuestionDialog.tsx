@@ -180,9 +180,9 @@ export function AskUserQuestionDialog({
         <span className="tool-permission-icon"><QuestionCircleOutlined /></span>
         <div className="tool-permission-copy">
           <strong id={`ask-user-question-title-${request.data.request_id}`}>
-            Claude 需要你的回答
+            需要你的回答
           </strong>
-          <span>回答完成后，Claude 会继续当前任务。</span>
+          <span>回答完成后，将继续当前任务。</span>
         </div>
         <code>{answeredCount}/{questions.length}</code>
       </div>

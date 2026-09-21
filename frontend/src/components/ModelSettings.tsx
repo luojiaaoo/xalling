@@ -393,7 +393,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
               <span>供应商名称</span>
               <Input
                 value={draft.name}
-                placeholder="例如：Claude"
+                placeholder="例如：My Provider"
                 maxLength={120}
                 onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
               />

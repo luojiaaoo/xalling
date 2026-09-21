@@ -324,7 +324,7 @@ class ChatRouter(CommandRouter):
             )
             return result.to_dict()
         except ClaudeSDKError as error:
-            raise RuntimeError(f"Claude SDK 请求失败：{error}") from error
+            raise RuntimeError(f"模型请求失败：{error}") from error
         finally:
             retained = self._active_chats.get(active_session_id)
             if retained is not None and retained.client is client:
