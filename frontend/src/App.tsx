@@ -1,8 +1,9 @@
 import { XProvider } from "@ant-design/x";
 import { MenuUnfoldOutlined, PlusCircleOutlined } from "@ant-design/icons";
-import { Button, Tooltip } from "antd";
+import { App as AntdApp, Button, Tooltip } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { BridgeMessageHost } from "./bridge/BridgeMessageHost";
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { ModelSettings } from "./components/ModelSettings";
 import { SearchPalette } from "./components/SearchPalette";
@@ -244,7 +245,9 @@ export default function App() {
 
   return (
     <XProvider {...configProps}>
-      <div className="desktop-app">
+      <AntdApp>
+        <BridgeMessageHost />
+        <div className="desktop-app">
         <TitleBar maximized={windowMaximized} onMaximizedChange={setWindowMaximized} />
         <WindowResizeHandles disabled={windowMaximized} />
         {!sidebarVisible && (
@@ -326,7 +329,8 @@ export default function App() {
             }}
           />
         )}
-      </div>
+        </div>
+      </AntdApp>
     </XProvider>
   );
 }

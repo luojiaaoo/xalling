@@ -31,6 +31,7 @@ from backend.config.setting import (
     default_project_folder,
     get_settings,
 )
+from backend.py2js import evaluate_js as evaluate_js_with_notify
 from backend.router._claude_options import (
     ChatEffort,
     ClaudeConnectionConfig,
@@ -756,7 +757,11 @@ class ChatRouter(CommandRouter):
             f"{{detail:{detail}}}));"
         )
         try:
-            self._window.evaluate_js(script)
+            evaluate_js_with_notify(
+                self._window,
+                script,
+                action=f"chat-event:{event.event}",
+            )
         except (JavascriptException, WebViewException):
             self._deny_undeliverable_permission(active_chat, event)
             return False

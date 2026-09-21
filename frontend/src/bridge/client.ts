@@ -1,5 +1,7 @@
 export type ApiProtocol = "anthropic" | "chat" | "responses";
 
+import { notifyBridgeError } from "./bridgeMessage";
+
 type PyWebviewApi = {
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
@@ -475,7 +477,7 @@ export async function getSkills(
 
 async function getBridgeApi(): Promise<PyWebviewApi | undefined> {
   if (window.pywebview?.api) {
-    return window.pywebview.api;
+    return withErrorNotifier(window.pywebview.api);
   }
 
   if (window.location.protocol === "file:") {
@@ -484,7 +486,39 @@ async function getBridgeApi(): Promise<PyWebviewApi | undefined> {
     });
   }
 
-  return window.pywebview?.api;
+  const api = window.pywebview?.api;
+  return api ? withErrorNotifier(api) : undefined;
+}
+
+const bridgeApiProxyCache = new WeakMap<PyWebviewApi, PyWebviewApi>();
+
+// 统一包装 js2py 调用：后端抛出的异常先通过 message 提示，再继续向上抛出，
+// 保证调用方原有的错误处理逻辑不受影响。report_frontend_error 自身不上浮提示，
+// 避免错误上报失败时又触发新的提示形成循环。
+function withErrorNotifier(api: PyWebviewApi): PyWebviewApi {
+  const cached = bridgeApiProxyCache.get(api);
+  if (cached) {
+    return cached;
+  }
+  const proxy = new Proxy(api, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function" || prop === "report_frontend_error") {
+        return value;
+      }
+      const call = value as unknown as (...args: unknown[]) => unknown;
+      return async (...args: unknown[]) => {
+        try {
+          return await Reflect.apply(call, target, args);
+        } catch (error) {
+          notifyBridgeError(String(prop), error);
+          throw error;
+        }
+      };
+    },
+  });
+  bridgeApiProxyCache.set(api, proxy);
+  return proxy;
 }
 
 export async function getModelGroups(): Promise<ModelGroup[]> {
