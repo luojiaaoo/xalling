@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
@@ -39,7 +38,6 @@ from backend.router._claude_options import (
 )
 from backend.router.command import CommandRouter, is_allowed_leading_slash
 
-CHAT_CLIENT_IDLE_SECONDS = 10 * 60
 _UI_PERMISSION_MODES = frozenset(
     {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
 )
@@ -230,8 +228,6 @@ class _ActiveChat:
     events: list[ChatEvent]
     metadata: dict[str, object]
     running: bool = False
-    cleanup_task: asyncio.Task[None] | None = None
-    cleanup_generation: int = 0
 
 
 class ChatRouter(CommandRouter):
@@ -290,9 +286,6 @@ class ChatRouter(CommandRouter):
         server_info = await client.get_server_info() if first_token.startswith("/") else {}
         _validate_leading_slash(request.prompt, server_info or {})
 
-        if active_chat.cleanup_task is not None:
-            active_chat.cleanup_task.cancel()
-            active_chat.cleanup_task = None
         now = int(time() * 1000)
         title = " ".join(request.prompt.split()) or "未命名会话"
         active_chat.events.clear()
@@ -329,7 +322,6 @@ class ChatRouter(CommandRouter):
             retained = self._active_chats.get(active_session_id)
             if retained is not None and retained.client is client:
                 retained.running = False
-                self._schedule_client_cleanup(active_session_id, retained)
 
     async def _get_or_create_chat(
         self,
@@ -373,7 +365,6 @@ class ChatRouter(CommandRouter):
             },
         )
         self._active_chats[config.session_id] = active_chat
-        self._schedule_client_cleanup(config.session_id, active_chat)
         return active_chat
 
     async def _get_chat_server_info(
@@ -412,14 +403,7 @@ class ChatRouter(CommandRouter):
             api_protocol=site.api_protocol,
         )
         active_chat = await self._get_or_create_chat(config)
-        try:
-            return await active_chat.client.get_server_info() or {}
-        finally:
-            if not active_chat.running:
-                self._schedule_client_cleanup(
-                    active_chat.config.session_id,
-                    active_chat,
-                )
+        return await active_chat.client.get_server_info() or {}
 
     async def get_context_usage(self, session_id: str) -> dict[str, Any] | None:
         """Return the live context-window usage for the active chat, if any."""
@@ -431,47 +415,8 @@ class ChatRouter(CommandRouter):
             return None
         try:
             return dict(await active_chat.client.get_context_usage())
-        except Exception: # 第一次获取的时候，软件关闭，导致client挂掉，忽略报错，关闭时间延长
+        except Exception: # 第一次获取的时候，软件关闭，导致client挂掉，忽略报错
             pass
-        finally:
-            if not active_chat.running:
-                self._schedule_client_cleanup(normalized, active_chat)
-
-    def _schedule_client_cleanup(
-        self,
-        session_id: str,
-        active_chat: _ActiveChat,
-    ) -> None:
-        if active_chat.running:
-            return
-        if active_chat.cleanup_task is not None:
-            active_chat.cleanup_task.cancel()
-        active_chat.cleanup_generation += 1
-        generation = active_chat.cleanup_generation
-        active_chat.cleanup_task = asyncio.create_task(
-            self._expire_chat_client(session_id, active_chat.client, generation),
-            name=f"expire-chat-{session_id[:8]}",
-        )
-
-    async def _expire_chat_client(
-        self,
-        session_id: str,
-        client: ClaudeChatClient,
-        generation: int,
-    ) -> None:
-        try:
-            await asyncio.sleep(CHAT_CLIENT_IDLE_SECONDS)
-        except asyncio.CancelledError:
-            return
-        active_chat = self._active_chats.get(session_id)
-        if (
-            active_chat is None
-            or active_chat.client is not client
-            or active_chat.running
-            or active_chat.cleanup_generation != generation
-        ):
-            return
-        await self._close_active_chat(session_id, active_chat)
 
     async def _close_active_chat(
         self,
@@ -480,20 +425,12 @@ class ChatRouter(CommandRouter):
     ) -> None:
         if self._active_chats.get(session_id) is active_chat:
             self._active_chats.pop(session_id, None)
-        cleanup_task = active_chat.cleanup_task
-        active_chat.cleanup_task = None
-        if cleanup_task is not None and cleanup_task is not asyncio.current_task():
-            cleanup_task.cancel()
         await active_chat.resources.aclose()
 
     async def _shutdown_chat_clients(self) -> None:
-        active_items = list(self._active_chats.items())
+        active_items = list(self._active_chats.values())
         self._active_chats.clear()
-        for _, active_chat in active_items:
-            if active_chat.cleanup_task is not None:
-                active_chat.cleanup_task.cancel()
-                active_chat.cleanup_task = None
-        for _, active_chat in active_items:
+        for active_chat in active_items:
             await active_chat.resources.aclose()
 
     async def list_chat_sessions(self) -> list[dict[str, Any]]:
