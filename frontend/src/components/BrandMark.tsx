@@ -1,3 +1,5 @@
+import logoUrl from "../assets/logo.png";
+
 export function BrandMark() {
-  return <div className="brand-mark" aria-label="Xalling">X</div>;
+  return <img className="brand-mark" src={logoUrl} alt="Xalling" draggable={false} />;
 }

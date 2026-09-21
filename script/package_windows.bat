@@ -17,7 +17,7 @@ echo [3/6] Stopping old Xalling process...
 taskkill /IM Xalling.exe /T /F >nul 2>&1
 
 echo [4/6] Building Xalling with PyInstaller...
-uv run pyinstaller --noconfirm %MODE% --windowed --name Xalling ^
+uv run pyinstaller --noconfirm %MODE% --windowed --name Xalling --icon favicon.ico ^
     --add-data "frontend/dist;frontend/dist" ^
     --add-data "tutorials;tutorials" ^
     --add-binary "plugins/bin/claude-proxy-rust.exe;plugins/bin" ^

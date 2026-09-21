@@ -22,10 +22,9 @@ OutputBaseFilename=Xalling-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesAllowed=x64
+ArchitecturesAllowed=x64compatible
 UninstallDisplayIcon={app}\Xalling.exe
-; 若需安装器图标，请把 logo.png 转成真正的 .ico 后再取消下一行注释：
-; SetupIconFile=..\favicon.ico
+SetupIconFile=..\favicon.ico
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"

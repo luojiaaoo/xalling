@@ -293,7 +293,7 @@ html[data-theme="illustration"] .settings-page { background: #FFF9F0; }
 html[data-theme="illustration"] .sidebar { background: #FFF0F6; border-right: 3px solid #2C2C2C; }
 html[data-theme="illustration"] .task-list::-webkit-scrollbar-thumb { border-radius: 3px; background: #2C2C2C; background-clip: padding-box; }
 html[data-theme="illustration"] .task-list::-webkit-scrollbar-thumb:hover { background: #52C41A; background-clip: padding-box; }
-html[data-theme="illustration"] .brand-mark { color: #2C2C2C; border: 3px solid #2C2C2C; background: #FFD93D; box-shadow: 3px 3px 0 #2C2C2C; }
+html[data-theme="illustration"] .brand-mark { border: 3px solid #2C2C2C; background: #FFD93D; box-shadow: 3px 3px 0 #2C2C2C; }
 html[data-theme="illustration"] .brand-name,
 html[data-theme="illustration"] .settings-title h1,
 html[data-theme="illustration"] .provider-editor-heading h2,
@@ -361,7 +361,7 @@ html[data-theme="geek"] .desktop-app { border: 2px solid #39ff14; background: #0
 html[data-theme="geek"] .app-shell,
 html[data-theme="geek"] .settings-page { background: #030603; }
 html[data-theme="geek"] .sidebar { background: #030603; border-right: 2px solid #39ff14; box-shadow: 3px 0 12px rgba(57, 255, 20, .15); }
-html[data-theme="geek"] .brand-mark { color: #030603; border-radius: 0; background: #39ff14; box-shadow: 0 0 10px #39ff14; }
+html[data-theme="geek"] .brand-mark { border-radius: 0; background: #39ff14; box-shadow: 0 0 10px #39ff14; }
 html[data-theme="geek"] .brand-name,
 html[data-theme="geek"] .settings-title h1,
 html[data-theme="geek"] .provider-editor-heading h2,
@@ -454,7 +454,7 @@ html[data-theme="serene"] .settings-page { background: #f8f6f2; }
 html[data-theme="serene"] .sidebar { background: #2c241c; border-right-color: #3c332a; }
 html[data-theme="serene"] .task-list::-webkit-scrollbar-thumb { border-radius: 3px; background: #6b5d4e; background-clip: padding-box; }
 html[data-theme="serene"] .task-list::-webkit-scrollbar-thumb:hover { background: #8a7a68; background-clip: padding-box; }
-html[data-theme="serene"] .brand-mark { color: #2c241c; border-radius: 4px; background: #c7a56b; box-shadow: none; }
+html[data-theme="serene"] .brand-mark { border-radius: 4px; background: #c7a56b; box-shadow: none; }
 html[data-theme="serene"] .brand-name { color: #e8e2d9; }
 html[data-theme="serene"] .brand-row .ant-btn,
 html[data-theme="serene"] .window-controls .ant-btn { color: #766a60; }
@@ -596,11 +596,7 @@ button, textarea { font: inherit; }
 .sidebar > div { min-width: 0; }
 
 .brand-row { display: flex; align-items: center; gap: 10px; padding: 0 4px 20px; }
-.brand-mark {
-  display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px;
-  background: linear-gradient(145deg, #7b6dff, #5542e6); color: #fff; font-weight: 800;
-  box-shadow: 0 6px 14px rgba(92, 73, 238, .23);
-}
+.brand-mark { width: 28px; height: 28px; border-radius: 9px; object-fit: cover; box-shadow: 0 6px 14px rgba(92, 73, 238, .23); }
 .brand-name { flex: 1; color: #2a2b37; font-size: 15px; font-weight: 700; }
 .brand-row .ant-btn { color: #9294a3; }
 
