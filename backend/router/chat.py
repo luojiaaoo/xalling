@@ -484,12 +484,12 @@ class ChatRouter(CommandRouter):
         if normalized is None:
             raise ValueError("会话标识无效")
 
-        # 已有活动会话时，以活动会话当前的 permission_mode 为准
+        # 已有活动会话时，以活动会话当前的 permission_mode 为准，如果没有活动会话，恢复默认模式
         existing = self._active_chats.get(normalized)
         effective_permission_mode = (
             existing.config.permission_mode
             if existing is not None
-            else config_request.permission_mode
+            else "default"
         )
 
         site, model = await self._get_current_provider()
