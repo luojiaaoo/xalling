@@ -36,8 +36,23 @@ def _is_skill(name: str, description: str, item: dict[object, object]) -> bool:
         return True
     if item_kind == "command":
         return False
-    # 未标注时按经验规则推断：用户技能描述以 "(user)" 结尾，插件技能名带命名空间前缀
-    return description.rstrip().endswith("(user)") or name.startswith((".agents:", ".xalling:", "opencode:"))
+    # The CLI prefixes skill descriptions with their source, e.g. "(opencode) ..." or "(.agents) ..."; built-in commands have no prefix
+    return description.lstrip().startswith("(")
+
+
+def _skill_real_name(name: str, description: str) -> str:
+    """技能名补上命名空间：取描述首括号里的来源，拼成 source:name 形式。"""
+    # 名字本身已带命名空间（含 ":"）时保持原样
+    if ":" in name:
+        return name
+    start = description.find("(")
+    end = description.find(")", start + 1) if start != -1 else -1
+    if start == -1 or end == -1:
+        return name
+    source = description[start + 1 : end].strip()
+    if not source:
+        return name
+    return f"{source}:{name}"
 
 
 def _get_server_commands(
@@ -50,7 +65,7 @@ def _get_server_commands(
     if not isinstance(raw_commands, list):
         return []
 
-    commands: list[ClaudeCommand] = []
+    commands: dict[str, ClaudeCommand] = {}
     for item in raw_commands:
         if not isinstance(item, dict):
             continue
@@ -67,22 +82,24 @@ def _get_server_commands(
         # 常规命令额外受白名单约束，技能全量放行
         if not skills and name not in ALLOWED_COMMAND_NAMES:
             continue
+        # 技能名补上描述首括号里的来源命名空间（如 opencode:xxx）
+        if skills:
+            name = _skill_real_name(name, description)
 
         argument_hint = item.get("argumentHint", "")
         aliases = item.get("aliases", [])
-        commands.append(
-            {
-                "name": name,
-                "description": description,
-                "argument_hint": (argument_hint if isinstance(argument_hint, str) else ""),
-                "aliases": (
-                    [alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()]
-                    if isinstance(aliases, list)
-                    else []
-                ),
-            }
-        )
-    return commands
+        # 重名时保留最后一个（技能与命令均按此规则去重）
+        commands[name] = {
+            "name": name,
+            "description": description,
+            "argument_hint": (argument_hint if isinstance(argument_hint, str) else ""),
+            "aliases": (
+                [alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()]
+                if isinstance(aliases, list)
+                else []
+            ),
+        }
+    return list(commands.values())
 
 
 def is_allowed_leading_slash(name: str, server_info: dict[str, Any]) -> bool:
