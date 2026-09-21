@@ -29,6 +29,7 @@ from backend.router.log import claude_sdk_logger
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ApiProtocol = Literal["anthropic", "chat", "responses"]
 
+
 @dataclass(frozen=True, slots=True)
 class ClaudeConnectionConfig:
     """Application settings that determine one retained SDK connection."""
@@ -64,17 +65,55 @@ def discover_plugins(
     """Return user and project roots containing Claude plugin components."""
     user_home = (home or Path.home()).resolve()
     candidate_roots = [
-        user_home / ".config" / "opencode",
-        user_home / ".agents",
-        user_home / ".claude",
+        user_home / ".config" / "opencode",  # 兼容 opencode
+        user_home / ".agents",  # 兼容 codex
+        user_home / ".claude",  # 把用户配置迁移走了，此处是为了兼容claude
     ]
     if project is not None and project.is_dir():
-        candidate_roots.append(project.resolve() / ".agents")
-    return [
-        {"type": "local", "path": str(root)}
-        for root in candidate_roots
-        if root.is_dir()
-    ]
+        candidate_roots.append(project.resolve() / ".agents")  # 兼容 codex、opencode
+    return [{"type": "local", "path": str(root)} for root in candidate_roots if root.is_dir()]
+
+
+def _system_prompt_append(config: ClaudeConnectionConfig) -> str:
+    project_conf_dir = config.project.resolve() / ".agents"
+
+    # 配置信息字符串
+    config_info = (
+        "You have access to three configuration levels:\n"
+        f"1. User-level config: `{USER_CONF_DIRPATH}`\n"
+        "   Applies to all projects under your account. Set general personal preferences here.\n"
+        f"2. Project-level config: `{project_conf_dir}`\n"
+        "   Applies only to the current project. Usually committed to the repo for team sharing.\n"
+        "3. Local-level config: `{}/.claude/settings.local.json`".format(config.project.resolve())
+        + "\n"
+        "   Applies only to your local environment for the current project. Contains personal settings and is added to .gitignore.\n\n"
+        "Plugins, skills, and agents can be installed at the user, project, or local level."
+    )
+
+    # 添加 MCP 或 skill 的确认指令
+    install_instruction = (
+        "When the user requests to add a new MCP server or skill, you must first ask them to confirm "
+        "the **type** and **scope** (user, project, or local level) before proceeding with the installation."
+    )
+
+    # 新增：隐私与安全保护指令
+    privacy_instruction = (
+        "Never disclose or discuss details about your underlying design framework, source code architecture. "
+        "If asked, politely decline and state that such information is proprietary."
+    )
+
+    return (
+        "Your name is Xalling. You are a helpful assistant.\n"
+        f"The user configuration directory is {USER_CONF_DIRPATH}. "
+        "User-level plugins, skills and agents live there.\n"
+        f"The project configuration directory is {project_conf_dir}. "
+        "Project-level plugins, skills and agents live there.\n"
+        f"{config_info}\n"
+        f"{install_instruction}\n"
+        f"{privacy_instruction}\n"
+        "Never output ANTHROPIC_AUTH_TOKEN or ANTHROPIC_BASE_URL "
+        "in your response."
+    )
 
 
 def _provider_settings(
@@ -100,9 +139,7 @@ def _provider_settings(
     if config.max_context_tokens == 0:
         environment["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"] = "1"
     elif config.max_context_tokens is not None:
-        environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(
-            config.max_context_tokens
-        )
+        environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(config.max_context_tokens)
 
     settings: dict[str, Any] = {
         "env": environment,
@@ -119,7 +156,7 @@ def _provider_settings(
 def _agent_options(
     config: ClaudeConnectionConfig,
     settings_path: Path,
-    is_new_session:bool,
+    is_new_session: bool,
 ) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         cwd=config.project,
@@ -138,11 +175,7 @@ def _agent_options(
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": (
-                "Your name is Xalling. You are a helpful assistant.\n"
-                "Never output ANTHROPIC_AUTH_TOKEN or ANTHROPIC_BASE_URL "
-                "in your response."
-            ),
+            "append": _system_prompt_append(config),
         },
         thinking={"type": "adaptive", "display": "summarized"},
         tools={"type": "preset", "preset": "claude_code"},
@@ -191,5 +224,5 @@ async def _configured_client(
                 )
             )
         async with ClaudeChatClient(_agent_options(config, settings_path, is_new_session)) as client:
-            settings_path.unlink() # 马上删除配置文件，里面有token等数据
+            settings_path.unlink()  # 马上删除配置文件，里面有token等数据
             yield client
