@@ -51,6 +51,7 @@ def configure_logging() -> None:
         format=LOG_FORMAT,
         backtrace=True,
         diagnose=False,
+        enqueue=True,
     )
     logger.add(
         ACCESS_LOG_FILEPATH,
@@ -61,6 +62,7 @@ def configure_logging() -> None:
         retention=4,
         backtrace=True,
         diagnose=False,
+        enqueue=True,
         filter=lambda record: record["extra"].get("channel") == "access",
     )
     logger.add(
@@ -72,6 +74,7 @@ def configure_logging() -> None:
         retention="180 days",
         backtrace=True,
         diagnose=False,
+        enqueue=True,
         filter=lambda record: record["extra"].get("channel") == "error",
     )
     logger.add(
@@ -83,6 +86,7 @@ def configure_logging() -> None:
         retention="14 days",
         backtrace=True,
         diagnose=False,
+        enqueue=True,
         filter=lambda record: record["extra"].get("channel") == "claude_sdk",
     )
     logger.add(
@@ -94,6 +98,7 @@ def configure_logging() -> None:
         retention="14 days",
         backtrace=True,
         diagnose=False,
+        enqueue=True,
         filter=lambda record: record["extra"].get("channel") == "browser",
     )
     _logging_configured = True
