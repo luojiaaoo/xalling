@@ -38,7 +38,7 @@ from backend.router._claude_options import (
 )
 from backend.router.command import CommandRouter, is_allowed_leading_slash
 
-CHAT_CLIENT_IDLE_SECONDS = 5 * 60
+CHAT_CLIENT_IDLE_SECONDS = 10 * 60
 _UI_PERMISSION_MODES = frozenset(
     {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
 )
@@ -429,6 +429,8 @@ class ChatRouter(CommandRouter):
             return None
         try:
             return dict(await active_chat.client.get_context_usage())
+        except Exception: # 第一次获取的时候，软件关闭，导致client挂掉，忽略报错，关闭时间延长
+            pass
         finally:
             if not active_chat.running:
                 self._schedule_client_cleanup(normalized, active_chat)

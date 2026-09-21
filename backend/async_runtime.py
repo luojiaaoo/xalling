@@ -134,7 +134,7 @@ def bridge_api[T: type[Any]](cls: T) -> T:
             return
         self._bridge_closed = True
         try:
-            shutdown = getattr(self, "_shutdown_bridge", None)
+            shutdown = self._shutdown_bridge
             if shutdown is not None:
                 self._async_runtime.call(shutdown)
         finally:

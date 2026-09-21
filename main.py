@@ -33,6 +33,7 @@ class ApplicationBridge(
     """Compose the JSON-only routers exposed to the local Web UI."""
 
     async def _shutdown_bridge(self) -> None:
+        # 关闭所有的client
         await self._shutdown_chat_clients()
 
 
