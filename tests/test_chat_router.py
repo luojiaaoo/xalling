@@ -370,8 +370,10 @@ def test_chat_router_lists_new_history_models_and_merges_running_session(
 
 def test_chat_router_returns_history_and_search_in_the_public_event_protocol(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
+    configure_model(tmp_path, monkeypatch)
     session_id = str(uuid4())
     info = ChatSessionInfo(
         session_id=session_id,
@@ -385,6 +387,21 @@ def test_chat_router_returns_history_and_search_in_the_public_event_protocol(
         turn_id="history-turn",
         data={"content": "hello"},
     )
+
+    class StubClient:
+        pending_permission_ids: tuple[str, ...] = ()
+
+    @asynccontextmanager
+    async def configured(
+        config: ClaudeConnectionConfig,
+        is_new_session: bool,
+    ):
+        try:
+            yield StubClient()
+        finally:
+            pass
+
+    monkeypatch.setattr("backend.router.chat.configured_claude_client", configured)
     router = bridge_factory()
     router._history.get_session = lambda _session_id: ChatSessionSnapshot(
         session=info,
@@ -400,11 +417,12 @@ def test_chat_router_returns_history_and_search_in_the_public_event_protocol(
         )
     ]
 
-    history = router.get_chat_session(session_id)
+    history = router.get_chat_session(str(tmp_path), session_id, "high", "default")
     matches = router.search_chat_sessions("hello")
 
     assert history["events"] == [user_event.to_dict()]
     assert "messages" not in history
+    assert history["permission_mode"] == "default"
     assert matches[0]["event_id"] == user_event.id
     assert matches[0]["turn_id"] == "history-turn"
     assert "message_key" not in matches[0]

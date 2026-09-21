@@ -330,7 +330,8 @@ class ChatRouter(CommandRouter):
         active_chat = self._active_chats.get(config.session_id)
         # 已经有了session，并且配置保持一样
         if active_chat is not None and active_chat.config.config_equal(config):
-            active_chat.client.set_permission_mode(config.permission_mode)
+            if active_chat.config.permission_mode != config.permission_mode:
+                await active_chat.client.set_permission_mode(config.permission_mode)
             return active_chat
         # 已经有了，但是配置变了，先关闭
         if active_chat is not None:
@@ -367,7 +368,7 @@ class ChatRouter(CommandRouter):
         self._active_chats[config.session_id] = active_chat
         return active_chat
 
-    async def _get_chat_server_info(
+    async def get_chat_server_info(
         self,
         session_id: str,
         project_path: str | None = None,
@@ -460,10 +461,51 @@ class ChatRouter(CommandRouter):
         matches = await asyncer.asyncify(self._history.search_sessions)(query)
         return [match.to_dict() for match in matches]
 
-    async def get_chat_session(self, session_id: str) -> dict[str, Any]:
-        normalized = self._normalize_optional_session_id(session_id)
+    async def get_chat_session(
+        self,
+        project_path: str | None = None,
+        session_id: str | None = None,
+        effort: str = "high",
+        permission_mode: str = "default",
+    ) -> dict[str, Any]:
+        try:
+            config_request = _ChatConfigRequest.model_validate(
+                {
+                    "project_path": project_path,
+                    "session_id": session_id,
+                    "effort": effort,
+                    "permission_mode": permission_mode,
+                }
+            )
+        except ValidationError as error:
+            raise _user_facing_error(error) from error
+
+        normalized = config_request.session_id
         if normalized is None:
             raise ValueError("会话标识无效")
+
+        # 已有活动会话时，以活动会话当前的 permission_mode 为准
+        existing = self._active_chats.get(normalized)
+        effective_permission_mode = (
+            existing.config.permission_mode
+            if existing is not None
+            else config_request.permission_mode
+        )
+
+        site, model = await self._get_current_provider()
+        config = ClaudeConnectionConfig(
+            api_key=site.api_key,
+            api_url=site.api_url,
+            effort=config_request.effort,
+            max_context_tokens=model.max_context_tokens,
+            model=model.name,
+            permission_mode=effective_permission_mode,
+            project=config_request.project_path,
+            session_id=normalized,
+            api_protocol=site.api_protocol,
+        )
+        active_chat = await self._get_or_create_chat(config)
+
         try:
             snapshot = await asyncer.asyncify(self._history.get_session)(normalized)
             payload = snapshot.to_dict()
@@ -471,12 +513,11 @@ class ChatRouter(CommandRouter):
                 self._event_payload(event, normalized)
                 for event in snapshot.events
             ]
-            return payload
         except ValueError:
-            active_chat = self._active_chats.get(normalized)
-            if active_chat is None or not active_chat.running:
-                raise
-            return {**active_chat.metadata, "events": []}
+            payload = {**active_chat.metadata, "events": []}
+
+        payload["permission_mode"] = active_chat.config.permission_mode
+        return payload
 
     def get_active_chat(self, session_id: str) -> dict[str, object] | None:
         normalized = self._normalize_optional_session_id(session_id)

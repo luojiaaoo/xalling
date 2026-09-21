@@ -153,14 +153,11 @@ export function ContextUsageIndicator({ busy, sessionId }: ContextUsageIndicator
   useEffect(() => {
     const previousBusy = previousBusyRef.current;
     previousBusyRef.current = busy;
-    if (busy) {
-      const timer = window.setInterval(refresh, POLL_INTERVAL_MS);
-      return () => window.clearInterval(timer);
-    }
-    if (previousBusy) {
+    if (previousBusy && !busy) {
       refresh();
     }
-    return undefined;
+    const timer = window.setInterval(refresh, POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
   }, [busy, refresh]);
 
   const hasData = usage !== null;

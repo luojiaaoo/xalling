@@ -60,7 +60,12 @@ type PyWebviewApi = {
   ) => Promise<boolean>;
   list_chat_sessions: () => Promise<ChatSessionSummary[]>;
   search_chat_sessions: (query: string) => Promise<ChatSearchMatch[]>;
-  get_chat_session: (sessionId: string) => Promise<ChatSessionHistory>;
+  get_chat_session: (
+    projectPath: string | null,
+    sessionId: string,
+    effort: ChatEffort,
+    permissionMode: ChatPermissionMode,
+  ) => Promise<ChatSessionHistory>;
   get_active_chat: (sessionId: string) => Promise<ActiveChat | null>;
   get_context_usage: (sessionId: string) => Promise<ContextUsage | null>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
@@ -222,6 +227,7 @@ export type ChatSearchMatch = ChatSessionSummary & {
 export type ChatSessionHistory = ChatSessionSummary & {
   events: ChatRenderEvent[];
   render_events?: unknown;
+  permission_mode?: ChatPermissionMode;
 };
 
 export type ChatUserQuestionOption = {
@@ -634,12 +640,17 @@ export async function searchChatSessions(query: string): Promise<ChatSearchMatch
   return (await api?.search_chat_sessions(query)) ?? [];
 }
 
-export async function getChatSession(sessionId: string): Promise<ChatSessionHistory> {
+export async function getChatSession(
+  sessionId: string,
+  projectPath: string | null,
+  effort: ChatEffort,
+  permissionMode: ChatPermissionMode,
+): Promise<ChatSessionHistory> {
   const api = await getBridgeApi();
   if (!api) {
     throw new Error("桌面应用桥接尚未准备好");
   }
-  const result = await api.get_chat_session(sessionId);
+  const result = await api.get_chat_session(projectPath, sessionId, effort, permissionMode);
   return {
     ...result,
     events: decodeEventList(result.render_events ?? result.events),

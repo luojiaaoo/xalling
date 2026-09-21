@@ -44,6 +44,8 @@ import {
   type ComposerDraft,
 } from "./TaskComposer";
 
+const effortValues = ["low", "medium", "high", "max"] as const;
+
 const greetingsByPeriod: string[][] = [
   ["凌晨好呀，夜深了，别太拼，慢慢来。", "凌晨好呀，这么晚还醒着，辛苦了，剩下的交给我。", "凌晨好呀，安静的深夜适合专注，但也记得照顾自己。"],
   ["早上好呀，这么早就开始啦，新的一天一起加油！", "早上好呀，清晨的你已经很棒了，今天会是好日子。", "早上好呀，早起的鸟儿有虫吃，我们一起加油！"],
@@ -572,7 +574,12 @@ export function Workspace({
     historyLoadingRef.current = true;
     setHistoryLoading(true);
     void Promise.all([
-      getChatSession(initialSessionId),
+      getChatSession(
+        initialSessionId,
+        selectedProject?.path ?? null,
+        effortValues[effort] ?? "high",
+        permissionMode,
+      ),
       getActiveChat(initialSessionId),
     ])
       .then(([history, activeChat]) => {
@@ -580,6 +587,9 @@ export function Workspace({
           return;
         }
         sessionIdRef.current = history.session_id;
+        if (history.permission_mode) {
+          onPermissionModeObserved(history.permission_mode);
+        }
         const activeEvents = activeChat?.events ?? [];
         const activeTurnIds = new Set(activeEvents.map((event) => event.turn_id));
         const events = [
@@ -641,7 +651,7 @@ export function Workspace({
     return () => {
       active = false;
     };
-  }, [applyLiveEvent, initialSessionId, onProjectChange]);
+  }, [applyLiveEvent, initialSessionId, onPermissionModeObserved, onProjectChange]);
 
   useEffect(() => {
     if (!busy) {

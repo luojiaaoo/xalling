@@ -124,7 +124,7 @@ class CommandRouter(ABC):
     ) -> list[ClaudeCommand]:
         """Return regular commands from the session's live SDK client."""
         return _get_server_commands(
-            await self._get_chat_server_info(
+            await self.get_chat_server_info(
                 session_id,
                 project_path=project_path,
                 effort=effort,
@@ -146,7 +146,7 @@ class CommandRouter(ABC):
     ) -> list[ClaudeCommand]:
         """Return skills from the session's live SDK client."""
         return _get_server_commands(
-            await self._get_chat_server_info(
+            await self.get_chat_server_info(
                 session_id,
                 project_path=project_path,
                 effort=effort,
@@ -156,7 +156,7 @@ class CommandRouter(ABC):
         )
 
     @abstractmethod
-    async def _get_chat_server_info(
+    async def get_chat_server_info(
         self,
         session_id: str,
         project_path: str | None = None,
