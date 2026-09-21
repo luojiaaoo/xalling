@@ -581,6 +581,18 @@ class ChatRouter(CommandRouter):
         await active_chat.client.request_stop()
         return True
 
+    async def close_chat_client(self, session_id: str | None = None) -> bool:
+        normalized = self._normalize_optional_session_id(session_id)
+        if normalized is None:
+            return False
+        active_chat = self._active_chats.get(normalized)
+        if active_chat is None:
+            return False
+        if active_chat.running:
+            raise ValueError("会话正在生成，无法刷新配置")
+        await self._close_active_chat(normalized, active_chat)
+        return True
+
     async def set_chat_permission_mode(
         self,
         session_id: str | None = None,

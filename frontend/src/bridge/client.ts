@@ -64,6 +64,7 @@ type PyWebviewApi = {
   get_active_chat: (sessionId: string) => Promise<ActiveChat | null>;
   get_context_usage: (sessionId: string) => Promise<ContextUsage | null>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
+  close_chat_client: (sessionId: string | null) => Promise<boolean>;
   respond_chat_permission: (
     permissionId: string,
     allowed: boolean,
@@ -682,6 +683,11 @@ export async function stopChatMessage(sessionId: string | null): Promise<boolean
     throw new Error("桌面应用桥接尚未准备好");
   }
   return api.stop_chat_message(sessionId);
+}
+
+export async function closeChatClient(sessionId: string | null): Promise<boolean> {
+  const api = await getBridgeApi();
+  return (await api?.close_chat_client(sessionId)) ?? false;
 }
 
 export async function respondChatPermission(

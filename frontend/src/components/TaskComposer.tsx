@@ -12,6 +12,7 @@ import {
   LoadingOutlined,
   PictureOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
   UnlockOutlined,
@@ -37,6 +38,7 @@ import type { RcFile, UploadFile } from "antd/es/upload/interface";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  closeChatClient,
   getAllowedCommandNames,
   getCommands,
   getCurrentModel,
@@ -583,6 +585,30 @@ export function TaskComposer({
     }
   };
 
+  const [refreshingConfig, setRefreshingConfig] = useState(false);
+
+  const handleRefreshConfig = async () => {
+    if (busy || refreshingConfig) {
+      return;
+    }
+    setRefreshingConfig(true);
+    try {
+      const closed = await closeChatClient(sessionIdRef.current || null);
+      messageApi.success(
+        closed
+          ? "配置已刷新，下次会话将重新加载技能和 MCP"
+          : "暂无活动的客户端，下次会话将自动加载最新配置",
+      );
+    } catch (error) {
+      const text = error instanceof Error && error.message.trim()
+        ? error.message
+        : "刷新配置失败，请重试";
+      messageApi.error(text);
+    } finally {
+      setRefreshingConfig(false);
+    }
+  };
+
   const beforeAttach = (file: RcFile) => {
     if (file.size > MAX_FILE_SIZE) {
       messageApi.error(`${file.name} 超过 50 MB，无法添加。`);
@@ -1021,6 +1047,15 @@ export function TaskComposer({
               </Dropdown>
             </Space>
             <Space size={6}>
+              <Tooltip title="刷新配置">
+                <Button
+                  aria-label="刷新配置"
+                  disabled={busy || refreshingConfig}
+                  icon={refreshingConfig ? <LoadingOutlined spin /> : <ReloadOutlined />}
+                  onClick={() => void handleRefreshConfig()}
+                  type="text"
+                />
+              </Tooltip>
               {conversationStarted && (
                 <ContextUsageIndicator sessionId={sessionId} busy={busy} />
               )}
