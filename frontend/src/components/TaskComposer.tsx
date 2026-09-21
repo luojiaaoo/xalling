@@ -144,7 +144,7 @@ const permissionModeItems: MenuProps["items"] = (
   ),
 }));
 const MAX_ATTACHMENTS = 10;
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 // Stable reference: a new array identity each render would reset the slot editor.
 const EMPTY_SLOT_CONFIG: SlotConfigType[] = [];
 const MENTION_TRIGGER_PATTERN = /(?:^|\s)@([^\s@]{0,64})$/u;
@@ -585,7 +585,7 @@ export function TaskComposer({
 
   const beforeAttach = (file: RcFile) => {
     if (file.size > MAX_FILE_SIZE) {
-      messageApi.error(`${file.name} 超过 20 MB，无法添加。`);
+      messageApi.error(`${file.name} 超过 50 MB，无法添加。`);
       return Upload.LIST_IGNORE;
     }
     if (attachmentItems.length >= MAX_ATTACHMENTS) {
