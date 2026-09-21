@@ -43,6 +43,20 @@ class ClaudeConnectionConfig:
     session_id: str
     api_protocol: ApiProtocol = "anthropic"
 
+    @staticmethod
+    def config_equal(a: ClaudeConnectionConfig, b: ClaudeConnectionConfig) -> bool:
+        """比较两个配置，忽略 permission_mode"""
+        return (
+            a.api_key == b.api_key
+            and a.api_url == b.api_url
+            and a.effort == b.effort
+            and a.max_context_tokens == b.max_context_tokens
+            and a.model == b.model
+            and a.project == b.project
+            and a.session_id == b.session_id
+            and a.api_protocol == b.api_protocol
+        )
+
 
 def discover_plugins(
     home: Path | None = None,

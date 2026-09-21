@@ -337,7 +337,8 @@ class ChatRouter(CommandRouter):
     ) -> _ActiveChat:
         active_chat = self._active_chats.get(config.session_id)
         # 已经有了session，并且配置保持一样
-        if active_chat is not None and active_chat.config == config:
+        if active_chat is not None and active_chat.config.config_equal(config):
+            active_chat.client.set_permission_mode(config.permission_mode)
             return active_chat
         # 已经有了，但是配置变了，先关闭
         if active_chat is not None:
@@ -584,12 +585,15 @@ class ChatRouter(CommandRouter):
         self,
         session_id: str | None = None,
         permission_mode: str = "default",
+        project_path: str | None = None,
+        effort: str = "high",
     ) -> bool:
         """Update a retained chat's live SDK permission mode.
 
-        A chat that has not created a client yet simply keeps the UI-selected
-        mode for its next turn.  Existing clients are updated in place so a
-        mode change made while a turn is running takes effect immediately.
+        A chat without a client gets one created so a mode the current model
+        does not support fails immediately instead of on the next turn.
+        Existing clients are updated in place so a mode change made while a
+        turn is running takes effect immediately.
         """
         normalized = self._normalize_optional_session_id(session_id)
         if normalized is None:
@@ -603,13 +607,41 @@ class ChatRouter(CommandRouter):
 
         active_chat = self._active_chats.get(normalized)
         if active_chat is None:
-            return False
-        await active_chat.client.set_permission_mode(request.permission_mode)
-        active_chat.config = replace(
-            active_chat.config,
-            permission_mode=request.permission_mode,
-        )
-        return True
+            try:
+                config_request = _ChatConfigRequest.model_validate(
+                    {
+                        "project_path": project_path,
+                        "session_id": normalized,
+                        "effort": effort,
+                        "permission_mode": request.permission_mode,
+                    }
+                )
+            except ValidationError as error:
+                raise _user_facing_error(error) from error
+            site, model = await self._get_current_provider()
+            config = ClaudeConnectionConfig(
+                api_key=site.api_key,
+                api_url=site.api_url,
+                effort=config_request.effort,
+                max_context_tokens=model.max_context_tokens,
+                model=model.name,
+                permission_mode=config_request.permission_mode,
+                project=config_request.project_path,
+                session_id=normalized,
+                api_protocol=site.api_protocol,
+            )
+            active_chat = await self._get_or_create_chat(config)
+            # 初始化的时候不报错，很奇怪，所以需要单独执行一次来判断，但是报错之后
+            # 其实 permission_mode 和 config 就对不上了，不过可以动态修改，倒是也无所谓
+            await active_chat.client.set_permission_mode(request.permission_mode)
+            return True
+        else:
+            await active_chat.client.set_permission_mode(request.permission_mode)
+            active_chat.config = replace(
+                active_chat.config,
+                permission_mode=request.permission_mode,
+            )
+            return True
 
     def respond_chat_permission(
         self,

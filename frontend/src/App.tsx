@@ -16,6 +16,7 @@ import {
   listChatSessions,
   setChatPermissionMode,
   setCurrentTheme,
+  type ChatEffort,
   type ChatPermissionMode,
   type ChatSessionSummary,
   type ProjectFolder,
@@ -26,6 +27,8 @@ import useSereneTheme from "./sereneTheme";
 import { themes, type ThemeName } from "./theme";
 
 const SIDEBAR_AUTO_COLLAPSE_WIDTH = 500;
+
+const effortValues: ChatEffort[] = ["low", "medium", "high", "max"];
 
 function isThemeName(value: string): value is ThemeName {
   return (
@@ -182,13 +185,18 @@ export default function App() {
     const requestId = permissionModeRequestRef.current + 1;
     permissionModeRequestRef.current = requestId;
     setPermissionMode(nextMode);
-    void setChatPermissionMode(sessionId, nextMode).catch(() => {
+    void setChatPermissionMode(
+      sessionId,
+      nextMode,
+      selectedProject?.path ?? null,
+      effortValues[effort] ?? "high",
+    ).catch(() => {
       // Do not let a failed live update affect the mode used by the next turn.
       if (permissionModeRequestRef.current === requestId) {
         setPermissionMode(previousMode);
       }
     });
-  }, [permissionMode]);
+  }, [effort, permissionMode, selectedProject]);
 
   const handlePermissionModeObserved = useCallback((nextMode: ChatPermissionMode) => {
     // The SDK status event is authoritative; invalidate any optimistic mode
