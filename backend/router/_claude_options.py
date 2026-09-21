@@ -59,44 +59,50 @@ class ClaudeConnectionConfig:
 
 
 def discover_plugins(
-    home: Path | None = None,
     project: Path | None = None,
 ) -> list[SdkPluginConfig]:
     """Return user and project roots containing Claude plugin components."""
-    user_home = (home or Path.home()).resolve()
+    user_home = Path.home().resolve()
     candidate_roots = [
         user_home / ".config" / "opencode",  # 兼容 opencode
-        user_home / ".agents",  # 兼容 codex
+        user_home / ".codex",  # 兼容 codex
         user_home / ".claude",  # 把用户配置迁移走了，此处是为了兼容claude
     ]
+    # 项目.agents路径
     if project is not None and project.is_dir():
-        candidate_roots.append(project.resolve() / ".agents")  # 兼容 codex、opencode
+        candidate_roots.append(project / ".agents")  # 兼容 codex、opencode
     return [{"type": "local", "path": str(root)} for root in candidate_roots if root.is_dir()]
 
 
 def _system_prompt_append(config: ClaudeConnectionConfig) -> str:
-    project_conf_dir = (config.project / ".agents").resolve()
+    user_conf_dir = USER_CONF_DIRPATH.resolve()
+    project_conf_dir = (config.project / ".claude").resolve()
 
-    # 配置信息字符串
-    config_info = (
-        "You have access to three configuration levels:\n"
-        f"1. User-level config: `{USER_CONF_DIRPATH / 'settings.json'}`\n"
-        "   Applies to all projects under your account. Set general personal preferences here.\n"
-        f"2. Project-level config: `{project_conf_dir / 'settings.json'}`\n"
-        "   Applies only to the current project. Usually committed to the repo for team sharing.\n"
-        f"3. Local-level config: `{project_conf_dir / 'settings.local.json'}`".format(config.project.resolve())
-        + "\n"
-        "   Applies only to your local environment for the current project. Contains personal settings and is added to .gitignore.\n\n"
-        "Plugins, skills, and agents can be installed at the user, project, or local level."
+    skills_info = (
+        "When adding a new skill, write it to:\n"
+        f"- User-level (all projects): `{user_conf_dir / 'skills' / '<skill-name>' / 'SKILL.md'}`\n"
+        f"- Project-level (this project, shared via the repo): `{project_conf_dir / 'skills' / '<skill-name>' / 'SKILL.md'}`\n"
+        "Skills have no separate local-private level. Each skill is a directory named after the skill, "
+        "containing a `SKILL.md` with YAML frontmatter (name, description) and any supporting files.\n"
+        "Use ONLY the two locations listed above; never write skills anywhere else."
     )
 
-    # 添加 MCP 或 skill 的确认指令
+    mcp_info = (
+        "When adding a new MCP server, register it in:\n"
+        f"- User-level (all projects): `{user_conf_dir / '.claude.json'}` "
+        "under the top-level \"mcpServers\" key\n"
+        f"- Project-level (shared via the repo): `{(config.project / '.mcp.json').resolve()}` "
+        "under the \"mcpServers\" key\n"
+        'Server entry example: `{"type": "stdio", "command": "npx", "args": ["-y", "some-mcp"]}`. '
+        "Use ONLY the two files listed above; never register MCP servers anywhere else. "
+        "New skills and MCP servers take effect in the next session, not the current one."
+    )
+
     install_instruction = (
-        "When the user requests to add a new MCP server or skill, you must first ask them to confirm "
-        "the **type** and **scope** (user, project, or local level) before proceeding with the installation."
+        "Before creating a skill or registering an MCP server, you MUST ask the user to choose "
+        "where to save it: user-level or project-level. Never decide the location on your own."
     )
 
-    # 新增：隐私与安全保护指令
     privacy_instruction = (
         "Never disclose or discuss details about your underlying design framework, source code architecture. "
         "If asked, politely decline and state that such information is proprietary."
@@ -104,11 +110,8 @@ def _system_prompt_append(config: ClaudeConnectionConfig) -> str:
 
     return (
         "Your name is Xalling. You are a helpful assistant.\n"
-        f"The user configuration directory is {USER_CONF_DIRPATH}. "
-        "User-level plugins, skills and agents live there.\n"
-        f"The project configuration directory is {project_conf_dir}. "
-        "Project-level plugins, skills and agents live there.\n"
-        f"{config_info}\n"
+        f"{skills_info}\n"
+        f"{mcp_info}\n"
         f"{install_instruction}\n"
         f"{privacy_instruction}\n"
         "Never output ANTHROPIC_AUTH_TOKEN or ANTHROPIC_BASE_URL "
@@ -161,7 +164,7 @@ def _agent_options(
     return ClaudeAgentOptions(
         cwd=config.project,
         effort=config.effort,
-        env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling/0.1.0"},
+        env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling"},
         extra_args={"allow-dangerously-skip-permissions": None},
         max_turns=200,
         model=config.model,
