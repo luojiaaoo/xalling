@@ -75,16 +75,16 @@ def discover_plugins(
 
 
 def _system_prompt_append(config: ClaudeConnectionConfig) -> str:
-    project_conf_dir = config.project.resolve() / ".agents"
+    project_conf_dir = (config.project / ".agents").resolve()
 
     # 配置信息字符串
     config_info = (
         "You have access to three configuration levels:\n"
-        f"1. User-level config: `{USER_CONF_DIRPATH}`\n"
+        f"1. User-level config: `{USER_CONF_DIRPATH / 'settings.json'}`\n"
         "   Applies to all projects under your account. Set general personal preferences here.\n"
-        f"2. Project-level config: `{project_conf_dir}`\n"
+        f"2. Project-level config: `{project_conf_dir / 'settings.json'}`\n"
         "   Applies only to the current project. Usually committed to the repo for team sharing.\n"
-        "3. Local-level config: `{}/.claude/settings.local.json`".format(config.project.resolve())
+        f"3. Local-level config: `{project_conf_dir / 'settings.local.json'}`".format(config.project.resolve())
         + "\n"
         "   Applies only to your local environment for the current project. Contains personal settings and is added to .gitignore.\n\n"
         "Plugins, skills, and agents can be installed at the user, project, or local level."
