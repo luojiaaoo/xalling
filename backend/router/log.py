@@ -23,10 +23,11 @@ SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token"
 # 高频调用、刷日志没意义的桥接方法：不打 call/result 访问日志，但异常仍记录
 SILENT_ACCESS_LOG_CALLS = frozenset(
     {
-        "WindowRouter.resize_window",
-        "ChatRouter.list_chat_sessions",
-        "ChatRouter.get_context_usage",
-        "FileRouter.save_attachment"
+        "WindowRouter.resize_window",   # 无意义
+        "ChatRouter.list_chat_sessions",   # 高频
+        "ChatRouter.get_context_usage",   # 高频
+        "FileRouter.save_attachment",   # 文件保存
+        "ChatRouter.get_active_chat",  # 包含大量工具信息
     }
 )
 
