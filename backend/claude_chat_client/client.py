@@ -449,7 +449,6 @@ class ClaudeChatClient:
         logical_results: list[ResultMessage] = []
         turn_events: list[ChatEvent] = []
         active_task_ids: set[str] = set()
-        pending_notification_turns = 0
         background_chain_started = False
 
         async def submitted_message() -> AsyncIterator[dict[str, Any]]:
@@ -478,11 +477,10 @@ class ClaudeChatClient:
                         background_chain_started = True
                         claude_sdk_logger.info(
                             "Claude SDK task lifecycle | kind={} task_id={} "
-                            "active_tasks={} pending_notifications={}",
+                            "active_tasks={}",
                             type(message).__name__,
                             message.task_id,
                             sorted(active_task_ids),
-                            pending_notification_turns,
                         )
                     elif isinstance(message, TaskNotificationMessage):
                         active_task_ids.discard(message.task_id)
@@ -491,7 +489,6 @@ class ClaudeChatClient:
                             # continuation ResultMessage that a normal
                             # task-notification produces. Reuse the deferred
                             # human result so the stopped turn can terminate.
-                            pending_notification_turns = 0
                             if (
                                 not active_task_ids
                                 and deferred_human_result is not None
@@ -504,18 +501,15 @@ class ClaudeChatClient:
                                     sorted(active_task_ids),
                                 )
                         else:
-                            pending_notification_turns += 1
                             background_chain_started = True
                         claude_sdk_logger.info(
                             "Claude SDK task lifecycle | kind={} task_id={} "
-                            "status={} stop_requested={} active_tasks={} "
-                            "pending_notifications={}",
+                            "status={} stop_requested={} active_tasks={}",
                             type(message).__name__,
                             message.task_id,
                             message.status,
                             stop_requested.is_set(),
                             sorted(active_task_ids),
-                            pending_notification_turns,
                         )
                     elif isinstance(message, TaskUpdatedMessage):
                         status = message.status
@@ -529,12 +523,11 @@ class ClaudeChatClient:
                             background_chain_started = True
                         claude_sdk_logger.info(
                             "Claude SDK task lifecycle | kind={} task_id={} "
-                            "status={} active_tasks={} pending_notifications={}",
+                            "status={} active_tasks={}",
                             type(message).__name__,
                             message.task_id,
                             status,
                             sorted(active_task_ids),
-                            pending_notification_turns,
                         )
 
                     is_submitted_echo = (
@@ -565,14 +558,13 @@ class ClaudeChatClient:
                     claude_sdk_logger.info(
                         "Claude SDK ResultMessage | origin_kind={} subtype={} "
                         "is_error={} stop_reason={} terminal_reason={} "
-                        "active_tasks={} pending_notifications={} background_chain={}",
+                        "active_tasks={} background_chain={}",
                         origin_kind,
                         message.subtype,
                         message.is_error,
                         message.stop_reason,
                         message.terminal_reason,
                         sorted(active_task_ids),
-                        pending_notification_turns,
                         background_chain_started,
                     )
                     is_human_result = origin_kind in {None, "human"}
@@ -586,12 +578,7 @@ class ClaudeChatClient:
                         and is_background_continuation
                     ):
                         logical_results.append(message)
-                    if origin_kind == "task-notification" and pending_notification_turns:
-                        pending_notification_turns -= 1
-
-                    waiting_for_background = bool(
-                        active_task_ids or pending_notification_turns
-                    )
+                    waiting_for_background = bool(active_task_ids)
                     if (
                         requested_result is None
                         and is_human_result
@@ -600,10 +587,9 @@ class ClaudeChatClient:
                         requested_result = message
                         claude_sdk_logger.info(
                             "Claude SDK ResultMessage selected as requested result | "
-                            "origin_kind={} active_tasks={} pending_notifications={}",
+                            "origin_kind={} active_tasks={}",
                             origin_kind,
                             sorted(active_task_ids),
-                            pending_notification_turns,
                         )
                         continue
 
@@ -635,27 +621,21 @@ class ClaudeChatClient:
                         requested_result = message
                         claude_sdk_logger.info(
                             "Claude SDK continuation ResultMessage selected | "
-                            "origin_kind={} active_tasks={} pending_notifications={}",
+                            "origin_kind={} active_tasks={}",
                             origin_kind,
                             sorted(active_task_ids),
-                            pending_notification_turns,
                         )
 
                 if not received_result:
                     claude_sdk_logger.warning(
                         "Claude SDK receive_response ended without ResultMessage | "
-                        "active_tasks={} pending_notifications={} deferred_human_result={} "
+                        "active_tasks={} deferred_human_result={} "
                         "background_chain={}",
                         sorted(active_task_ids),
-                        pending_notification_turns,
                         deferred_human_result is not None,
                         background_chain_started,
                     )
-                    if (
-                        deferred_human_result is not None
-                        and not active_task_ids
-                        and not pending_notification_turns
-                    ):
+                    if deferred_human_result is not None and not active_task_ids:
                         requested_result = deferred_human_result
                     break
 
