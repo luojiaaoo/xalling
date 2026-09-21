@@ -44,14 +44,14 @@ export function formatBridgeError(error: unknown): string {
 }
 
 export function notifyBridgeError(action: string, error: unknown): void {
-  showBridgeMessage(`后端调用失败（${action}）：${formatBridgeError(error)}`);
+  showBridgeMessage(`Backend(${action}): ${formatBridgeError(error)}`);
 }
 
 // py2js 方向：安装到 window 上供 Python evaluate_js 回调，
 // Python 执行 JS 出错时由后端包装函数调用，把异常通过 message 提示出来。
 export function installPy2JsErrorNotifier(): void {
   window.__xallingNotifyPy2JsError = (action, error) => {
-    showBridgeMessage(`前端脚本执行失败（${action}）：${error}`);
+    showBridgeMessage(`Frontend(${action}): ${error}`);
   };
 }
 
