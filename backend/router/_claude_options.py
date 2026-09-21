@@ -112,6 +112,7 @@ def _agent_options(
         cwd=config.project,
         effort=config.effort,
         env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling/0.1.0"},
+        extra_args={"allow-dangerously-skip-permissions": None},
         max_turns=200,
         model=config.model,
         permission_mode=config.permission_mode,
