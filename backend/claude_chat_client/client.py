@@ -155,6 +155,8 @@ class ClaudeChatClient:
                     await sdk.disconnect()
                 raise
             self._sdk = sdk
+            # 强制触发一次异常，如果不支持这个就会报错
+            self._sdk.set_permission_mode(self._options.permission_mode)
 
     async def close(self) -> None:
         """Interrupt an active turn, then close the persistent connection."""

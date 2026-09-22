@@ -17,6 +17,37 @@
 .settings-kicker { color: #8178d8; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
 .settings-title h1 { margin: 6px 0 7px; font-size: 31px; letter-spacing: -.035em; }
 .settings-title p { margin: 0; color: #77798a; font-size: 14px; }
+.automation-modal .ant-modal-body { padding: 0; }
+.automation-content { display: flex; min-width: 0; flex-direction: column; padding: 4px 0 2px; }
+.automation-title-row { display: flex; max-width: 1120px; width: 100%; align-items: flex-start; justify-content: space-between; gap: 24px; margin: 0 auto 28px; }
+.automation-title { min-width: 0; }
+.automation-kicker { color: #8178d8; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.automation-title h1 { margin: 6px 0 7px; color: #282936; font-size: 31px; letter-spacing: -.035em; }
+.automation-title p { max-width: min(620px, 65vw); margin: 0; overflow: hidden; color: #77798a; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.automation-title-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+.automation-workspace-filter { max-width: 220px; padding: 7px 30px 7px 10px; color: #5d5e6c; border: 1px solid #e0dfe9; border-radius: 8px; background: #fff; }
+.automation-title-actions .ant-btn { color: #6d5dfc; }
+.automation-title-actions .ant-btn:hover { color: #5948ed !important; background: #eeebff !important; }
+.automation-status { display: grid; max-width: 1120px; min-height: 240px; width: 100%; place-items: center; margin: 0 auto; border: 1px solid #e4e3ed; border-radius: 16px; background: #fff; }
+.automation-error { max-width: 1120px; width: 100%; margin: 0 auto 14px; padding: 10px 13px; color: #c74747; font-size: 12px; border: 1px solid #f0c9c9; border-radius: 9px; background: #fff6f6; }
+.automation-task-list { display: grid; max-width: 1120px; width: 100%; gap: 12px; margin: 0 auto; }
+.automation-task-card { padding: 17px 19px; border: 1px solid #e4e3ed; border-radius: 14px; background: #fff; box-shadow: 0 8px 22px rgba(48, 43, 102, .045); }
+.automation-task-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.automation-task-title-wrap { display: flex; min-width: 0; align-items: flex-start; gap: 10px; }
+.automation-task-icon { margin-top: 4px; color: #6d5dfc; font-size: 16px; }
+.automation-task-card h2 { margin: 0; overflow: hidden; color: #363744; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.automation-task-id { display: block; margin-top: 3px; overflow: hidden; color: #a0a1ad; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.automation-task-type { flex: none; padding: 3px 8px; color: #6254d7; font-size: 11px; border-radius: 999px; background: #eeebff; }
+.automation-task-prompt { margin: 14px 0 12px; color: #5f606d; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.automation-task-meta { display: flex; flex-wrap: wrap; gap: 9px 18px; color: #90919e; font-size: 11px; }
+.automation-task-meta span { display: inline-flex; align-items: center; gap: 5px; }
+html[data-theme="dark"] .automation-modal .ant-modal-content { background: #111114; }
+html[data-theme="dark"] .automation-title h1 { color: rgba(255, 255, 255, .92); }
+html[data-theme="dark"] .automation-title p { color: rgba(255, 255, 255, .45); }
+html[data-theme="dark"] .automation-workspace-filter, html[data-theme="dark"] .automation-status, html[data-theme="dark"] .automation-task-card { color: rgba(255, 255, 255, .78); border-color: #1e1e24; background: #111114; }
+html[data-theme="dark"] .automation-task-card h2 { color: rgba(255, 255, 255, .9); }
+html[data-theme="dark"] .automation-task-prompt { color: rgba(255, 255, 255, .62); }
+html[data-theme="dark"] .automation-task-id, html[data-theme="dark"] .automation-task-meta { color: rgba(255, 255, 255, .4); }
 .model-settings-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); max-width: 1120px; min-height: 540px; margin: 0 auto; overflow: hidden; border: 1px solid #e4e3ed; border-radius: 16px; background: #fff; box-shadow: 0 15px 35px rgba(48, 43, 102, .07); }
 .provider-list { display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 18px 14px 14px; border-right: 1px solid #e9e8f1; background: #fcfcff; }
 .provider-list-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 5px; color: #565766; font-size: 13px; font-weight: 700; }

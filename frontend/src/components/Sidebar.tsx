@@ -111,14 +111,16 @@ function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
 
 type SidebarProps = {
   activeSessionId?: string | null;
+  automationActive?: boolean;
   projectExpansionRequest?: { path: string; sequence: number } | null;
   onCollapse: () => void;
+  onAutomationClick?: () => void;
   onHistorySessionClick?: (sessionId: string) => void;
   onNewTask: () => void;
   onProjectTask?: (project: ProjectFolder) => void;
   onSearchClick?: () => void;
   onSettingsClick: () => void;
-  mode?: "workspace" | "settings";
+  mode?: "workspace" | "settings" | "automation";
   searchActive?: boolean;
   activeSettingsSection?: string;
   onSettingsSectionChange?: (section: string) => void;
@@ -129,8 +131,10 @@ type SidebarProps = {
 
 export function Sidebar({
   activeSessionId = null,
+  automationActive = false,
   projectExpansionRequest = null,
   onCollapse,
+  onAutomationClick,
   onHistorySessionClick,
   onNewTask,
   onProjectTask,
@@ -281,10 +285,14 @@ export function Sidebar({
             <Menu
               className="main-menu"
               mode="inline"
-              selectedKeys={searchActive ? ["search"] : []}
+              selectedKeys={
+                searchActive ? ["search"] : automationActive ? ["automation"] : []
+              }
               onClick={({ key }) => {
                 if (key === "search") {
                   onSearchClick?.();
+                } else if (key === "automation") {
+                  onAutomationClick?.();
                 }
               }}
               items={navigation}

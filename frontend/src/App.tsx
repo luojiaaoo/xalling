@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BridgeMessageHost } from "./bridge/BridgeMessageHost";
 import { AppearanceSettings } from "./components/AppearanceSettings";
+import { Automation } from "./components/Automation";
 import { ModelSettings } from "./components/ModelSettings";
 import { SearchPalette } from "./components/SearchPalette";
 import { Sidebar } from "./components/Sidebar";
@@ -27,6 +28,7 @@ import useSereneTheme from "./sereneTheme";
 import { themes, type ThemeName } from "./theme";
 
 const SIDEBAR_AUTO_COLLAPSE_WIDTH = 500;
+const CHAT_SESSIONS_POLL_INTERVAL_MS = 3_000;
 
 const effortValues: ChatEffort[] = ["low", "medium", "high", "max"];
 
@@ -43,6 +45,7 @@ function isThemeName(value: string): value is ThemeName {
 
 export default function App() {
   const [view, setView] = useState<"workspace" | "settings">("workspace");
+  const [automationOpen, setAutomationOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("model");
   const [themeName, setThemeName] = useState<ThemeName>("default");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -121,25 +124,22 @@ export default function App() {
     refreshChatSessions(true);
   }, [refreshChatSessions]);
 
-  const hasRunningSession = chatSessions.some((session) => session.running);
-
   useEffect(() => {
-    if (!hasRunningSession) {
-      return undefined;
-    }
-
-    const pollRunningSessions = () => {
+    const refreshVisibleChatSessions = () => {
       if (document.visibilityState === "visible") {
         refreshChatSessions(false);
       }
     };
-    const intervalId = window.setInterval(pollRunningSessions, 1_000);
-    document.addEventListener("visibilitychange", pollRunningSessions);
+    const intervalId = window.setInterval(
+      refreshVisibleChatSessions,
+      CHAT_SESSIONS_POLL_INTERVAL_MS,
+    );
+    document.addEventListener("visibilitychange", refreshVisibleChatSessions);
     return () => {
       window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", pollRunningSessions);
+      document.removeEventListener("visibilitychange", refreshVisibleChatSessions);
     };
-  }, [hasRunningSession, refreshChatSessions]);
+  }, [refreshChatSessions]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeName;
@@ -213,6 +213,11 @@ export default function App() {
     setWorkspaceKey((key) => key + 1);
   }
 
+  function handleAutomation() {
+    setSearchOpen(false);
+    setAutomationOpen(true);
+  }
+
   // 侧栏项目快捷按钮：以该项目为工作区开一个新任务，不选中任何历史会话
   function handleProjectTask(project: ProjectFolder) {
     setView("workspace");
@@ -282,9 +287,11 @@ export default function App() {
           {sidebarVisible && (
             <Sidebar
               activeSessionId={activeSessionId}
+              automationActive={automationOpen}
               projectExpansionRequest={projectExpansionRequest}
               mode={view}
               onCollapse={() => setSidebarVisible(false)}
+              onAutomationClick={handleAutomation}
               onHistorySessionClick={handleHistorySessionClick}
               onNewTask={handleNewTask}
               onProjectTask={handleProjectTask}
@@ -315,6 +322,15 @@ export default function App() {
             onSessionsChanged={refreshChatSessions}
             permissionMode={permissionMode}
             selectedProject={selectedProject}
+          />
+          <Automation
+            onClose={() => setAutomationOpen(false)}
+            open={automationOpen}
+            projectPath={
+              selectedProject?.path
+              ?? chatSessions.find((session) => session.session_id === activeSessionId)?.cwd
+              ?? null
+            }
           />
           {view === "settings" && (
             settingsSection === "theme" ? (

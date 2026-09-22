@@ -15,6 +15,7 @@ from backend.router import (
     WindowRouter,
 )
 from backend.router.log import capture_bridge_api_errors
+from backend.scheduler import shutdown_scheduler
 
 DEBUG = os.environ.get("XALLING_DEBUG", "0") == "1"
 
@@ -34,6 +35,7 @@ class ApplicationBridge(
 
     async def _shutdown_bridge(self) -> None:
         # 关闭所有的client
+        shutdown_scheduler()
         await self._shutdown_chat_clients()
 
 

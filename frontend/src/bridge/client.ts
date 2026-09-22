@@ -59,6 +59,8 @@ type PyWebviewApi = {
     effort: ChatEffort,
   ) => Promise<boolean>;
   list_chat_sessions: () => Promise<ChatSessionSummary[]>;
+  list_scheduled_tasks: (projectPath: string | null) => Promise<ScheduledTaskSummary[]>;
+  list_all_scheduled_tasks: () => Promise<ScheduledTaskSummary[]>;
   search_chat_sessions: (query: string) => Promise<ChatSearchMatch[]>;
   get_chat_session: (
     projectPath: string | null,
@@ -214,6 +216,20 @@ export type ChatSessionSummary = {
   summary: string;
   tag: string | null;
   title: string;
+};
+
+export type ScheduledTaskSummary = {
+  task_id: string;
+  session_id: string;
+  title: string;
+  prompt: string;
+  workspace_path: string;
+  permission_mode: string;
+  effort: string;
+  schedule_type: "interval" | "date" | "cron";
+  schedule_value: string;
+  created_at: string;
+  next_run_time: string | null;
 };
 
 /** 一条搜索命中：turn_id + role 可直接定位到统一事件生成的气泡。 */
@@ -633,6 +649,18 @@ export async function setChatPermissionMode(
 export async function listChatSessions(): Promise<ChatSessionSummary[]> {
   const api = await getBridgeApi();
   return (await api?.list_chat_sessions()) ?? [];
+}
+
+export async function listScheduledTasks(
+  projectPath: string | null,
+): Promise<ScheduledTaskSummary[]> {
+  const api = await getBridgeApi();
+  return (await api?.list_scheduled_tasks(projectPath)) ?? [];
+}
+
+export async function listAllScheduledTasks(): Promise<ScheduledTaskSummary[]> {
+  const api = await getBridgeApi();
+  return (await api?.list_all_scheduled_tasks()) ?? [];
 }
 
 export async function searchChatSessions(query: string): Promise<ChatSearchMatch[]> {

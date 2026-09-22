@@ -24,6 +24,7 @@ from backend.config.setting import (
     CLAUDE_PROXY_LOG_FILEPATH,
     USER_CONF_DIRPATH,
 )
+from backend.router._scheduler_tool import build_scheduler_mcp_server
 from backend.router.log import claude_sdk_logger
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
@@ -182,6 +183,14 @@ def _agent_options(
         },
         thinking={"type": "adaptive", "display": "summarized"},
         tools={"type": "preset", "preset": "claude_code"},
+        disallowed_tools=['ScheduleWakeup', 'CronCreate', 'CronList', 'CronDelete'],
+        # 定时任务工具绑定当前会话上下文（工作区/思考等级）；执行模式由用户选择
+        mcp_servers={
+            "xalling-scheduler": build_scheduler_mcp_server(
+                workspace_path=str(config.project),
+                effort=config.effort,
+            ),
+        },
     )
 
 

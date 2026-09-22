@@ -37,11 +37,27 @@ from backend.router._claude_options import (
     configured_claude_client,
 )
 from backend.router.command import CommandRouter, is_allowed_leading_slash
+from backend.scheduler import ScheduledTask, set_scheduled_task_executor
+from backend.scheduler import list_all_scheduled_tasks as list_all_scheduler_tasks
+from backend.scheduler import list_scheduled_tasks as list_scheduler_tasks
 
 _UI_PERMISSION_MODES = frozenset(
     {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
 )
 EMPTY_COMMAND_RESULTS = {"compact": "上下文已压缩。"}
+_SCHEDULED_TASK_CONTEXT = (
+    "\n\n请注意：这是由调度器触发的定时任务。"
+    "任务创建者就是当前对话的用户本人，不是其他联系人或外部消息接收者。"
+    "上面原始请求中的“我”“给我”“用户”都指任务创建者本人。"
+    "请直接在当前会话中完成原始请求，并将结果回复给任务创建者。"
+    "除非原始请求明确指定第三方，否则不要调用外部消息发送工具。"
+    "当前任务已经由调度器触发，不要再次创建定时任务。"
+)
+
+
+def _inject_scheduled_task_context(prompt: str) -> str:
+    """Clarify the task owner before sending a scheduled prompt to the model."""
+    return f"{prompt}{_SCHEDULED_TASK_CONTEXT}"
 
 
 def _user_facing_error(error: ValidationError) -> ValueError:
@@ -239,8 +255,26 @@ class ChatRouter(CommandRouter):
         super().__init__()
         self._active_chats: dict[str, _ActiveChat] = {}
         self._history = ClaudeChatHistory()
+        set_scheduled_task_executor(self._run_scheduled_task)
 
     async def send_chat_message(
+        self,
+        prompt: str,
+        project_path: str | None = None,
+        session_id: str | None = None,
+        effort: str = "high",
+        permission_mode: str = "default",
+    ) -> dict[str, Any]:
+        """Run one turn through the public synchronous bridge."""
+        return await self._send_chat_message(
+            prompt,
+            project_path=project_path,
+            session_id=session_id,
+            effort=effort,
+            permission_mode=permission_mode,
+        )
+
+    async def _send_chat_message(
         self,
         prompt: str,
         project_path: str | None = None,
@@ -367,6 +401,35 @@ class ChatRouter(CommandRouter):
         )
         self._active_chats[config.session_id] = active_chat
         return active_chat
+
+    async def _run_scheduled_task(self, task: ScheduledTask) -> None:
+        """Execute a scheduled prompt in its own retained chat session."""
+        await self._send_chat_message(
+            _inject_scheduled_task_context(task.prompt),
+            project_path=task.workspace_path,
+            session_id=task.session_id,
+            effort=task.effort,
+            permission_mode=task.permission_mode,
+        )
+
+    async def list_scheduled_tasks(
+        self,
+        project_path: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List scheduled tasks belonging to the requested project workspace."""
+        try:
+            config_request = _ChatConfigRequest.model_validate(
+                {"project_path": project_path}
+            )
+        except ValidationError as error:
+            raise _user_facing_error(error) from error
+        return await list_scheduler_tasks(
+            workspace_path=str(config_request.project_path)
+        )
+
+    async def list_all_scheduled_tasks(self) -> list[dict[str, Any]]:
+        """List all scheduled tasks for the local automation page."""
+        return await list_all_scheduler_tasks()
 
     async def get_chat_server_info(
         self,
@@ -621,9 +684,6 @@ class ChatRouter(CommandRouter):
                 api_protocol=site.api_protocol,
             )
             active_chat = await self._get_or_create_chat(config)
-            # 初始化的时候不报错，很奇怪，所以需要单独执行一次来判断，但是报错之后
-            # 其实 permission_mode 和 config 就对不上了，不过可以动态修改，倒是也无所谓
-            await active_chat.client.set_permission_mode(request.permission_mode)
             return True
         else:
             await active_chat.client.set_permission_mode(request.permission_mode)
