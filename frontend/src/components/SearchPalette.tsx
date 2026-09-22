@@ -30,7 +30,7 @@ function renderSearchSnippet(snippet: string, query: string): ReactNode {
 
 type SearchPaletteProps = {
   onClose: () => void;
-  onOpenResult: (sessionId: string, bubbleKey: string | null) => void;
+  onOpenResult: (sessionId: string, bubbleKey: string | null, cwd: string | null) => void;
   currentSessionId?: string | null;
 };
 
@@ -118,7 +118,7 @@ export function SearchPalette({ onClose, onOpenResult, currentSessionId = null }
       event.preventDefault();
       const match = orderedResults[activeIndex];
       if (match) {
-        onOpenResult(match.session_id, resultBubbleKey(match));
+        onOpenResult(match.session_id, resultBubbleKey(match), match.cwd);
       }
     } else if (event.key === "Escape") {
       onClose();
@@ -161,7 +161,7 @@ export function SearchPalette({ onClose, onOpenResult, currentSessionId = null }
                 index === activeIndex ? " search-result-row-active" : ""
               }`}
               type="button"
-              onClick={() => onOpenResult(match.session_id, resultBubbleKey(match))}
+              onClick={() => onOpenResult(match.session_id, resultBubbleKey(match), match.cwd)}
               onMouseEnter={() => setActiveIndex(index)}
             >
               <span className="search-result-title-row">

@@ -228,8 +228,24 @@ export default function App() {
     setWorkspaceKey((key) => key + 1);
   }
 
+  function projectForSession(sessionId: string, cwd?: string | null): ProjectFolder | null {
+    const path = cwd ?? chatSessions.find((session) => session.session_id === sessionId)?.cwd;
+    if (!path) {
+      return null;
+    }
+    const segments = path.split(/[\\/]/).filter(Boolean);
+    return {
+      name: segments.at(-1) ?? path,
+      path,
+    };
+  }
+
   function handleHistorySessionClick(sessionId: string) {
     setView("workspace");
+    // A historical session can belong to a different project than the
+    // currently selected workspace. Switch the project before Workspace is
+    // remounted so its initial get_chat_session request uses the right cwd.
+    setSelectedProject(projectForSession(sessionId));
     setActiveSessionId(sessionId);
     setWorkspaceSessionId(sessionId);
     setFocusMessageKey(null);
@@ -248,8 +264,13 @@ export default function App() {
   }
 
   // 搜索结果：打开对应会话，并把它命中的消息气泡滚动置顶
-  function handleSearchResultOpen(sessionId: string, messageKey: string | null) {
+  function handleSearchResultOpen(
+    sessionId: string,
+    messageKey: string | null,
+    cwd?: string | null,
+  ) {
     setView("workspace");
+    setSelectedProject(projectForSession(sessionId, cwd));
     setActiveSessionId(sessionId);
     setWorkspaceSessionId(sessionId);
     setFocusMessageKey(messageKey);
@@ -347,9 +368,9 @@ export default function App() {
           <SearchPalette
             currentSessionId={activeSessionId}
             onClose={() => setSearchOpen(false)}
-            onOpenResult={(sessionId, messageKey) => {
+            onOpenResult={(sessionId, messageKey, cwd) => {
               setSearchOpen(false);
-              handleSearchResultOpen(sessionId, messageKey);
+              handleSearchResultOpen(sessionId, messageKey, cwd);
             }}
           />
         )}
