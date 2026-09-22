@@ -1,4 +1,4 @@
-from backend.router.command import (
+from backend.service.command import (
     ALLOWED_COMMAND_NAMES,
     is_allowed_leading_slash,
 )
@@ -6,7 +6,7 @@ from main import ApplicationBridge
 
 
 def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
-    monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
+    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
     server_info = {
         "commands": [
             {
@@ -95,7 +95,7 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
 
 
 def test_command_router_handles_missing_command_list(monkeypatch) -> None:
-    monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
+    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
     router = ApplicationBridge()
 
     async def get_server_info(

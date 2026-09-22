@@ -18,14 +18,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from backend.config.setting import SCHEDULER_DATABASE_FILEPATH
-
-
-def _claude_sdk_logger():
-    # backend.router.log 在模块级导入会经 router/__init__ 形成循环导入，
-    # 因此惰性导入（调用发生在运行时，此时各模块均已加载）
-    from backend.router.log import claude_sdk_logger
-
-    return claude_sdk_logger
+from backend.service.log import claude_sdk_logger
 
 type ScheduleType = Literal["interval", "date", "cron"]
 SCHEDULE_TYPES: tuple[ScheduleType, ...] = ("interval", "date", "cron")
@@ -180,7 +173,7 @@ def _task_belongs_to_workspace(task: ScheduledTask, workspace_path: str) -> bool
 
 async def _execute_scheduled_task(task: ScheduledTask) -> None:
     """定时任务触发入口。"""
-    _claude_sdk_logger().info(
+    claude_sdk_logger.info(
         "定时任务触发 | task_id={} session_id={} title={} type={} "
         "workspace={} permission_mode={} effort={} prompt={}",
         task.task_id,
@@ -194,7 +187,7 @@ async def _execute_scheduled_task(task: ScheduledTask) -> None:
     )
     executor = _task_executor
     if executor is None:
-        _claude_sdk_logger().error(
+        claude_sdk_logger.error(
             "定时任务未执行：应用尚未配置任务执行器 | task_id={}",
             task.task_id,
         )
@@ -245,7 +238,7 @@ async def add_scheduled_task(
         id=task.task_id,
         name=task.title,
     )
-    _claude_sdk_logger().info(
+    claude_sdk_logger.info(
         "定时任务已创建 | task_id={} title={} type={} value={}",
         task.task_id,
         task.title,

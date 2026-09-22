@@ -33,7 +33,7 @@ def serialize_native_message(message: object) -> str:
 
 
 def _warn(message: str) -> None:
-    from ..router.log import session_debug_logger
+    from ..service.log import session_debug_logger
 
     session_debug_logger.warning(message)
 

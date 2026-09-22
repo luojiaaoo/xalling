@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from backend.router import log
-from backend.router.log import LogRouter, capture_bridge_api_errors, capture_bridge_errors
+from backend.service import log
+from backend.router.log import LogRouter
+from backend.service.log import capture_bridge_api_errors, capture_bridge_errors
 from main import ApplicationBridge
 
 

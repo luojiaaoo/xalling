@@ -147,7 +147,7 @@ def test_application_bridge_runs_scheduled_task_as_async() -> None:
     async def fake_send(prompt: str, **kwargs: str) -> None:
         calls.append((prompt, kwargs))
 
-    bridge._send_chat_message = fake_send
+    bridge._chat_service.send_chat_message = fake_send
     task = ScheduledTask(
         task_id="task-id",
         session_id="session-id",
@@ -160,7 +160,7 @@ def test_application_bridge_runs_scheduled_task_as_async() -> None:
         schedule_value="2026-09-22 11:38",
     )
     try:
-        bridge._async_runtime.call(bridge._run_scheduled_task, task)
+        bridge._async_runtime.call(bridge._chat_service._run_scheduled_task, task)
     finally:
         bridge._close_bridge()
 

@@ -17,7 +17,8 @@ from backend.router import (
     ThemeRouter,
     WindowRouter,
 )
-from backend.router.window import WindowBounds
+from backend.service.model import ModelService
+from backend.service.window import WindowBounds
 from main import ApplicationBridge
 
 
@@ -170,7 +171,7 @@ def test_model_router_fetches_and_normalizes_remote_model_names(
     transport = httpx.MockTransport(respond)
     original_client = httpx.AsyncClient
     monkeypatch.setattr(
-        "backend.router.model.httpx.AsyncClient",
+        "backend.service.model.httpx.AsyncClient",
         lambda **kwargs: original_client(transport=transport, **kwargs),
     )
 
@@ -202,11 +203,11 @@ def test_model_router_builds_models_endpoint(
     api_url: str,
     expected_url: str,
 ) -> None:
-    assert str(ModelRouter._models_endpoint(api_url)) == expected_url
+    assert str(ModelService._models_endpoint(api_url)) == expected_url
 
 
 def test_model_router_accepts_more_than_one_hundred_configured_models() -> None:
-    models = ModelRouter._validate_models(
+    models = ModelService._validate_models(
         [{"name": f"model-{index}", "image_vision": False} for index in range(125)]
     )
 
@@ -216,7 +217,7 @@ def test_model_router_accepts_more_than_one_hundred_configured_models() -> None:
 def test_application_bridge_composes_and_wraps_router_methods(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
+    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
     assert inspect.isabstract(CommandRouter)
 
     bridge = ApplicationBridge()
@@ -251,9 +252,9 @@ def test_window_router_maximizes_to_current_windows_work_area(
         def move(self, x: int, y: int) -> None:
             self.calls.append(("move", x, y))
 
-    monkeypatch.setattr("backend.router.window.IS_WINDOWS", True)
+    monkeypatch.setattr("backend.service.window.IS_WINDOWS", True)
     monkeypatch.setattr(
-        "backend.router.window._windows_work_areas",
+        "backend.service.window._windows_work_areas",
         lambda: [
             WindowBounds(0, 0, 1920, 1040),
             WindowBounds(1920, 0, 2560, 1400),
@@ -287,7 +288,7 @@ def test_window_router_uses_native_maximize_outside_windows(
         def restore(self) -> None:
             self.calls.append("restore")
 
-    monkeypatch.setattr("backend.router.window.IS_WINDOWS", False)
+    monkeypatch.setattr("backend.service.window.IS_WINDOWS", False)
     window = WindowStub()
     router = WindowRouter()
     router.bind_window(window)

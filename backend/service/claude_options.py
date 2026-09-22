@@ -24,8 +24,8 @@ from backend.config.setting import (
     CLAUDE_PROXY_LOG_FILEPATH,
     USER_CONF_DIRPATH,
 )
-from backend.router._scheduler_tool import build_scheduler_mcp_server
-from backend.router.log import claude_sdk_logger
+from backend.service.log import claude_sdk_logger
+from backend.service.scheduler_tool import build_scheduler_mcp_server
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ApiProtocol = Literal["anthropic", "chat", "responses"]

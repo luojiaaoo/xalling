@@ -19,13 +19,13 @@ from backend.claude_chat_client import (
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.router._claude_options import (
+from backend.service.claude_options import (
     ClaudeConnectionConfig,
     _agent_options,
     _provider_settings,
     discover_plugins,
 )
-from backend.router.chat import (
+from backend.service.chat import (
     _ActiveChat,
     _ChatMessageRequest,
     _validate_leading_slash,
@@ -38,7 +38,7 @@ def bridge_factory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[Callable[[], ApplicationBridge]]:
     bridges: list[ApplicationBridge] = []
-    monkeypatch.setattr("backend.router.log._ensure_logging_configured", lambda: None)
+    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
 
     def create() -> ApplicationBridge:
         bridge = ApplicationBridge()
@@ -120,7 +120,7 @@ def test_leading_slash_validation_blocks_disallowed_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "backend.router.chat.is_allowed_leading_slash",
+        "backend.service.chat.is_allowed_leading_slash",
         lambda name, _server_info: name in {"compact", ".agents:review"},
     )
 
@@ -139,7 +139,7 @@ def test_xalling_claude_options_preserve_provider_and_session_settings(
     session_id = str(uuid4())
     config = connection_config(tmp_path, session_id)
     config = replace(config, max_context_tokens=0)
-    monkeypatch.setattr("backend.router._claude_options.platform.system", lambda: "Windows")
+    monkeypatch.setattr("backend.service.claude_options.platform.system", lambda: "Windows")
     settings = _provider_settings(config)
     settings_path = tmp_path / "settings.json"
     options_new = _agent_options(config, settings_path, is_new_session=True)
@@ -237,7 +237,7 @@ def test_chat_router_streams_public_events_and_returns_public_result(
         finally:
             closed.append(True)
 
-    monkeypatch.setattr("backend.router.chat.configured_claude_client", configured)
+    monkeypatch.setattr("backend.service.chat.configured_claude_client", configured)
     scripts: list[str] = []
 
     class WindowStub:
@@ -307,7 +307,7 @@ def test_chat_router_returns_context_usage(
     assert router.get_context_usage(session_id) is None
 
     # 已有存活客户端时返回实时占用
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=StubClient(),
         config=ClaudeConnectionConfig(
             api_key="secret",
@@ -333,7 +333,7 @@ def test_chat_router_lists_new_history_models_and_merges_running_session(
     running_id = str(uuid4())
     persisted_id = str(uuid4())
     router = bridge_factory()
-    router._history.list_sessions = lambda: [
+    router._chat_service._history.list_sessions = lambda: [
         ChatSessionInfo(
             session_id=persisted_id,
             title="Persisted",
@@ -349,7 +349,7 @@ def test_chat_router_lists_new_history_models_and_merges_running_session(
         async def request_stop(self) -> None:
             return None
 
-    router._active_chats[running_id] = _ActiveChat(
+    router._chat_service._active_chats[running_id] = _ActiveChat(
         client=StubClient(),  # type: ignore[arg-type]
         config=connection_config(tmp_path, running_id),
         resources=AsyncExitStack(),
@@ -406,13 +406,13 @@ def test_chat_router_returns_history_and_search_in_the_public_event_protocol(
         finally:
             pass
 
-    monkeypatch.setattr("backend.router.chat.configured_claude_client", configured)
+    monkeypatch.setattr("backend.service.chat.configured_claude_client", configured)
     router = bridge_factory()
-    router._history.get_session = lambda _session_id: ChatSessionSnapshot(
+    router._chat_service._history.get_session = lambda _session_id: ChatSessionSnapshot(
         session=info,
         events=(user_event,),
     )
-    router._history.search_sessions = lambda _query: [
+    router._chat_service._history.search_sessions = lambda _query: [
         ChatSearchMatch(
             session=info,
             snippet="hello",
@@ -458,7 +458,7 @@ def test_chat_router_resolves_event_driven_tool_permission(
 
     client = StubClient()
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=client,  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -512,7 +512,7 @@ def test_chat_router_returns_ask_user_answers_to_client(
 
     client = StubClient()
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=client,  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -567,7 +567,7 @@ def test_chat_router_resolves_plan_with_selected_mode(
 
     client = StubClient()
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=client,  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -612,7 +612,7 @@ def test_get_active_chat_replays_only_pending_permission_requests(
             return None
 
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=StubClient(),  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -661,7 +661,7 @@ def test_chat_router_denies_permission_when_window_is_unavailable(
 
     client = StubClient()
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=client,  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -679,7 +679,7 @@ def test_chat_router_denies_permission_when_window_is_unavailable(
         },
     )
 
-    assert not router._emit_chat_event(permission_event, session_id=session_id)
+    assert not router._chat_service._emit_chat_event(permission_event, session_id=session_id)
     assert client.denied is not None
     assert "无法显示" in client.denied.message
 
@@ -699,7 +699,7 @@ def test_chat_router_stops_active_client(
 
     client = StubClient()
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=client,  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -727,7 +727,7 @@ def test_chat_router_updates_live_permission_mode_and_retains_config(
 
     client = StubClient()
     router = bridge_factory()
-    router._active_chats[session_id] = _ActiveChat(
+    router._chat_service._active_chats[session_id] = _ActiveChat(
         client=client,  # type: ignore[arg-type]
         config=connection_config(tmp_path, session_id),
         resources=AsyncExitStack(),
@@ -738,7 +738,7 @@ def test_chat_router_updates_live_permission_mode_and_retains_config(
 
     assert router.set_chat_permission_mode(session_id, "acceptEdits")
     assert client.permission_mode == "acceptEdits"
-    assert router._active_chats[session_id].config.permission_mode == "acceptEdits"
+    assert router._chat_service._active_chats[session_id].config.permission_mode == "acceptEdits"
 
 
 def test_chat_router_permission_mode_update_creates_client_when_missing(

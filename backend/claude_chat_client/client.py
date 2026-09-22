@@ -31,7 +31,7 @@ from claude_agent_sdk import (
     Transport,
     UserMessage,
 )
-from backend.router.log import claude_sdk_logger
+from backend.service.log import claude_sdk_logger
 
 from .message_adapter import (
     _EXIT_PLAN_MODE_TOOL_NAME,

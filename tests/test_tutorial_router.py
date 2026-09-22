@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.router import tutorial
+from backend.service import tutorial
 from backend.router.tutorial import TutorialRouter
 
 
