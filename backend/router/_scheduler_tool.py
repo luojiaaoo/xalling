@@ -50,7 +50,7 @@ _INPUT_SCHEMA: dict[str, Any] = {
             "description": (
                 "任务触发时使用的执行模式，必须由用户明确选择；"
                 "default=变更前确认、acceptEdits=自动编辑、plan=计划模式、"
-                "auto=帮我批准、bypassPermissions=完全访问"
+                "auto=帮我批准（模型API可能不支持）、bypassPermissions=完全访问"
             ),
         },
     },

@@ -121,7 +121,7 @@ const permissionModeDescriptions: Record<ChatPermissionMode, string> = {
   default: "改文件前先问我。",
   acceptEdits: "自动编辑文件。",
   plan: "编辑前先出计划。",
-  auto: "帮你自动同意低风险操作（仅支持部分API）。",
+  auto: "帮你自动同意低风险操作（模型API可能不支持）。",
   bypassPermissions: "减少确认次数，但可能会执行危险操作。",
 };
 const permissionModeIcons: Record<ChatPermissionMode, React.ReactNode> = {
