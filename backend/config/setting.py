@@ -15,21 +15,21 @@ from pydantic_settings import (
 )
 
 USER_CONF_DIRPATH = Path(os.getcwd()) / ".xalling"
-CURRENT_CONF_FILEPATH = USER_CONF_DIRPATH / "current.toml"
+CURRENT_CONF_FILEPATH = USER_CONF_DIRPATH / "xalling-current.toml"
 # 给 history 中获取历史数据的函数使用，设置环境变量
 os.environ["CLAUDE_CONFIG_DIR"] = str(USER_CONF_DIRPATH)
 CLAUDE_PROJECTS_DIRECTORY = USER_CONF_DIRPATH / "projects"  # CC默认项目路径
-CONF_FILEPATH = USER_CONF_DIRPATH / "setting.toml"
+CONF_FILEPATH = USER_CONF_DIRPATH / "xalling-setting.toml"
 
 # UI 上传的附件落盘目录，路径会注入到提示词中供模型读取。
-ATTACHMENTS_DIRECTORY = USER_CONF_DIRPATH / "attachments"
+ATTACHMENTS_DIRECTORY = USER_CONF_DIRPATH / "xalling-attachments"
 
 # Application log output paths.
-LOG_DIRECTORY = USER_CONF_DIRPATH / "log"
+LOG_DIRECTORY = USER_CONF_DIRPATH / "xalling-log"
 ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"
 BROWSER_LOG_FILEPATH = LOG_DIRECTORY / "browser.log"
 ERROR_LOG_FILEPATH = LOG_DIRECTORY / "error.log"
-CLAUDE_SDK_FILEPATH = LOG_DIRECTORY / "claude_sdk.log"
+CLAUDE_SDK_FILEPATH = LOG_DIRECTORY / "claude-sdk.log"
 CLAUDE_PROXY_LOG_FILEPATH = LOG_DIRECTORY / "claude-proxy.log"
 
 SESSION_DEBUG_DIRECTORY = LOG_DIRECTORY / "session_debug"
