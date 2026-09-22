@@ -160,17 +160,22 @@ def test_xalling_claude_options_preserve_provider_and_session_settings(
 
 def test_discover_plugins_includes_existing_user_and_project_roots(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
-    (home / ".agents").mkdir(parents=True)
+    (home / ".codex").mkdir(parents=True)
+    (home / ".claude").mkdir(parents=True)
     (project / ".agents").mkdir(parents=True)
 
-    plugins = discover_plugins(home=home, project=project)
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    plugins = discover_plugins(project=project)
 
     assert plugins == [
-        {"type": "local", "path": str((home / ".agents").resolve())},
-        {"type": "local", "path": str((project / ".agents").resolve())},
+        {"type": "local", "path": str(home.resolve() / ".codex")},
+        {"type": "local", "path": str(home.resolve() / ".claude")},
+        {"type": "local", "path": str(project / ".agents")},
     ]
 
 
@@ -736,10 +741,10 @@ def test_chat_router_updates_live_permission_mode_and_retains_config(
     assert router._active_chats[session_id].config.permission_mode == "acceptEdits"
 
 
-def test_chat_router_permission_mode_update_returns_false_without_client(
+def test_chat_router_permission_mode_update_creates_client_when_missing(
     bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
-    assert not bridge_factory().set_chat_permission_mode(str(uuid4()), "default")
+    assert bridge_factory().set_chat_permission_mode(str(uuid4()), "default")
 
 
 @pytest.mark.parametrize("effort", ["", "最高", "ultra"])

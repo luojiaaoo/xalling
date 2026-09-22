@@ -3,6 +3,7 @@ import inspect
 from pathlib import Path
 
 import pytest
+from loguru import logger
 
 from backend.router import log
 from backend.router.log import LogRouter, capture_bridge_api_errors, capture_bridge_errors
@@ -38,6 +39,7 @@ def test_capture_bridge_errors_logs_to_console_and_file(
     with pytest.raises(ValueError, match="bridge failed"):
         fail()
 
+    logger.complete()  # enqueue=True 时日志异步落盘，先等队列刷完
     console_output = capsys.readouterr().err
     file_output = error_log.read_text(encoding="utf-8")
     for output in (console_output, file_output):
@@ -61,6 +63,7 @@ def test_capture_bridge_errors_supports_async_functions(
     with pytest.raises(RuntimeError, match="async bridge failed"):
         asyncio.run(fail())
 
+    logger.complete()
     assert "RuntimeError: async bridge failed" in error_log.read_text(encoding="utf-8")
 
 
@@ -81,6 +84,7 @@ def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
         "api_key": "top-secret",
     }
 
+    logger.complete()
     console_output = capsys.readouterr().err
     file_output = access_log.read_text(encoding="utf-8")
     for output in (console_output, file_output):
@@ -103,6 +107,7 @@ def test_frontend_errors_log_to_separate_browser_file(
         "Error: frontend failed\n    at app.js:1:1",
     )
 
+    logger.complete()
     browser_output = browser_log.read_text(encoding="utf-8")
     assert "Frontend unhandledrejection: frontend failed" in browser_output
     assert "at app.js:1:1" in browser_output

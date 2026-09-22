@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import webview
+from loguru import logger
 
 from backend.async_runtime import bridge_api
 from backend.patch import hide_claude_console_windows
@@ -36,7 +37,10 @@ class ApplicationBridge(
     async def _shutdown_bridge(self) -> None:
         # 关闭所有的client
         shutdown_scheduler()
+        # 关闭所有client
         await self._shutdown_chat_clients()
+        # 刷日志
+        logger.complete()
 
 
 def main() -> None:

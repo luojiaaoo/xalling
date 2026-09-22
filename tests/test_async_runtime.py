@@ -9,6 +9,9 @@ from backend.async_runtime import bridge_api
 def test_concurrent_sync_callers_share_one_event_loop_thread() -> None:
     @bridge_api
     class Bridge:
+        async def _shutdown_bridge(self) -> None:
+            return None
+
         async def identify_async(self, _call_number: int) -> tuple[int, int]:
             await asyncio.sleep(0)
             return get_ident(), id(asyncio.get_running_loop())

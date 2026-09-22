@@ -23,14 +23,14 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
                 "description": "Set a setting",
             },
             {
-                "name": ".agents:review",
-                "description": "Review changes",
+                "name": "review",
+                "description": "(.agents) Review changes",
                 "argumentHint": "[path]",
                 "aliases": [" review ", "", 42],
             },
             {
                 "name": "user-skill",
-                "description": "A custom skill (user)",
+                "description": "(user) A custom skill",
             },
             {"name": "explicit", "description": "Explicit", "kind": "skill"},
             {"description": "Missing name", "kind": "skill"},
@@ -65,13 +65,13 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
         assert router.get_skills(session_id) == [
             {
                 "name": ".agents:review",
-                "description": "Review changes",
+                "description": "(.agents) Review changes",
                 "argument_hint": "[path]",
                 "aliases": ["review"],
             },
             {
-                "name": "user-skill",
-                "description": "A custom skill (user)",
+                "name": "user:user-skill",
+                "description": "(user) A custom skill",
                 "argument_hint": "",
                 "aliases": [],
             },
