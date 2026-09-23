@@ -182,9 +182,9 @@ def test_application_bridge_runs_scheduled_task_as_async() -> None:
     from main import ApplicationBridge
 
     bridge = ApplicationBridge()
-    calls: list[tuple[str, dict[str, str]]] = []
+    calls: list[tuple[str, dict[str, object]]] = []
 
-    async def fake_send(prompt: str, **kwargs: str) -> None:
+    async def fake_send(prompt: str, **kwargs: object) -> None:
         calls.append((prompt, kwargs))
 
     bridge._chat_service.send_chat_message = fake_send
@@ -210,6 +210,8 @@ def test_application_bridge_runs_scheduled_task_as_async() -> None:
     assert "任务创建者就是当前对话的用户本人" in prompt
     assert "当前会话中完成原始请求" in prompt
     assert "不要再次创建定时任务" in prompt
+    on_complete = kwargs.pop("on_complete")
+    assert callable(on_complete)
     assert kwargs == {
         "project_path": ".",
         "session_id": "session-id",
