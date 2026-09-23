@@ -560,6 +560,33 @@ async def _client_emits_context_compaction_events() -> None:
     assert compacted.data == {"pre_tokens": 42_000, "trigger": "auto"}
 
 
+def test_client_logs_unhandled_sdk_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Logger:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def warning(self, message: str, *args: object) -> None:
+            self.calls.append((message, args))
+
+        def info(self, message: str, *args: object) -> None:
+            return None
+
+    logger = _Logger()
+    monkeypatch.setattr("backend.claude_chat_client.client.claude_sdk_logger", logger)
+    _FakeSDK.batches = [[object(), _result(origin={"kind": "human"})]]
+    client = ClaudeChatClient()
+
+    events = anyio.run(_collect_events, client, "Continue")
+
+    assert any(event.event == "sdk.unhandled" for event in events)
+    assert len(logger.calls) == 1
+    assert logger.calls[0][0].startswith("Claude SDK unhandled event")
+
+
+async def _collect_events(client: ClaudeChatClient, prompt: str) -> list[object]:
+    return [event async for event in client.stream(prompt)]
+
+
 def test_tool_result_mapping_tolerates_sdk_string_errors() -> None:
     assert _tool_result_mapping(
         "InputValidationError: invalid tool input",

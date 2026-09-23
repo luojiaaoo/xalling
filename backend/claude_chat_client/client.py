@@ -31,6 +31,7 @@ from claude_agent_sdk import (
     Transport,
     UserMessage,
 )
+
 from backend.service.log import claude_sdk_logger
 
 from .message_adapter import (
@@ -56,6 +57,24 @@ from .usage import _subagent_usage, _turn_usage
 _STREAM_END = object()
 _EXIT_PLAN_EXECUTION_MODES = ("default", "acceptEdits", "auto")
 _TERMINAL_EVENTS = frozenset({"turn.completed", "turn.failed"})
+
+
+def _unhandled_event_log_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """Keep unknown-event diagnostics useful without logging raw payloads."""
+    fields = {
+        key: data.get(key)
+        for key in ("message_type", "content_block_type", "raw_type")
+        if data.get(key) is not None
+    }
+    payload = data.get("payload")
+    if isinstance(payload, dict):
+        fields["payload_keys"] = sorted(str(key) for key in payload)
+        if payload.get("type") is not None:
+            fields["payload_type"] = payload.get("type")
+        delta = payload.get("delta")
+        if isinstance(delta, dict) and delta.get("type") is not None:
+            fields["delta_type"] = delta.get("type")
+    return fields
 
 
 @dataclass(slots=True)
@@ -564,6 +583,14 @@ class ClaudeChatClient:
                         adapted_events = adapter.adapt(message)
                         turn_events.extend(adapted_events)
                         for event in adapted_events:
+                            if event.event == "sdk.unhandled":
+                                claude_sdk_logger.warning(
+                                    "Claude SDK unhandled event | turn_id={} "
+                                    "model_turn_id={} fields={}",
+                                    event.turn_id,
+                                    event.model_turn_id,
+                                    _unhandled_event_log_fields(event.data),
+                                )
                             if event.event == "permission.mode.changed":
                                 mode = event.data.get("mode")
                                 if isinstance(mode, str):
