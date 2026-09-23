@@ -791,6 +791,9 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .chat-bubbles { width: 100%; }
 .chat-bubbles .ant-bubble { padding-block: 10px; scroll-margin-top: 6px; }
 .chat-bubbles .assistant-bubble { padding-inline-end: 0 !important; }
+.chat-bubbles .system-bubble { justify-content: center; padding-block: 6px; }
+.system-bubble .ant-bubble-body { max-width: 100%; }
+.system-bubble .ant-bubble-content { padding: 4px 10px; color: #858693; font-size: 12px; text-align: center; }
 .assistant-bubble .ant-bubble-body, .assistant-bubble .ant-bubble-content { width: 100%; max-width: 100%; }
 .assistant-bubble .ant-bubble-content { padding: 0; background: transparent; }
 .chat-bubbles .user-bubble { padding-block: 16px; }

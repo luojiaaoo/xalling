@@ -269,6 +269,28 @@ class _MessageAdapter:
                 )
             ]
         if isinstance(message, SystemMessage):
+            if message.subtype == "compact_boundary":
+                metadata = message.data.get("compact_metadata")
+                metadata = metadata if isinstance(metadata, Mapping) else {}
+                trigger = metadata.get("trigger")
+                return [
+                    self.factory.make(
+                        "context.compacted",
+                        {
+                            "pre_tokens": metadata.get("pre_tokens"),
+                            "trigger": trigger if trigger in {"auto", "manual"} else "auto",
+                        },
+                        session_id=_string_or_none(message.data.get("session_id")),
+                    )
+                ]
+            if message.subtype == "status" and message.data.get("status") == "compacting":
+                return [
+                    self.factory.make(
+                        "context.compaction.started",
+                        {"trigger": "auto"},
+                        session_id=_string_or_none(message.data.get("session_id")),
+                    )
+                ]
             mode = message.data.get("permissionMode")
             if (
                 isinstance(mode, str)

@@ -63,7 +63,7 @@ type ConversationMessage = {
   finalOutputKey?: string;
   key: string;
   loading?: boolean;
-  role: "ai" | "user";
+  role: "ai" | "system" | "user";
   status?: "abort" | "error" | "success";
   trace?: AgentTraceItem[];
   traceExpanded?: boolean;
@@ -273,9 +273,34 @@ function isStoppedUsage(usage: ChatUsage | undefined): boolean {
     || usage?.stop_reason === "interrupted";
 }
 
+function contextCompactionText(event: ChatRenderEvent): string | null {
+  if (event.event === "context.compaction.started") {
+    return "正在压缩上下文…";
+  }
+  if (event.event !== "context.compacted") {
+    return null;
+  }
+  const trigger = event.data.trigger === "manual" ? "手动" : "自动";
+  const preTokens = event.data.pre_tokens;
+  const tokenText = typeof preTokens === "number"
+    ? `（压缩前约 ${formatTokenCount(preTokens)} Token）`
+    : "";
+  return `上下文已${trigger}压缩${tokenText}`;
+}
+
 function conversationFromEvents(events: ChatRenderEvent[]): ConversationMessage[] {
   const messages: ConversationMessage[] = [];
   for (const event of events) {
+    const compactionText = contextCompactionText(event);
+    if (compactionText) {
+      messages.push({
+        content: compactionText,
+        key: `context-${event.id}`,
+        role: "system",
+        status: "success",
+      });
+      continue;
+    }
     const userKey = turnUserKey(event.turn_id);
     const assistantKey = turnAssistantKey(event.turn_id);
     if (event.event === "user.message") {
@@ -431,6 +456,19 @@ export function Workspace({
     processedEventIdsRef.current.add(event.id);
     if (event.session_id) {
       sessionIdRef.current = event.session_id;
+    }
+    const compactionText = contextCompactionText(event);
+    if (compactionText) {
+      setMessages((current) => [
+        ...current,
+        {
+          content: compactionText,
+          key: `context-${event.id}`,
+          role: "system",
+          status: "success",
+        },
+      ]);
+      return;
     }
     if (isPermissionRequestEvent(event)) {
       setPermissionRequests((current) => (
@@ -1060,6 +1098,8 @@ export function Workspace({
                 </>
               )}
         </article>
+      ) : item.role === "system" ? (
+        <div className="context-compaction-message">{item.content}</div>
       ) : (
         <div className="user-message">
           <div className="chat-message-text">{item.content}</div>
@@ -1096,6 +1136,7 @@ export function Workspace({
                 role={{
                   user: { className: "user-bubble", placement: "end", variant: "outlined" },
                   ai: { className: "assistant-bubble", placement: "start", variant: "borderless" },
+                  system: { className: "system-bubble", placement: "start", variant: "borderless" },
                 }}
               />
             </div>

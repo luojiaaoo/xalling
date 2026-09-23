@@ -529,6 +529,37 @@ async def _client_emits_sdk_confirmed_permission_mode_changes() -> None:
     assert client.options.permission_mode == "default"
 
 
+def test_client_emits_context_compaction_events() -> None:
+    anyio.run(_client_emits_context_compaction_events)
+
+
+async def _client_emits_context_compaction_events() -> None:
+    _FakeSDK.batches = [[
+        SystemMessage(
+            subtype="status",
+            data={"status": "compacting", "session_id": "session-1"},
+        ),
+        SystemMessage(
+            subtype="compact_boundary",
+            data={
+                "compact_metadata": {"pre_tokens": 42_000, "trigger": "auto"},
+                "session_id": "session-1",
+            },
+        ),
+        _result(origin={"kind": "human"}),
+    ]]
+    client = ClaudeChatClient()
+
+    events = [event async for event in client.stream("Continue")]
+
+    assert [event.event for event in events if event.event.startswith("context.")] == [
+        "context.compaction.started",
+        "context.compacted",
+    ]
+    compacted = next(event for event in events if event.event == "context.compacted")
+    assert compacted.data == {"pre_tokens": 42_000, "trigger": "auto"}
+
+
 def test_tool_result_mapping_tolerates_sdk_string_errors() -> None:
     assert _tool_result_mapping(
         "InputValidationError: invalid tool input",

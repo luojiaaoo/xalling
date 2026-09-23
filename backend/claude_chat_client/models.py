@@ -65,6 +65,8 @@ type EventName = Literal[
     "hook.completed",
     "rate_limit.updated",
     "conversation.reset",
+    "context.compaction.started",
+    "context.compacted",
     "system.message",
     "system.mirror_error",
     "stream.ping",
@@ -372,6 +374,13 @@ def render_event(event: ChatEvent) -> dict[str, Any]:
         }
     elif event.event == "turn.failed":
         render_data = {"message": data.get("message", "")}
+    elif event.event == "context.compaction.started":
+        render_data = {"trigger": data.get("trigger", "auto")}
+    elif event.event == "context.compacted":
+        render_data = {
+            "pre_tokens": data.get("pre_tokens"),
+            "trigger": data.get("trigger", "auto"),
+        }
     else:
         # Non-rendering diagnostics/hooks remain visible as a typed no-op so
         # clients can safely ignore them without inspecting SDK payloads.
