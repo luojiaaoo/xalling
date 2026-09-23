@@ -30,6 +30,7 @@ from backend.config.setting import (
     get_settings,
 )
 from backend.scheduler import ScheduledTask, set_scheduled_task_executor
+from backend.scheduler import delete_scheduled_task as delete_scheduler_task
 from backend.scheduler import list_all_scheduled_tasks as list_all_scheduler_tasks
 from backend.scheduler import list_scheduled_tasks as list_scheduler_tasks
 from backend.service.claude_options import (
@@ -459,6 +460,23 @@ class ChatService:
     async def list_all_scheduled_tasks(self) -> list[dict[str, Any]]:
         """List all scheduled tasks for the local automation page."""
         return await list_all_scheduler_tasks()
+
+    async def delete_scheduled_task(
+        self,
+        task_id: str,
+        project_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete a scheduled task after validating its workspace ownership."""
+        try:
+            config_request = _ChatConfigRequest.model_validate(
+                {"project_path": project_path}
+            )
+        except ValidationError as error:
+            raise _user_facing_error(error) from error
+        return await delete_scheduler_task(
+            task_id,
+            workspace_path=str(config_request.project_path),
+        )
 
     async def get_chat_server_info(
         self,

@@ -33,6 +33,9 @@
 .automation-task-list { display: grid; max-width: 1120px; width: 100%; gap: 12px; margin: 0 auto; }
 .automation-task-card { padding: 17px 19px; border: 1px solid #e4e3ed; border-radius: 14px; background: #fff; box-shadow: 0 8px 22px rgba(48, 43, 102, .045); }
 .automation-task-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.automation-task-heading-actions { display: flex; flex: none; align-items: center; gap: 5px; }
+.automation-task-delete { width: 28px; height: 28px; color: #c74747 !important; }
+.automation-task-delete:hover { color: #a52e2e !important; background: #fff0f0 !important; }
 .automation-task-title-wrap { display: flex; min-width: 0; align-items: flex-start; gap: 10px; }
 .automation-task-icon { margin-top: 4px; color: #6d5dfc; font-size: 16px; }
 .automation-task-card h2 { margin: 0; overflow: hidden; color: #363744; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -48,6 +51,7 @@ html[data-theme="dark"] .automation-workspace-filter, html[data-theme="dark"] .a
 html[data-theme="dark"] .automation-task-card h2 { color: rgba(255, 255, 255, .9); }
 html[data-theme="dark"] .automation-task-prompt { color: rgba(255, 255, 255, .62); }
 html[data-theme="dark"] .automation-task-id, html[data-theme="dark"] .automation-task-meta { color: rgba(255, 255, 255, .4); }
+html[data-theme="dark"] .automation-task-delete:hover { color: #ff7875 !important; background: rgba(199, 71, 71, .14) !important; }
 .model-settings-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); max-width: 1120px; min-height: 540px; margin: 0 auto; overflow: hidden; border: 1px solid #e4e3ed; border-radius: 16px; background: #fff; box-shadow: 0 15px 35px rgba(48, 43, 102, .07); }
 .provider-list { display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 18px 14px 14px; border-right: 1px solid #e9e8f1; background: #fcfcff; }
 .provider-list-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 5px; color: #565766; font-size: 13px; font-weight: 700; }

@@ -63,6 +63,10 @@ type PyWebviewApi = {
   list_chat_sessions: () => Promise<ChatSessionSummary[]>;
   list_scheduled_tasks: (projectPath: string | null) => Promise<ScheduledTaskSummary[]>;
   list_all_scheduled_tasks: () => Promise<ScheduledTaskSummary[]>;
+  delete_scheduled_task: (
+    taskId: string,
+    projectPath: string | null,
+  ) => Promise<ScheduledTaskSummary>;
   search_chat_sessions: (query: string) => Promise<ChatSearchMatch[]>;
   get_chat_session: (
     projectPath: string | null,
@@ -670,6 +674,17 @@ export async function listScheduledTasks(
 export async function listAllScheduledTasks(): Promise<ScheduledTaskSummary[]> {
   const api = await getBridgeApi();
   return (await api?.list_all_scheduled_tasks()) ?? [];
+}
+
+export async function deleteScheduledTask(
+  taskId: string,
+  projectPath: string | null,
+): Promise<ScheduledTaskSummary> {
+  const api = await getBridgeApi();
+  if (!api) {
+    throw new Error("桌面应用桥接尚未准备好");
+  }
+  return api.delete_scheduled_task(taskId, projectPath);
 }
 
 export async function searchChatSessions(query: string): Promise<ChatSearchMatch[]> {

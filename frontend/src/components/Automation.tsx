@@ -1,6 +1,7 @@
 import {
   CalendarOutlined,
   ClockCircleOutlined,
+  DeleteOutlined,
   FolderOpenOutlined,
   ReloadOutlined,
   SettingOutlined,
@@ -10,6 +11,7 @@ import { Button, Empty, Modal, Spin } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  deleteScheduledTask,
   getHomeFolder,
   listAllScheduledTasks,
   type ScheduledTaskSummary,
@@ -59,6 +61,7 @@ export function Automation({ onClose, open, projectPath }: AutomationProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workspaceFilter, setWorkspaceFilter] = useState(projectPath ?? "");
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
@@ -115,6 +118,27 @@ export function Automation({ onClose, open, projectPath }: AutomationProps) {
     }
     void refresh(true);
   }, [open, refresh]);
+
+  const handleDelete = (task: ScheduledTaskSummary) => {
+    Modal.confirm({
+      cancelText: "取消",
+      content: `删除后将不再自动执行“${task.title}”，确定继续吗？`,
+      okButtonProps: { danger: true },
+      okText: "删除",
+      title: "删除定时任务",
+      onOk: async () => {
+        setDeletingTaskId(task.task_id);
+        try {
+          await deleteScheduledTask(task.task_id, task.workspace_path);
+          await refresh(false);
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : "删除定时任务失败");
+        } finally {
+          setDeletingTaskId(null);
+        }
+      },
+    });
+  };
 
   return (
     <Modal
@@ -178,9 +202,22 @@ export function Automation({ onClose, open, projectPath }: AutomationProps) {
                     <span className="automation-task-id">{task.task_id}</span>
                   </div>
                 </div>
-                <span className="automation-task-type">
-                  {scheduleTypeLabels[task.schedule_type]}
-                </span>
+                <div className="automation-task-heading-actions">
+                  <span className="automation-task-type">
+                    {scheduleTypeLabels[task.schedule_type]}
+                  </span>
+                  <Button
+                    aria-label={`删除定时任务：${task.title}`}
+                    className="automation-task-delete"
+                    danger
+                    disabled={deletingTaskId !== null && deletingTaskId !== task.task_id}
+                    icon={<DeleteOutlined />}
+                    loading={deletingTaskId === task.task_id}
+                    title="删除定时任务"
+                    type="text"
+                    onClick={() => handleDelete(task)}
+                  />
+                </div>
               </div>
               <p className="automation-task-prompt">{task.prompt}</p>
               <div className="automation-task-meta">

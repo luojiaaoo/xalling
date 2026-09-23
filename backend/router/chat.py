@@ -79,6 +79,17 @@ class ChatRouter(CommandRouter):
         """List all scheduled tasks for the local automation page."""
         return await self._chat_service.list_all_scheduled_tasks()
 
+    async def delete_scheduled_task(
+        self,
+        task_id: str,
+        project_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete one scheduled task belonging to the requested workspace."""
+        return await self._chat_service.delete_scheduled_task(
+            task_id,
+            project_path=project_path,
+        )
+
     async def get_chat_server_info(
         self,
         session_id: str,
