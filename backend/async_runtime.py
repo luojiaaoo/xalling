@@ -35,24 +35,6 @@ class AsyncRuntime:
         portal = self._require_portal()
         return portal.call(partial(function, *args, **kwargs))
 
-    def call_async[**P, T](
-        self,
-        function: Callable[P, Awaitable[T]],
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> T | Awaitable[T]:
-        """Run an async function, or return it as a coroutine on the loop thread.
-
-        Public bridge methods are synchronous to their callers, but async bridge
-        methods can call one another while already running on the shared loop.
-        In that case waiting through the blocking portal would deadlock (and is
-        explicitly rejected by :meth:`call`), so return the coroutine for the
-        caller to await instead.
-        """
-        if get_ident() == self._thread_id:
-            return function(*args, **kwargs)
-        return self.call(function, *args, **kwargs)
-
     def call_sync[**P, T](
         self,
         function: Callable[P, T],
@@ -93,7 +75,7 @@ def _wrap_instance_method(function: Callable[..., Any]) -> Callable[..., Any]:
 
         @wraps(function)
         def async_bridge_method(self: Any, *args: Any, **kwargs: Any) -> Any:
-            return self._async_runtime.call_async(function, self, *args, **kwargs)
+            return self._async_runtime.call(function, self, *args, **kwargs)
 
         return async_bridge_method
 
@@ -107,7 +89,7 @@ def _wrap_instance_method(function: Callable[..., Any]) -> Callable[..., Any]:
 def _wrap_static_method(function: Callable[..., Any]) -> Callable[..., Any]:
     def bridge_method(self: Any, *args: Any, **kwargs: Any) -> Any:
         if inspect.iscoroutinefunction(function):
-            return self._async_runtime.call_async(function, *args, **kwargs)
+            return self._async_runtime.call(function, *args, **kwargs)
         return self._async_runtime.call_sync(function, *args, **kwargs)
 
     bridge_method.__name__ = function.__name__
@@ -123,7 +105,7 @@ def _wrap_class_method(
 ) -> Callable[..., Any]:
     def bridge_method(self: Any, *args: Any, **kwargs: Any) -> Any:
         if inspect.iscoroutinefunction(function):
-            return self._async_runtime.call_async(function, cls, *args, **kwargs)
+            return self._async_runtime.call(function, cls, *args, **kwargs)
         return self._async_runtime.call_sync(function, cls, *args, **kwargs)
 
     bridge_method.__name__ = function.__name__

@@ -90,14 +90,14 @@ class ChatRouter(CommandRouter):
             project_path=project_path,
         )
 
-    async def _get_chat_server_info(
+    async def get_chat_server_info(
         self,
         session_id: str,
         project_path: str | None = None,
         effort: str = "high",
         permission_mode: str = "default",
     ) -> dict[str, Any]:
-        return await self._chat_service._get_chat_server_info(
+        return await self._chat_service.get_chat_server_info(
             session_id,
             project_path=project_path,
             effort=effort,

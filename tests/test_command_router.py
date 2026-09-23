@@ -49,7 +49,7 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
         requested_sessions.append(session_id)
         return server_info
 
-    monkeypatch.setattr(router, "_get_chat_server_info", get_server_info)
+    monkeypatch.setattr(router, "get_chat_server_info", get_server_info)
 
     session_id = "session-id"
     try:
@@ -108,7 +108,7 @@ def test_command_router_handles_missing_command_list(monkeypatch) -> None:
 
     monkeypatch.setattr(
         router,
-        "_get_chat_server_info",
+        "get_chat_server_info",
         get_server_info,
     )
 
