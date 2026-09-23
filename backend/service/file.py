@@ -65,7 +65,10 @@ class FileService:
         query: str,
         limit: int = DEFAULT_LIMIT,
     ) -> list[dict[str, object]]:
-        """Return project entries whose name or relative path matches the query."""
+        """Return project entries whose name or relative path matches the query.
+
+        Returned paths are relative to the project root.
+        """
         if not isinstance(project_path, str) or not isinstance(query, str):
             raise TypeError("项目路径和搜索词必须是字符串")
         if type(limit) is not int:
@@ -128,12 +131,11 @@ class FileService:
     @staticmethod
     def _describe(root: Path, entry: Path) -> dict[str, object]:
         is_dir = entry.is_dir()
-        path = entry.as_posix()
-        if is_dir and not path.endswith("/"):
-            path = f"{path}/"
+        relative = entry.relative_to(root).as_posix()
+        path = f"{relative}/" if is_dir else relative
         return {
             "name": entry.name,
             "path": path,
-            "relative": entry.relative_to(root).as_posix(),
+            "relative": relative,
             "is_dir": is_dir,
         }

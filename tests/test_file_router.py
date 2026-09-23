@@ -22,15 +22,14 @@ def test_file_router_searches_files_and_folders(project: Path) -> None:
 
     files = router.search_project_files(str(project), "models")
     assert [item["name"] for item in files] == ["models.py"]
-    assert files[0]["path"] == (
-        project / "backend" / "claude_chat_client" / "models.py"
-    ).as_posix()
+    assert files[0]["path"] == "backend/claude_chat_client/models.py"
     assert files[0]["relative"] == "backend/claude_chat_client/models.py"
     assert files[0]["is_dir"] is False
 
     folders = router.search_project_files(str(project), "router")
     assert [item["name"] for item in folders] == ["router"]
-    assert folders[0]["path"].endswith("backend/router/")
+    assert folders[0]["path"] == "backend/router/"
+    assert folders[0]["relative"] == "backend/router"
     assert folders[0]["is_dir"] is True
 
 

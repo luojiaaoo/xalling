@@ -446,12 +446,12 @@ export function TaskComposer({
             label: (
               <span className="mention-chip">
                 {item.is_dir ? <FolderOutlined /> : <FileOutlined />}
-                <span>{item.name}</span>
+                <span>@{item.relative}</span>
               </span>
             ),
-            value: item.path,
+            value: item.relative,
           },
-          formatResult: () => `@${item.name}`,
+          formatResult: (value: string) => `@${value}`,
         },
         { type: "text", value: " " },
       ],
