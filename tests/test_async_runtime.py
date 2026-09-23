@@ -29,3 +29,22 @@ def test_concurrent_sync_callers_share_one_event_loop_thread() -> None:
 
     assert not inspect.iscoroutinefunction(Bridge.identify_async)
     assert len(set(async_results + sync_results)) == 1
+
+
+def test_async_bridge_methods_can_call_each_other() -> None:
+    @bridge_api
+    class Bridge:
+        async def _shutdown_bridge(self) -> None:
+            return None
+
+        async def inner(self, value: str) -> str:
+            return value
+
+        async def outer(self, value: str) -> str:
+            return await self.inner(value)
+
+    bridge = Bridge()
+    try:
+        assert bridge.outer("nested") == "nested"
+    finally:
+        bridge._close_bridge()
