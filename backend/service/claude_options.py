@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 from backend.claude_chat_client import ClaudeChatClient
 from backend.claude_proxy import open_claude_proxy
 from backend.config.setting import (
-    CLAUDE_PROXY_LOG_FILEPATH,
+    CLAUDE_PROXY_LOG_DIRECTORY,
     USER_CONF_DIRPATH,
 )
 from backend.service.log import claude_sdk_logger
@@ -29,6 +29,11 @@ from backend.service.scheduler_tool import build_scheduler_mcp_server
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ApiProtocol = Literal["anthropic", "chat", "responses"]
+
+
+def _claude_proxy_log_filepath(session_id: str) -> Path:
+    """Return the isolated proxy log file for one Claude session."""
+    return CLAUDE_PROXY_LOG_DIRECTORY / f"{session_id}.log"
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +217,7 @@ async def configured_claude_client(
         open_claude_proxy(
             config.api_url,
             "Chat" if config.api_protocol == "chat" else "Responses",
-            CLAUDE_PROXY_LOG_FILEPATH,
+            _claude_proxy_log_filepath(config.session_id),
         )
         if config.api_protocol != "anthropic"
         else None
