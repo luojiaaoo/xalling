@@ -297,6 +297,33 @@ def test_history_keeps_task_notifications_inside_the_human_turn() -> None:
     assert events[-1].data["content"] == "Final implementation plan"
 
 
+def test_history_reconstructs_command_messages_and_empty_command_results() -> None:
+    messages = [
+        _user_message(
+            "command-1",
+            """<command-name>/compact</command-name>
+            <command-message>compact</command-message>
+            <command-args> --keep-last 2 &#x20;</command-args>""",
+        ),
+        _user_message(
+            "stdout-1",
+            "<local-command-stdout>Compacted </local-command-stdout>",
+        ),
+    ]
+
+    events = assemble_session_messages(messages)
+
+    assert [event.event for event in events] == [
+        "turn.started",
+        "user.message",
+        "user.proxy.message",
+        "turn.completed",
+    ]
+    assert events[1].data["content"] == "/compact --keep-last 2"
+    assert events[-1].data["content"] == "上下文已压缩。"
+    assert all(event.turn_id == "command-1" for event in events)
+
+
 def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None:
     main = [_user_message("user-1", "你好")]
     nested = [

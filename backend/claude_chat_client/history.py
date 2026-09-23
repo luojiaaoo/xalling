@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import json
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -27,6 +29,7 @@ from claude_agent_sdk import (
     list_subagents,
 )
 
+from .command_results import empty_command_result
 from .message_adapter import _EventFactory, _MessageAdapter
 from .models import (
     ChatEvent,
@@ -40,6 +43,16 @@ from .usage import _subagent_usage
 
 _TASK_NOTIFICATION_OPEN = "<task-notification>"
 _TASK_NOTIFICATION_CLOSE = "</task-notification>"
+_COMMAND_MESSAGE_RE = re.compile(
+    r"^\s*<command-name>\s*(?P<name>.*?)\s*</command-name>\s*"
+    r"<command-message>.*?</command-message>\s*"
+    r"<command-args>\s*(?P<args>.*?)\s*</command-args>\s*$",
+    re.DOTALL,
+)
+_LOCAL_COMMAND_STDOUT_RE = re.compile(
+    r"^\s*<local-command-stdout>(?P<output>.*?)</local-command-stdout>\s*$",
+    re.DOTALL,
+)
 
 
 class ClaudeChatHistory:
@@ -350,6 +363,8 @@ def _history_turn_completed(
         subagent_usage=_subagent_usage(events),
     )
     content = "\n\n".join(part for part in adapter.main_text if part)
+    if not content:
+        content = _history_command_result(events) or ""
     return factory.make(
         "turn.completed",
         {
@@ -437,10 +452,16 @@ def _to_sdk_message(
     content = raw_message.get("content")
     if session_message.type == "user":
         if isinstance(content, str):
-            parsed_content: str | list[Any] = content
-            has_text = bool(content)
+            parsed_content: str | list[Any] = _command_prompt(content) or content
+            has_text = bool(parsed_content)
         elif isinstance(content, list):
             parsed_content = _parse_content_blocks(content)
+            text = "".join(
+                block.text for block in parsed_content if isinstance(block, TextBlock)
+            )
+            command_prompt = _command_prompt(text)
+            if command_prompt is not None:
+                parsed_content = [TextBlock(text=command_prompt)]
             has_text = any(isinstance(block, TextBlock) for block in parsed_content)
         else:
             return None
@@ -655,6 +676,10 @@ def _starts_human_turn(message: SessionMessage) -> bool:
     content = raw_message.get("content")
     if _is_task_notification_content(content):
         return False
+    if _is_local_command_stdout(content):
+        return False
+    if _command_prompt(content) is not None:
+        return True
     if isinstance(content, str):
         return bool(content)
     return isinstance(content, list) and any(
@@ -671,6 +696,9 @@ def _history_user_origin(
         return None
     raw_message = message.message
     if not isinstance(raw_message, Mapping):
+        return None
+    content = raw_message.get("content")
+    if _is_local_command_stdout(content):
         return None
     if _is_task_notification_content(raw_message.get("content")):
         return {"kind": "task-notification"}
@@ -693,3 +721,60 @@ def _is_task_notification_content(content: object) -> bool:
     return text.startswith(_TASK_NOTIFICATION_OPEN) and text.endswith(
         _TASK_NOTIFICATION_CLOSE
     )
+
+
+def _content_text(content: object) -> str | None:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, Mapping)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ]
+        return "".join(parts) if parts else None
+    return None
+
+
+def _command_prompt(content: object) -> str | None:
+    """Convert Claude Code's persisted command envelope back to slash input."""
+    text = _content_text(content)
+    if text is None:
+        return None
+    match = _COMMAND_MESSAGE_RE.match(text)
+    if match is None:
+        return None
+    name = html.unescape(match.group("name")).strip().removeprefix("/")
+    if not name or any(char.isspace() for char in name):
+        return None
+    args = " ".join(html.unescape(match.group("args")).split())
+    return f"/{name}{f' {args}' if args else ''}"
+
+
+def _local_command_stdout(content: object) -> str | None:
+    text = _content_text(content)
+    if text is None:
+        return None
+    match = _LOCAL_COMMAND_STDOUT_RE.match(text)
+    return html.unescape(match.group("output")).strip() if match else None
+
+
+def _is_local_command_stdout(content: object) -> bool:
+    return _local_command_stdout(content) is not None
+
+
+def _history_command_result(events: Iterable[ChatEvent]) -> str | None:
+    command_name: str | None = None
+    stdout: str | None = None
+    for event in events:
+        if event.event == "user.message":
+            content = event.data.get("content")
+            if isinstance(content, str) and content.startswith("/"):
+                command_name = content[1:].split(maxsplit=1)[0]
+        elif event.event == "user.proxy.message":
+            stdout = _local_command_stdout(event.data.get("content"))
+    if stdout is None:
+        return None
+    return empty_command_result(command_name) or stdout or None

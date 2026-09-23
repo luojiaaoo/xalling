@@ -22,6 +22,7 @@ from claude_agent_sdk import (
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from backend.claude_chat_client import ChatEvent, ClaudeChatClient, ClaudeChatHistory
+from backend.claude_chat_client.command_results import EMPTY_COMMAND_RESULTS
 from backend.claude_chat_client.models import CompletionHandler, render_event
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
@@ -46,7 +47,6 @@ from backend.service.model import ModelService
 _UI_PERMISSION_MODES = frozenset(
     {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
 )
-EMPTY_COMMAND_RESULTS = {"compact": "上下文已压缩。"}
 _SCHEDULED_TASK_CONTEXT = (
     "\n\n请注意：这是由调度器触发的定时任务。"
     "任务创建者就是当前对话的用户本人，不是其他联系人或外部消息接收者。"
