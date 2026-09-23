@@ -44,7 +44,7 @@ if not defined ISCC (
     echo        then re-run, or set ISCC to the full path of ISCC.exe.
     exit /b 1
 )
-"%ISCC%" script\xalling.iss || exit /b 1
+"%ISCC%" script\installer_windows.iss || exit /b 1
 goto :installer_done
 
 :skip_installer
