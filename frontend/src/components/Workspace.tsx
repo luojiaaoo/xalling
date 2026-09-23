@@ -5,7 +5,7 @@ import {
   RobotOutlined,
 } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
-import { Popover } from "antd";
+import { App as AntdApp, Popover } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { flushSync } from "react-dom";
@@ -63,7 +63,7 @@ type ConversationMessage = {
   finalOutputKey?: string;
   key: string;
   loading?: boolean;
-  role: "ai" | "system" | "user";
+  role: "ai" | "user";
   status?: "abort" | "error" | "success";
   trace?: AgentTraceItem[];
   traceExpanded?: boolean;
@@ -293,12 +293,6 @@ function conversationFromEvents(events: ChatRenderEvent[]): ConversationMessage[
   for (const event of events) {
     const compactionText = contextCompactionText(event);
     if (compactionText) {
-      messages.push({
-        content: compactionText,
-        key: `context-${event.id}`,
-        role: "system",
-        status: "success",
-      });
       continue;
     }
     const userKey = turnUserKey(event.turn_id);
@@ -399,6 +393,7 @@ export function Workspace({
   permissionMode,
   selectedProject,
 }: WorkspaceProps) {
+  const { message: messageApi } = AntdApp.useApp();
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(Boolean(initialSessionId));
   const [busy, setBusy] = useState(false);
@@ -459,15 +454,11 @@ export function Workspace({
     }
     const compactionText = contextCompactionText(event);
     if (compactionText) {
-      setMessages((current) => [
-        ...current,
-        {
-          content: compactionText,
-          key: `context-${event.id}`,
-          role: "system",
-          status: "success",
-        },
-      ]);
+      void messageApi.info({
+        content: compactionText,
+        duration: 3,
+        key: "context-compaction",
+      });
       return;
     }
     if (isPermissionRequestEvent(event)) {
@@ -609,7 +600,7 @@ export function Workspace({
         item.key === assistantKey ? applyEventToAssistant(item, event) : item
       ));
     });
-  }, [onPermissionModeObserved, onSessionsChanged]);
+  }, [messageApi, onPermissionModeObserved, onSessionsChanged]);
 
   useEffect(() => subscribeChatEvents(sessionIdRef.current, (event) => {
     if (historyLoadingRef.current) {
@@ -1014,7 +1005,7 @@ export function Workspace({
             </span>
           </button>
         </div>
-      ) : !item.loading && item.content ? (
+      ) : item.role === "ai" && !item.loading && item.content ? (
         <div className="message-actions assistant-message-footer">
           <button
             aria-label="复制 AI 回复的 Markdown 原文"
@@ -1098,8 +1089,6 @@ export function Workspace({
                 </>
               )}
         </article>
-      ) : item.role === "system" ? (
-        <div className="context-compaction-message">{item.content}</div>
       ) : (
         <div className="user-message">
           <div className="chat-message-text">{item.content}</div>
@@ -1136,7 +1125,6 @@ export function Workspace({
                 role={{
                   user: { className: "user-bubble", placement: "end", variant: "outlined" },
                   ai: { className: "assistant-bubble", placement: "start", variant: "borderless" },
-                  system: { className: "system-bubble", placement: "start", variant: "borderless" },
                 }}
               />
             </div>
