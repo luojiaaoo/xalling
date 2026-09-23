@@ -9,7 +9,7 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Menu, Tooltip } from "antd";
+import { Button, Menu, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -393,11 +393,15 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-bottom">
-        <div className="profile-row" onClick={onSettingsClick}>
-          <Avatar size={32} className="profile-avatar">L</Avatar>
-          <span>luojiaaoo</span>
-          <Button type="text" icon={<SettingOutlined />} aria-label="设置" />
-        </div>
+        <Tooltip title="Settings">
+          <Button
+            className="sidebar-settings-button"
+            type="text"
+            icon={<SettingOutlined />}
+            aria-label="Settings"
+            onClick={onSettingsClick}
+          />
+        </Tooltip>
       </div>
     </aside>
   );
