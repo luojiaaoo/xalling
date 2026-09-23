@@ -4,7 +4,6 @@ import {
   CloudServerOutlined,
   DeleteOutlined,
   LoadingOutlined,
-  PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -18,8 +17,6 @@ import {
   Popconfirm,
   Radio,
   Select,
-  Switch,
-  Tooltip,
 } from "antd";
 import { useEffect, useState } from "react";
 
@@ -50,7 +47,6 @@ function newModel(name = ""): ModelDraft {
   return {
     draftId: crypto.randomUUID(),
     name,
-    image_vision: false,
     max_context_tokens: null,
   };
 }
@@ -239,7 +235,6 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
         draft.apiKey,
         draft.models.map((model) => ({
           name: model.name.trim(),
-          image_vision: model.image_vision,
           max_context_tokens: model.max_context_tokens,
         })),
         draft.apiProtocol,
@@ -474,16 +469,6 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
                   maxLength={120}
                   onChange={(event) => updateModel(index, { name: event.target.value })}
                 />
-                <Tooltip title="该模型可以接收图片输入">
-                  <span className="model-vision-toggle">
-                    <PictureOutlined /> 图片理解
-                    <Switch
-                      size="small"
-                      checked={model.image_vision}
-                      onChange={(imageVision) => updateModel(index, { image_vision: imageVision })}
-                    />
-                  </span>
-                </Tooltip>
                 <Button
                   type="text"
                   danger

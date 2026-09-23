@@ -6,8 +6,6 @@ api_url = "https://ark.cn-beijing.volces.com/api/plan"
 api_protocol = "anthropic"
 [[model.models]]
 name = "glm-5.3-flash"
-image_vision = true
 
 [[model.models]]
 name = "glm-5.3"
-image_vision = false

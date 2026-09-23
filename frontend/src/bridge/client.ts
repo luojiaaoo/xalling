@@ -113,7 +113,6 @@ export type ModelGroup = {
 
 export type ModelConfig = {
   name: string;
-  image_vision: boolean;
   max_context_tokens: number | null;
 };
 

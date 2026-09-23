@@ -20,7 +20,6 @@ class ModelInfo(TypedDict):
     """Model fields that are safe to expose to the Web UI."""
 
     name: str
-    image_vision: bool
     max_context_tokens: int | None
 
 
@@ -75,7 +74,6 @@ class ModelService:
                 "models": [
                     {
                         "name": model.name,
-                        "image_vision": model.image_vision,
                         "max_context_tokens": model.max_context_tokens,
                     }
                     for model in site.models
@@ -99,7 +97,6 @@ class ModelService:
                 "models": [
                     {
                         "name": model.name,
-                        "image_vision": model.image_vision,
                         "max_context_tokens": model.max_context_tokens,
                     }
                     for model in site.models
@@ -346,9 +343,6 @@ class ModelService:
             if not isinstance(item, dict):
                 raise TypeError("模型配置必须是对象")
             model_name = ModelService._validate_name(item.get("name"), "模型名称")
-            image_vision = item.get("image_vision", False)
-            if type(image_vision) is not bool:
-                raise TypeError("图片理解能力必须是布尔值")
             max_context_tokens = item.get("max_context_tokens")
             if (
                 max_context_tokens is not None
@@ -364,7 +358,6 @@ class ModelService:
             models.append(
                 {
                     "name": model_name,
-                    "image_vision": image_vision,
                     "max_context_tokens": max_context_tokens,
                 }
             )

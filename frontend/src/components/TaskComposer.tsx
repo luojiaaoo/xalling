@@ -10,7 +10,6 @@ import {
   GlobalOutlined,
   LockOutlined,
   LoadingOutlined,
-  PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -113,7 +112,6 @@ type ModelOption = {
   value: string;
   label: string;
   children?: ModelOption[];
-  imageVision?: boolean;
 };
 
 const effortLevels = ["低", "中", "高", "最高"] as const;
@@ -501,7 +499,6 @@ export function TaskComposer({
       children: group.models.map((model) => ({
         value: model.name,
         label: model.name,
-        imageVision: model.image_vision,
       })),
     }));
   const hasModels = modelOptions.length > 0;
@@ -1093,9 +1090,6 @@ export function TaskComposer({
                 optionRender={(option) => (
                   <span className="model-option">
                     <span>{option.label}</span>
-                    {option.imageVision && (
-                      <PictureOutlined className="model-capability" title="支持图片输入" />
-                    )}
                   </span>
                 )}
                 options={modelOptions}

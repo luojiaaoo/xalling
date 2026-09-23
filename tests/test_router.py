@@ -45,7 +45,7 @@ def test_model_router_manages_sites_and_returns_api_keys(
             "Provider B",
             "https://api.example.com/v2",
             "replacement-secret",
-            [{"name": "model-b", "image_vision": True}],
+            [{"name": "model-b"}],
         )
 
     assert model_sites == [
@@ -57,7 +57,6 @@ def test_model_router_manages_sites_and_returns_api_keys(
             "models": [
                 {
                     "name": "model-a",
-                    "image_vision": False,
                     "max_context_tokens": None,
                 }
             ],
@@ -75,7 +74,6 @@ def test_model_router_manages_sites_and_returns_api_keys(
                         "models": [
                         {
                             "name": "model-b",
-                            "image_vision": True,
                         }
                     ],
                 }
@@ -120,7 +118,7 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
         '[[model]]\nname = "空站点"\napi_key = "unused"\n'
         '[[model]]\nname = "内部部署"\napi_key = "secret"\n'
         'api_url = "https://api.example.com"\n'
-        '[[model.models]]\nname = "model-a"\nimage_vision = true\n'
+        '[[model.models]]\nname = "model-a"\n'
         '[[model.models]]\nname = "model-b"\n',
         encoding="utf-8",
     )
@@ -135,12 +133,10 @@ def test_model_router_exposes_only_configured_model_names(tmp_path: Path, monkey
             "models": [
                 {
                     "name": "model-a",
-                    "image_vision": True,
                     "max_context_tokens": None,
                 },
                 {
                     "name": "model-b",
-                    "image_vision": False,
                     "max_context_tokens": None,
                 },
             ],
@@ -208,7 +204,7 @@ def test_model_router_builds_models_endpoint(
 
 def test_model_router_accepts_more_than_one_hundred_configured_models() -> None:
     models = ModelService._validate_models(
-        [{"name": f"model-{index}", "image_vision": False} for index in range(125)]
+        [{"name": f"model-{index}"} for index in range(125)]
     )
 
     assert len(models) == 125

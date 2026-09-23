@@ -47,10 +47,9 @@ def default_project_folder() -> Path:
 
 
 class ModelConfig(BaseModel):
-    """One model and its capabilities."""
+    """One model and its context settings."""
 
     name: str
-    image_vision: bool = False
     max_context_tokens: int | None = None
 
     @model_validator(mode="after")

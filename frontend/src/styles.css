@@ -89,9 +89,7 @@ html[data-theme="dark"] .automation-task-delete:hover { color: #ff7875 !importan
 .model-list-heading .ant-btn { color: #5a49eb; border-color: #d8d3ff; }
 .model-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .model-editor-list { display: grid; gap: 8px; margin-top: 15px; }
-.model-editor-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto 34px; align-items: center; gap: 12px; padding: 8px; border: 1px solid #ebeaf2; border-radius: 10px; background: #fcfcfe; }
-.model-vision-toggle { display: inline-flex; align-items: center; gap: 7px; color: #767786; font-size: 12px; white-space: nowrap; }
-.model-vision-toggle > svg { color: #6d5dfc; }
+.model-editor-row { display: grid; grid-template-columns: minmax(180px, 1fr) 34px; align-items: center; gap: 12px; padding: 8px; border: 1px solid #ebeaf2; border-radius: 10px; background: #fcfcfe; }
 .model-context-setting { display: flex; grid-column: 1 / -1; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 4px 2px; color: #767786; font-size: 12px; border-top: 1px solid #efeff4; }
 .model-context-setting > span:first-child { flex: none; font-weight: 650; }
 .model-context-setting .ant-radio-wrapper { margin-inline-end: 12px; color: inherit; font-size: 12px; }
@@ -1135,7 +1133,6 @@ html[data-theme="serene"] .composer-project-locked:hover { color: #c4bab0; backg
 .model-select .ant-select-selection-item { overflow: hidden; text-overflow: ellipsis; }
 .model-select .ant-select-prefix { color: inherit; }
 .model-option { display: flex; min-width: 160px; align-items: center; justify-content: space-between; gap: 16px; }
-.model-capability { padding: 4px; color: #25a76f; border-radius: 999px; background: #eaf8f1; }
 .effort-picker { width: 220px; padding: 3px 5px 0; }
 .effort-picker-header { display: flex; justify-content: space-between; color: #727384; font-size: 12px; }
 .effort-picker-header strong { color: #5d4cf0; font-weight: 650; }

@@ -49,7 +49,7 @@ flowchart LR
 
 ## 模型配置
 
-本地配置使用 TOML 数组；每个 `[[model]]` 是一级模型站点，每个 `[[model.models]]` 是该站点下的模型配置。`image_vision` 属于具体模型，表示该模型是否支持图片输入；后续可并列增加 `video_vision` 等更细分的能力：
+本地配置使用 TOML 数组；每个 `[[model]]` 是一级模型站点，每个 `[[model.models]]` 是该站点下的模型配置：
 
 ```toml
 [[model]]
@@ -58,11 +58,9 @@ api_key = ""
 api_url = "https://api.example.com"
 [[model.models]]
 name = "Kimi-K2.6"
-image_vision = true
 
 [[model.models]]
 name = "Qwen3.6-35B-A3B"
-image_vision = false
 
 [[model]]
 name = "RightCode-gemini"
@@ -70,10 +68,9 @@ api_key = ""
 api_url = "https://api.example.com"
 [[model.models]]
 name = "gemini-3.1-pro-preview"
-image_vision = true
 ```
 
-`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。界面通过 pywebview 桥接获取分组名、模型名和能力属性，并保存当前选择，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
+`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。界面通过 pywebview 桥接获取分组名、模型名和上下文设置，并保存当前选择，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
 
 真实配置位于 `~/.xalling/xalling-setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
 
