@@ -137,6 +137,46 @@ def test_scheduled_tasks_are_scoped_to_workspace() -> None:
     anyio.run(scenario)
 
 
+def test_update_scheduled_task_replaces_schedule_and_prompt() -> None:
+    from backend import scheduler
+
+    async def scenario() -> None:
+        scheduler.shutdown_scheduler()
+        workspace_path = f"workspace-update-{uuid4()}"
+        try:
+            created = await scheduler.add_scheduled_task(
+                schedule_type="interval",
+                interval="1m",
+                prompt="run checks",
+                workspace_path=workspace_path,
+                permission_mode="default",
+                effort="high",
+            )
+            updated = await scheduler.update_scheduled_task(
+                str(created["task_id"]),
+                workspace_path=workspace_path,
+                interval="2m",
+                prompt="run the updated checks",
+                permission_mode="acceptEdits",
+                model="updated-model",
+            )
+            assert updated["task_id"] == created["task_id"]
+            assert updated["session_id"] == created["session_id"]
+            assert updated["schedule_type"] == "interval"
+            assert updated["schedule_value"] == "2m"
+            assert updated["prompt"] == "run the updated checks"
+            assert updated["permission_mode"] == "acceptEdits"
+            assert updated["model"] == "updated-model"
+            await scheduler.delete_scheduled_task(
+                str(created["task_id"]),
+                workspace_path=workspace_path,
+            )
+        finally:
+            scheduler.shutdown_scheduler()
+
+    anyio.run(scenario)
+
+
 def test_application_bridge_runs_scheduled_task_as_async() -> None:
     from backend.scheduler import ScheduledTask
     from main import ApplicationBridge

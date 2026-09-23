@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -282,6 +282,115 @@ async def list_all_scheduled_tasks() -> list[dict[str, Any]]:
     """Return all scheduled tasks for the local application UI."""
     _get_scheduler()
     return _task_summaries(_get_persisted_tasks())
+
+
+async def update_scheduled_task(
+    task_id: str,
+    *,
+    workspace_path: str,
+    schedule_type: str | None = None,
+    prompt: str | None = None,
+    interval: str | None = None,
+    run_at: str | None = None,
+    cron: str | None = None,
+    permission_mode: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Update one workspace task while retaining its stable task and session IDs."""
+    scheduler = _get_scheduler()
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise TypeError("任务 ID 必须是非空字符串")
+    normalized_task_id = task_id.strip()
+    normalized_workspace_path = _normalize_workspace_path(workspace_path)
+    task = next(
+        (
+            persisted_task
+            for persisted_task in _get_persisted_tasks()
+            if persisted_task.task_id == normalized_task_id
+        ),
+        None,
+    )
+    if task is None or not _task_belongs_to_workspace(task, normalized_workspace_path):
+        raise ValueError(f"找不到定时任务：{normalized_task_id}")
+
+    if schedule_type is not None and schedule_type not in SCHEDULE_TYPES:
+        raise ValueError(
+            f"调度类型无效：{schedule_type}，可选：{'、'.join(SCHEDULE_TYPES)}"
+        )
+    next_schedule_type = schedule_type or task.schedule_type
+    supplied_schedule_values = {
+        "interval": interval,
+        "date": run_at,
+        "cron": cron,
+    }
+    conflicting_schedule_values = [
+        name
+        for name, value in supplied_schedule_values.items()
+        if value is not None and name != next_schedule_type
+    ]
+    if conflicting_schedule_values:
+        raise ValueError(
+            f"调度类型为 {next_schedule_type} 时不能传入：{', '.join(conflicting_schedule_values)}"
+        )
+    if next_schedule_type == "interval":
+        next_interval = interval if interval is not None else (
+            task.schedule_value if task.schedule_type == "interval" else None
+        )
+        next_run_at = None
+        next_cron = None
+    elif next_schedule_type == "date":
+        next_interval = None
+        next_run_at = run_at if run_at is not None else (
+            task.schedule_value if task.schedule_type == "date" else None
+        )
+        next_cron = None
+    else:
+        next_interval = None
+        next_run_at = None
+        next_cron = cron if cron is not None else (
+            task.schedule_value if task.schedule_type == "cron" else None
+        )
+    trigger = _build_trigger(
+        next_schedule_type,  # type: ignore[arg-type]
+        interval=next_interval,
+        run_at=next_run_at,
+        cron=next_cron,
+    )
+    next_prompt = task.prompt
+    if prompt is not None:
+        next_prompt = " ".join(prompt.split())
+        if not next_prompt:
+            raise ValueError("用户提示词不能为空")
+    next_schedule_value = {
+        "interval": next_interval,
+        "date": next_run_at,
+        "cron": next_cron,
+    }[next_schedule_type]
+    updated_task = replace(
+        task,
+        title=next_prompt[:30],
+        prompt=next_prompt,
+        permission_mode=(
+            permission_mode if permission_mode is not None else task.permission_mode
+        ),
+        model=model if model is not None else task.model,
+        schedule_type=next_schedule_type,  # type: ignore[arg-type]
+        schedule_value=next_schedule_value or "",
+    )
+    scheduler.modify_job(
+        normalized_task_id,
+        args=[updated_task],
+        name=updated_task.title,
+    )
+    scheduler.reschedule_job(normalized_task_id, trigger=trigger)
+    claude_sdk_logger.info(
+        "定时任务已修改 | task_id={} title={} type={} value={}",
+        updated_task.task_id,
+        updated_task.title,
+        updated_task.schedule_type,
+        updated_task.schedule_value,
+    )
+    return _task_summary(updated_task)
 
 
 async def delete_scheduled_task(

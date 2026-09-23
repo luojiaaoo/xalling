@@ -6,7 +6,7 @@ from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
 
-from backend.scheduler import add_scheduled_task
+from backend.scheduler import add_scheduled_task, update_scheduled_task
 from backend.scheduler import delete_scheduled_task as remove_scheduled_task
 from backend.scheduler import list_scheduled_tasks as get_scheduled_tasks
 
@@ -72,6 +72,47 @@ _DELETE_INPUT_SCHEMA: dict[str, Any] = {
         "task_id": {
             "type": "string",
             "description": "要删除的定时任务 ID",
+        },
+    },
+    "required": ["task_id"],
+}
+
+_UPDATE_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "task_id": {
+            "type": "string",
+            "description": "要修改的定时任务 ID",
+        },
+        "type": {
+            "type": "string",
+            "enum": ["interval", "date", "cron"],
+            "description": "新的调度类型；不传则保留原类型，修改类型时必须传入",
+        },
+        "interval": {
+            "type": "string",
+            "description": "新的周期，type=interval 时使用",
+        },
+        "run_at": {
+            "type": "string",
+            "description": "新的定时时间，type=date 时使用",
+        },
+        "cron": {
+            "type": "string",
+            "description": "新的 cron 表达式，type=cron 时使用",
+        },
+        "prompt": {
+            "type": "string",
+            "description": "新的用户提示词；不传则保留原提示词",
+        },
+        "permission_mode": {
+            "type": "string",
+            "enum": list(_PERMISSION_MODES),
+            "description": "新的执行模式；不传则保留原执行模式",
+        },
+        "model": {
+            "type": "string",
+            "description": "新的模型名称；不传则保留原模型",
         },
     },
     "required": ["task_id"],
@@ -153,6 +194,51 @@ def build_scheduler_mcp_server(
         return _text_result("\n".join(lines))
 
     @tool(
+        "update_scheduled_task",
+        "修改当前工作区内的定时任务；先查询任务 ID，再传入需要修改的字段。未传字段保持不变。",
+        _UPDATE_INPUT_SCHEMA,
+    )
+    async def update_task(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            selected_permission_mode = args.get("permission_mode")
+            if selected_permission_mode is not None:
+                selected_permission_mode = str(selected_permission_mode)
+                if selected_permission_mode not in _PERMISSION_MODES:
+                    raise ValueError("必须选择有效的执行模式")
+            summary = await update_scheduled_task(
+                str(args.get("task_id") or ""),
+                workspace_path=workspace_path,
+                schedule_type=(
+                    str(args["type"]) if args.get("type") is not None else None
+                ),
+                prompt=(
+                    str(args["prompt"]) if args.get("prompt") is not None else None
+                ),
+                interval=(
+                    str(args["interval"]) if args.get("interval") is not None else None
+                ),
+                run_at=(
+                    str(args["run_at"]) if args.get("run_at") is not None else None
+                ),
+                cron=(
+                    str(args["cron"]) if args.get("cron") is not None else None
+                ),
+                permission_mode=selected_permission_mode,
+                model=(str(args["model"]) if args.get("model") is not None else None),
+            )
+        except (ValueError, TypeError) as error:
+            return _text_result(f"修改定时任务失败：{error}", is_error=True)
+        return _text_result(
+            "定时任务已修改：\n"
+            f"- 任务ID：{summary['task_id']}\n"
+            f"- 标题：{summary['title']}\n"
+            f"- 类型：{summary['schedule_type']}（{summary['schedule_value']}）\n"
+            f"- 执行模式：{summary['permission_mode']}\n"
+            f"- 模型：{summary['model'] or '当前模型'}\n"
+            f"- 下次执行：{summary['next_run_time']}"
+        )
+
+    @tool(
         "delete_scheduled_task",
         "按任务 ID 删除当前工作区内的定时任务；只能删除当前工作区的任务。",
         _DELETE_INPUT_SCHEMA,
@@ -175,5 +261,10 @@ def build_scheduler_mcp_server(
     return create_sdk_mcp_server(
         name="xalling-scheduler",
         version="1.0.0",
-        tools=[create_scheduled_task, list_scheduled_tasks, delete_scheduled_task],
+        tools=[
+            create_scheduled_task,
+            list_scheduled_tasks,
+            update_task,
+            delete_scheduled_task,
+        ],
     )
