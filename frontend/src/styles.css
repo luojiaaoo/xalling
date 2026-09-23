@@ -849,7 +849,13 @@ h1 { margin: 0; color: #282936; font-size: clamp(33px, 3.1vw, 47px); font-weight
 .response-usage-grid dt { color: #92939d; }
 .response-usage-grid dd { min-width: 0; margin: 0; overflow: hidden; color: #454651; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .response-usage-grid .response-usage-wide { grid-column: 1 / -1; }
+.token-usage-card { width: 360px; }
+.token-usage-card .response-usage-grid dt { white-space: nowrap; }
+.token-usage-card .response-usage-grid dd { overflow: visible; text-overflow: clip; }
 .context-usage-indicator { height: auto; padding-inline: 4px; }
+.token-usage-indicator { height: auto; padding-inline: 4px; }
+.token-usage-value { display: inline-flex; align-items: center; gap: 5px; line-height: 1; font-variant-numeric: tabular-nums; }
+.token-usage-indicator:hover { color: #5d4cf0 !important; background: #f1efff !important; }
 .context-usage-value { display: inline-flex; align-items: center; gap: 5px; line-height: 1; }
 .context-usage-value .ant-progress { line-height: 0; }
 .context-usage-value .ant-progress-circle { display: block; }

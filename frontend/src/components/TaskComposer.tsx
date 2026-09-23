@@ -61,6 +61,10 @@ import {
 import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 import { ExitPlanModeDialog } from "./ExitPlanModeDialog";
+import {
+  TokenUsageIndicator,
+  type TokenUsageSummary,
+} from "./TokenUsageIndicator";
 
 type TaskComposerProps = {
   busy?: boolean;
@@ -85,6 +89,7 @@ type TaskComposerProps = {
   selectedProject: ProjectFolder | null;
   sessionId: string;
   stopping?: boolean;
+  tokenUsage?: TokenUsageSummary;
 };
 
 export type ComposerAttachment = {
@@ -213,6 +218,7 @@ export function TaskComposer({
   selectedProject,
   sessionId,
   stopping = false,
+  tokenUsage,
 }: TaskComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
@@ -1071,6 +1077,9 @@ export function TaskComposer({
                   type="text"
                 />
               </Tooltip>
+              {conversationStarted && tokenUsage && (
+                <TokenUsageIndicator usage={tokenUsage} />
+              )}
               {conversationStarted && (
                 <ContextUsageIndicator sessionId={sessionId} busy={busy} />
               )}

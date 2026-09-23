@@ -6,7 +6,7 @@ import {
 } from "@ant-design/icons";
 import { Bubble } from "@ant-design/x";
 import { Popover } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { flushSync } from "react-dom";
 
@@ -44,6 +44,7 @@ import {
   type ComposerAttachment,
   type ComposerDraft,
 } from "./TaskComposer";
+import type { TokenUsageSummary } from "./TokenUsageIndicator";
 
 const effortValues = ["low", "medium", "high", "max"] as const;
 
@@ -396,6 +397,32 @@ export function Workspace({
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
   const focusBubbleKeyRef = useRef(focusMessageKey);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
+  const tokenUsage = useMemo<TokenUsageSummary>(() => {
+    const summary = messages.reduce<TokenUsageSummary>((current, message) => {
+      const usage = message.usage;
+      if (!usage) {
+        return current;
+      }
+      const inputTokens = usage.input_tokens ?? 0;
+      const outputTokens = usage.output_tokens ?? 0;
+      const subagentTokens = usage.subagent_usage?.total_tokens ?? 0;
+      return {
+        inputTokens: current.inputTokens + inputTokens,
+        outputTokens: current.outputTokens + outputTokens,
+        subagentTokens: current.subagentTokens + subagentTokens,
+        totalTokens: current.totalTokens
+          + inputTokens
+          + outputTokens
+          + subagentTokens,
+      };
+    }, {
+      inputTokens: 0,
+      outputTokens: 0,
+      subagentTokens: 0,
+      totalTokens: 0,
+    });
+    return summary;
+  }, [messages]);
 
   const applyLiveEvent = useCallback((event: ChatRenderEvent) => {
     if (processedEventIdsRef.current.has(event.id)) {
@@ -1094,6 +1121,7 @@ export function Workspace({
             selectedProject={selectedProject}
             sessionId={sessionIdRef.current}
             stopping={stopping}
+            tokenUsage={tokenUsage}
           />
         </div>
       </div>
