@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
@@ -39,6 +40,7 @@ from backend.service.claude_options import (
     configured_claude_client,
 )
 from backend.service.command import is_allowed_leading_slash
+from backend.service.log import claude_sdk_logger
 from backend.service.model import ModelService
 
 _UI_PERMISSION_MODES = frozenset(
@@ -552,8 +554,19 @@ class ChatService:
         """Close every retained chat client."""
         active_items = list(self._active_chats.values())
         self._active_chats.clear()
-        for active_chat in active_items:
-            await active_chat.resources.aclose()
+        if not active_items:
+            return
+
+        results = await asyncio.gather(
+            *(active_chat.resources.aclose() for active_chat in active_items),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                claude_sdk_logger.error(
+                    "关闭 Claude 会话资源失败：{}",
+                    result,
+                )
 
     async def list_chat_sessions(self) -> list[dict[str, Any]]:
         sessions = await asyncer.asyncify(self._history.list_sessions)()
