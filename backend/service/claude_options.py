@@ -44,6 +44,7 @@ class ClaudeConnectionConfig:
     project: Path
     session_id: str
     api_protocol: ApiProtocol = "anthropic"
+    model_site: str = ""
 
     def config_equal(self, conf: ClaudeConnectionConfig) -> bool:
         """比较两个配置，忽略 permission_mode"""
@@ -53,6 +54,11 @@ class ClaudeConnectionConfig:
             and conf.effort == self.effort
             and conf.max_context_tokens == self.max_context_tokens
             and conf.model == self.model
+            and (
+                not self.model_site
+                or not conf.model_site
+                or conf.model_site == self.model_site
+            )
             and conf.project == self.project
             and conf.session_id == self.session_id
             and conf.api_protocol == self.api_protocol
@@ -189,6 +195,8 @@ def _agent_options(
             "xalling-scheduler": build_scheduler_mcp_server(
                 workspace_path=str(config.project),
                 effort=config.effort,
+                model=config.model,
+                model_site=config.model_site,
             ),
         },
     )

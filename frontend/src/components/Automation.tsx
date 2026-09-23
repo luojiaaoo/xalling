@@ -193,6 +193,10 @@ export function Automation({ onClose, open, projectPath }: AutomationProps) {
                   权限模式：{permissionModeLabels[task.permission_mode] ?? task.permission_mode}
                 </span>
                 <span>
+                  <SettingOutlined />
+                  Model: {task.model || "current"}
+                </span>
+                <span>
                   <CalendarOutlined />
                   {task.schedule_value}
                 </span>

@@ -51,6 +51,8 @@ type PyWebviewApi = {
     sessionId: string,
     effort: ChatEffort,
     permissionMode: ChatPermissionMode,
+    modelSite?: string | null,
+    model?: string | null,
   ) => Promise<ChatReply>;
   set_chat_permission_mode: (
     sessionId: string,
@@ -226,6 +228,8 @@ export type ScheduledTaskSummary = {
   workspace_path: string;
   permission_mode: string;
   effort: string;
+  model: string;
+  model_site?: string;
   schedule_type: "interval" | "date" | "cron";
   schedule_value: string;
   created_at: string;
@@ -244,6 +248,8 @@ export type ChatSessionHistory = ChatSessionSummary & {
   events: ChatRenderEvent[];
   render_events?: unknown;
   permission_mode?: ChatPermissionMode;
+  model?: ModelSelection | null;
+  effort?: ChatEffort;
 };
 
 export type ChatUserQuestionOption = {
@@ -613,6 +619,7 @@ export async function sendChatMessage(
   sessionId: string,
   effort: ChatEffort,
   permissionMode: ChatPermissionMode,
+  model: ModelSelection | null = null,
 ): Promise<ChatReply> {
   const api = await getBridgeApi();
   if (!api) {
@@ -625,6 +632,8 @@ export async function sendChatMessage(
     sessionId,
     effort,
     permissionMode,
+    model?.site ?? null,
+    model?.model ?? null,
   );
 }
 

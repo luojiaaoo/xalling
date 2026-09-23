@@ -52,6 +52,8 @@ class ChatRouter(CommandRouter):
         session_id: str | None = None,
         effort: str = "high",
         permission_mode: str = "default",
+        model_site: str | None = None,
+        model: str | None = None,
     ) -> dict[str, Any]:
         """Run one turn through the public synchronous bridge."""
         return await self._chat_service.send_chat_message(
@@ -60,6 +62,8 @@ class ChatRouter(CommandRouter):
             session_id=session_id,
             effort=effort,
             permission_mode=permission_mode,
+            model_site=model_site,
+            model=model,
         )
 
     async def list_scheduled_tasks(

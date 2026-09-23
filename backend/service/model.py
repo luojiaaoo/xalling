@@ -7,7 +7,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 from yarl import URL
 
-from backend.config.current import CurrentConfig
+from backend.config.current import CurrentConfig, CurrentModelConfig
 from backend.config.setting import (
     CONTEXT_TOKEN_OPTIONS,
     ModelSiteConfig,
@@ -385,6 +385,9 @@ class ModelService:
     @staticmethod
     def _write_selection(selection: ModelSelection) -> None:
         """Write a selection into the grouped current configuration."""
-        CurrentConfig(
-            model={"site": selection["site"], "name": selection["model"]}
-        ).write()
+        current = CurrentConfig()
+        current.model = CurrentModelConfig(
+            site=selection["site"],
+            name=selection["model"],
+        )
+        current.write()

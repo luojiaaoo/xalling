@@ -54,6 +54,7 @@ import {
   type ChatPermissionMode,
   type ClaudeCommand,
   type ModelGroup,
+  type ModelSelection,
   type ProjectFileMatch,
   type ProjectFolder,
 } from "../bridge/client";
@@ -66,6 +67,7 @@ type TaskComposerProps = {
   conversationStarted?: boolean;
   effort: number;
   modelsRevision: number;
+  modelSelection?: ModelSelection | null;
   onEffortChange: (value: number) => void;
   onPermissionDecision?: (
     request: ChatPermissionRequestEvent,
@@ -96,6 +98,7 @@ export type ComposerAttachment = {
 export type ComposerDraft = {
   attachments: ComposerAttachment[];
   effort: "low" | "medium" | "high" | "max";
+  model: ModelSelection | null;
   permissionMode: ChatPermissionMode;
   project: ProjectFolder | null;
   text: string;
@@ -198,6 +201,7 @@ export function TaskComposer({
   conversationStarted = false,
   effort,
   modelsRevision,
+  modelSelection = null,
   onEffortChange,
   onPermissionDecision,
   onPermissionModeChange,
@@ -248,7 +252,9 @@ export function TaskComposer({
         const currentModel = await getCurrentModel();
         if (active) {
           setSelectedModel(
-            currentModel ? [currentModel.site, currentModel.model] : [],
+            modelSelection
+              ? [modelSelection.site, modelSelection.model]
+              : currentModel ? [currentModel.site, currentModel.model] : [],
           );
         }
       } catch {
@@ -266,7 +272,13 @@ export function TaskComposer({
     return () => {
       active = false;
     };
-  }, [messageApi, modelsRevision]);
+  }, [messageApi, modelSelection, modelsRevision]);
+
+  useEffect(() => {
+    if (modelSelection) {
+      setSelectedModel([modelSelection.site, modelSelection.model]);
+    }
+  }, [modelSelection]);
 
   useEffect(() => {
     setPermissionDecision(null);
@@ -536,6 +548,9 @@ export function TaskComposer({
 
     onSend({
       text: content,
+      model: selectedModel.length === 2
+        ? { site: selectedModel[0], model: selectedModel[1] }
+        : null,
       project: selectedProject,
       effort: effortValues[effort],
       permissionMode,

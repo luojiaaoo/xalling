@@ -53,6 +53,10 @@ _INPUT_SCHEMA: dict[str, Any] = {
                 "auto=帮我批准（模型API可能不支持）、bypassPermissions=完全访问"
             ),
         },
+        "model": {
+            "type": "string",
+            "description": "任务触发时使用的模型名称，默认沿用当前会话模型",
+        },
     },
     "required": ["type", "prompt", "permission_mode"],
 }
@@ -85,6 +89,8 @@ def build_scheduler_mcp_server(
     *,
     workspace_path: str,
     effort: str,
+    model: str = "",
+    model_site: str = "",
 ) -> McpSdkServerConfig:
     """构建绑定当前会话上下文的定时任务 MCP server。
 
@@ -107,6 +113,8 @@ def build_scheduler_mcp_server(
                 workspace_path=workspace_path,
                 permission_mode=selected_permission_mode,
                 effort=effort,
+                model=str(args.get("model") or model),
+                model_site=model_site,
             )
         except (ValueError, TypeError) as error:
             return _text_result(f"创建定时任务失败：{error}", is_error=True)
@@ -116,6 +124,7 @@ def build_scheduler_mcp_server(
             f"- 标题：{summary['title']}\n"
             f"- 类型：{summary['schedule_type']}（{summary['schedule_value']}）\n"
             f"- 执行模式：{summary['permission_mode']}\n"
+            f"- 模型：{summary['model'] or '当前模型'}\n"
             f"- 下次执行：{summary['next_run_time']}"
         )
 
@@ -136,6 +145,7 @@ def build_scheduler_mcp_server(
                     f"  标题：{summary['title']}",
                     f"  类型：{summary['schedule_type']}（{summary['schedule_value']}）",
                     f"  执行模式：{summary['permission_mode']}",
+                    f"  模型：{summary['model'] or '当前模型'}",
                     f"  下次执行：{summary['next_run_time']}",
                     f"  提示词：{summary['prompt']}",
                 ]

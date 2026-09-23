@@ -38,6 +38,7 @@ from backend.service.claude_options import (
     configured_claude_client,
 )
 from backend.service.command import is_allowed_leading_slash
+from backend.service.model import ModelService
 
 _UI_PERMISSION_MODES = frozenset(
     {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}
@@ -90,6 +91,8 @@ class _ChatConfigRequest(BaseModel):
     session_id: str | None = None
     effort: ChatEffort = "high"
     permission_mode: PermissionMode = "default"
+    model_site: str | None = None
+    model: str | None = None
 
     @field_validator("project_path", mode="before")
     @classmethod
@@ -133,6 +136,18 @@ class _ChatConfigRequest(BaseModel):
         if not isinstance(value, str) or value not in _UI_PERMISSION_MODES:
             raise ValueError("权限模式无效")
         return value
+
+    @field_validator("model_site", "model", mode="before")
+    @classmethod
+    def _validate_model_selection(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise TypeError("模型选择必须是字符串")
+        normalized = value.strip()
+        if not normalized or len(normalized) > 200:
+            raise ValueError("模型选择无效")
+        return normalized
 
 
 class _ChatMessageRequest(_ChatConfigRequest):
@@ -268,6 +283,8 @@ class ChatService:
         session_id: str | None = None,
         effort: str = "high",
         permission_mode: str = "default",
+        model_site: str | None = None,
+        model: str | None = None,
         on_complete: CompletionHandler | None = None,
     ) -> dict[str, Any]:
         """Run one turn and dispatch the client's public event envelopes."""
@@ -279,6 +296,8 @@ class ChatService:
                     "session_id": session_id,
                     "effort": effort,
                     "permission_mode": permission_mode,
+                    "model_site": model_site,
+                    "model": model,
                 }
             )
         except ValidationError as error:
@@ -289,17 +308,21 @@ class ChatService:
         if existing is not None and existing.running:
             raise RuntimeError("当前会话正在生成，请先停止后再发送")
 
-        site, model = await self._get_current_provider()
+        site, selected_model = await self._get_current_provider(
+            model_site=request.model_site,
+            model_name=request.model,
+        )
         config = ClaudeConnectionConfig(
             api_key=site.api_key,
             api_url=site.api_url,
             effort=request.effort,
-            max_context_tokens=model.max_context_tokens,
-            model=model.name,
+            max_context_tokens=selected_model.max_context_tokens,
+            model=selected_model.name,
             permission_mode=request.permission_mode,
             project=request.project_path,
             session_id=active_session_id,
             api_protocol=site.api_protocol,
+            model_site=site.name,
         )
         active_chat = await self._get_or_create_chat(config)
         client = active_chat.client
@@ -400,13 +423,22 @@ class ChatService:
             if active_chat is not None:
                 await self._close_active_chat(task.session_id, active_chat)
 
+        send_kwargs: dict[str, Any] = {
+            "project_path": task.workspace_path,
+            "session_id": task.session_id,
+            "effort": task.effort,
+            "permission_mode": task.permission_mode,
+            "on_complete": close_scheduled_chat,
+        }
+        task_model = task.model
+        task_model_site = task.model_site
+        if task_model:
+            send_kwargs["model"] = task_model
+        if task_model_site:
+            send_kwargs["model_site"] = task_model_site
         await self.send_chat_message(
             _inject_scheduled_task_context(task.prompt),
-            project_path=task.workspace_path,
-            session_id=task.session_id,
-            effort=task.effort,
-            permission_mode=task.permission_mode,
-            on_complete=close_scheduled_chat,
+            **send_kwargs,
         )
 
     async def list_scheduled_tasks(
@@ -451,18 +483,26 @@ class ChatService:
         if normalized_session_id is None:
             raise ValueError("会话标识无效")
 
-        site, model = await self._get_current_provider()
-        config = ClaudeConnectionConfig(
-            api_key=site.api_key,
-            api_url=site.api_url,
-            effort=config_request.effort,
-            max_context_tokens=model.max_context_tokens,
-            model=model.name,
-            permission_mode=config_request.permission_mode,
-            project=config_request.project_path,
-            session_id=normalized_session_id,
-            api_protocol=site.api_protocol,
-        )
+        existing = self._active_chats.get(normalized_session_id)
+        if existing is not None:
+            config = replace(
+                existing.config,
+                permission_mode=config_request.permission_mode,
+            )
+        else:
+            site, model = await self._get_current_provider()
+            config = ClaudeConnectionConfig(
+                api_key=site.api_key,
+                api_url=site.api_url,
+                effort=config_request.effort,
+                max_context_tokens=model.max_context_tokens,
+                model=model.name,
+                permission_mode=config_request.permission_mode,
+                project=config_request.project_path,
+                session_id=normalized_session_id,
+                api_protocol=site.api_protocol,
+                model_site=site.name,
+            )
         active_chat = await self._get_or_create_chat(config)
         return await active_chat.client.get_server_info() or {}
 
@@ -555,31 +595,64 @@ class ChatService:
             else "default"
         )
 
-        site, model = await self._get_current_provider()
-        config = ClaudeConnectionConfig(
-            api_key=site.api_key,
-            api_url=site.api_url,
-            effort=config_request.effort,
-            max_context_tokens=model.max_context_tokens,
-            model=model.name,
-            permission_mode=effective_permission_mode,
-            project=config_request.project_path,
-            session_id=normalized,
-            api_protocol=site.api_protocol,
-        )
+        if existing is not None:
+            # A retained client owns the model and thinking level used by the
+            # conversation. Re-entering it must preserve that configuration.
+            config = replace(
+                existing.config,
+                permission_mode=effective_permission_mode,
+            )
+            if config.model_site:
+                await ModelService.set_current_model(
+                    config.model_site,
+                    config.model,
+                )
+        else:
+            site, model = await self._get_current_provider()
+            config = ClaudeConnectionConfig(
+                api_key=site.api_key,
+                api_url=site.api_url,
+                effort=config_request.effort,
+                max_context_tokens=model.max_context_tokens,
+                model=model.name,
+                permission_mode=effective_permission_mode,
+                project=config_request.project_path,
+                session_id=normalized,
+                api_protocol=site.api_protocol,
+                model_site=site.name,
+            )
         active_chat = await self._get_or_create_chat(config)
 
         try:
             snapshot = await asyncer.asyncify(self._history.get_session)(normalized)
+        except ValueError:
+            payload = {**active_chat.metadata, "events": []}
+        else:
+            history_cwd = snapshot.session.cwd
+            if (
+                history_cwd is not None
+                and Path(history_cwd).resolve() != active_chat.config.project.resolve()
+            ):
+                raise ValueError(
+                    "历史会话工作区与连接配置不一致："
+                    f"{history_cwd} != {active_chat.config.project}"
+                )
             payload = snapshot.to_dict()
             payload["render_events"] = [
                 self._event_payload(event, normalized)
                 for event in snapshot.events
             ]
-        except ValueError:
-            payload = {**active_chat.metadata, "events": []}
 
         payload["permission_mode"] = active_chat.config.permission_mode
+        payload["model"] = (
+            {
+                "site": active_chat.config.model_site,
+                "model": active_chat.config.model,
+            }
+            if active_chat.config.model_site
+            else None
+        )
+        payload["effort"] = active_chat.config.effort
         return payload
 
     def get_active_chat(self, session_id: str) -> dict[str, object] | None:
@@ -682,6 +755,7 @@ class ChatService:
                 project=config_request.project_path,
                 session_id=normalized,
                 api_protocol=site.api_protocol,
+                model_site=site.name,
             )
             active_chat = await self._get_or_create_chat(config)
             return True
@@ -882,14 +956,26 @@ class ChatService:
             raise ValueError("会话标识无效") from error
 
     @staticmethod
-    async def _get_current_provider() -> tuple[ModelSiteConfig, ModelConfig]:
+    async def _get_current_provider(
+        *,
+        model_site: str | None = None,
+        model_name: str | None = None,
+    ) -> tuple[ModelSiteConfig, ModelConfig]:
         current = CurrentConfig().model
-        if not current.site or not current.name:
+        selected_site_name = model_site or current.site
+        selected_model_name = model_name or current.name
+        if not selected_site_name or not selected_model_name:
             raise ValueError("请先在模型管理中配置并选择模型")
         settings = await get_settings()
-        site = next((item for item in settings.model if item.name == current.site), None)
+        site = next(
+            (item for item in settings.model if item.name == selected_site_name),
+            None,
+        )
         model = (
-            next((item for item in site.models if item.name == current.name), None)
+            next(
+                (item for item in site.models if item.name == selected_model_name),
+                None,
+            )
             if site is not None
             else None
         )

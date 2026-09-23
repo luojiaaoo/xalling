@@ -49,6 +49,8 @@ class ScheduledTask:
     effort: str
     schedule_type: ScheduleType
     schedule_value: str  # 原始输入：周期 / 定时时间 / cron 表达式
+    model: str = ""
+    model_site: str = ""
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -154,6 +156,8 @@ def _task_summary(task: ScheduledTask) -> dict[str, Any]:
         "workspace_path": task.workspace_path,
         "permission_mode": task.permission_mode,
         "effort": task.effort,
+        "model": task.model,
+        "model_site": task.model_site,
         "schedule_type": task.schedule_type,
         "schedule_value": task.schedule_value,
         "created_at": task.created_at.isoformat(),
@@ -205,6 +209,8 @@ async def add_scheduled_task(
     workspace_path: str,
     permission_mode: str,
     effort: str,
+    model: str = "",
+    model_site: str = "",
 ) -> dict[str, Any]:
     """创建并注册一个定时任务，返回给调用方的任务摘要。"""
     if schedule_type not in SCHEDULE_TYPES:
@@ -228,6 +234,8 @@ async def add_scheduled_task(
         workspace_path=_normalize_workspace_path(workspace_path),
         permission_mode=permission_mode,
         effort=effort,
+        model=model,
+        model_site=model_site,
         schedule_type=schedule_type,  # type: ignore[arg-type]
         schedule_value=schedule_value or "",
     )

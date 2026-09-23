@@ -26,6 +26,7 @@ import {
   type ChatPermissionRequestEvent,
   type ChatRenderEvent,
   type ChatUsage,
+  type ModelSelection,
   type ProjectFolder,
   type SubagentUsage,
 } from "../bridge/client";
@@ -391,6 +392,7 @@ export function Workspace({
   const stopRequestedRef = useRef(false);
   const copyFeedbackTimerRef = useRef<number | null>(null);
   const [copiedMessageKey, setCopiedMessageKey] = useState<string | null>(null);
+  const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null);
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
   const focusBubbleKeyRef = useRef(focusMessageKey);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
@@ -589,6 +591,17 @@ export function Workspace({
         sessionIdRef.current = history.session_id;
         if (history.permission_mode) {
           onPermissionModeObserved(history.permission_mode);
+        }
+        if (history.model) {
+          setModelSelection(history.model);
+        } else {
+          setModelSelection(null);
+        }
+        if (history.effort) {
+          const restoredEffort = effortValues.indexOf(history.effort);
+          if (restoredEffort >= 0) {
+            onEffortChange(restoredEffort);
+          }
         }
         const activeEvents = activeChat?.events ?? [];
         const activeTurnIds = new Set(activeEvents.map((event) => event.turn_id));
@@ -812,6 +825,7 @@ export function Workspace({
         sessionIdRef.current,
         draft.effort,
         draft.permissionMode,
+        draft.model,
       ))
       .then((reply) => {
         if (reply.session_id) {
@@ -1068,6 +1082,7 @@ export function Workspace({
             conversationStarted={conversationStarted}
             effort={effort}
             modelsRevision={modelsRevision}
+            modelSelection={modelSelection}
             onEffortChange={onEffortChange}
             onPermissionDecision={handlePermissionDecision}
             onPermissionModeChange={handlePermissionModeChange}
