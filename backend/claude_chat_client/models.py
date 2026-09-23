@@ -73,6 +73,7 @@ type EventName = Literal[
 ]
 type PermissionHandler = Callable[[str, dict[str, Any], ToolPermissionContext], Awaitable[PermissionResult]]
 type EventHandler = Callable[["ChatEvent"], Awaitable[None] | None]
+type CompletionHandler = Callable[[], Awaitable[None] | None]
 type AskUserAnswer = str | list[str]
 type PlanApprovalMode = PermissionMode | None
 

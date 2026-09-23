@@ -42,6 +42,7 @@ from .message_adapter import (
 from .models import (
     ChatEvent,
     ChatResult,
+    CompletionHandler,
     EventHandler,
     PermissionHandler,
     PermissionRequestedData,
@@ -54,6 +55,7 @@ from .usage import _subagent_usage, _turn_usage
 
 _STREAM_END = object()
 _EXIT_PLAN_EXECUTION_MODES = ("default", "acceptEdits", "auto")
+_TERMINAL_EVENTS = frozenset({"turn.completed", "turn.failed"})
 
 
 @dataclass(slots=True)
@@ -325,21 +327,41 @@ class ClaudeChatClient:
         *,
         session_id: str = "default",
         on_event: EventHandler | None = None,
+        on_complete: CompletionHandler | None = None,
         empty_result_content: str | None = None,
     ) -> ChatResult:
-        """Run one human turn, optionally forwarding each realtime event."""
-        async for event in self.stream(
-            prompt,
-            session_id=session_id,
-            empty_result_content=empty_result_content,
-        ):
-            if on_event is not None:
-                handled = on_event(event)
-                if inspect.isawaitable(handled):
-                    await handled
-        if self._last_result is None:
-            raise RuntimeError("Claude turn ended without a result")
-        return self._last_result
+        """Run one human turn and invoke completion before its terminal event."""
+        terminal_event: ChatEvent | None = None
+
+        async def forward(event: ChatEvent) -> None:
+            if on_event is None:
+                return
+            handled = on_event(event)
+            if inspect.isawaitable(handled):
+                await handled
+
+        try:
+            async for event in self.stream(
+                prompt,
+                session_id=session_id,
+                empty_result_content=empty_result_content,
+            ):
+                if event.event in _TERMINAL_EVENTS:
+                    terminal_event = event
+                else:
+                    await forward(event)
+            if self._last_result is None:
+                raise RuntimeError("Claude turn ended without a result")
+            return self._last_result
+        finally:
+            try:
+                if on_complete is not None:
+                    handled = on_complete()
+                    if inspect.isawaitable(handled):
+                        await handled
+            finally:
+                if terminal_event is not None:
+                    await forward(terminal_event)
 
     async def stream(
         self,

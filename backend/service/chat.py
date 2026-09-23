@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from backend.claude_chat_client import ChatEvent, ClaudeChatClient, ClaudeChatHistory
-from backend.claude_chat_client.models import render_event
+from backend.claude_chat_client.models import CompletionHandler, render_event
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
     ModelConfig,
@@ -268,6 +268,7 @@ class ChatService:
         session_id: str | None = None,
         effort: str = "high",
         permission_mode: str = "default",
+        on_complete: CompletionHandler | None = None,
     ) -> dict[str, Any]:
         """Run one turn and dispatch the client's public event envelopes."""
         try:
@@ -327,15 +328,17 @@ class ChatService:
 
         command_name = first_token.removeprefix("/") if first_token.startswith("/") else ""
         try:
-            result = await client.send(
-                request.prompt,
-                session_id=active_session_id,
-                on_event=partial(
+            send_kwargs: dict[str, Any] = {
+                "session_id": active_session_id,
+                "on_event": partial(
                     self._emit_chat_event,
                     session_id=active_session_id,
                 ),
-                empty_result_content=EMPTY_COMMAND_RESULTS.get(command_name),
-            )
+                "empty_result_content": EMPTY_COMMAND_RESULTS.get(command_name),
+            }
+            if on_complete is not None:
+                send_kwargs["on_complete"] = on_complete
+            result = await client.send(request.prompt, **send_kwargs)
             return result.to_dict()
         except ClaudeSDKError as error:
             raise RuntimeError(f"模型请求失败：{error}") from error
@@ -390,13 +393,20 @@ class ChatService:
         return active_chat
 
     async def _run_scheduled_task(self, task: ScheduledTask) -> None:
-        """Execute a scheduled prompt in its own retained chat session."""
+        """Execute a scheduled prompt and release its dedicated client."""
+
+        async def close_scheduled_chat() -> None:
+            active_chat = self._active_chats.get(task.session_id)
+            if active_chat is not None:
+                await self._close_active_chat(task.session_id, active_chat)
+
         await self.send_chat_message(
             _inject_scheduled_task_context(task.prompt),
             project_path=task.workspace_path,
             session_id=task.session_id,
             effort=task.effort,
             permission_mode=task.permission_mode,
+            on_complete=close_scheduled_chat,
         )
 
     async def list_scheduled_tasks(
@@ -474,9 +484,11 @@ class ChatService:
         session_id: str,
         active_chat: _ActiveChat,
     ) -> None:
-        if self._active_chats.get(session_id) is active_chat:
-            self._active_chats.pop(session_id, None)
-        await active_chat.resources.aclose()
+        try:
+            await active_chat.resources.aclose()
+        finally:
+            if self._active_chats.get(session_id) is active_chat:
+                self._active_chats.pop(session_id, None)
 
     async def shutdown_clients(self) -> None:
         """Close every retained chat client."""
