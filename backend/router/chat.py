@@ -90,7 +90,7 @@ class ChatRouter(CommandRouter):
             project_path=project_path,
         )
 
-    async def get_chat_server_info(
+    async def _get_chat_server_info(
         self,
         session_id: str,
         project_path: str | None = None,
