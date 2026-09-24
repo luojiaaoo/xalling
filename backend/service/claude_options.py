@@ -169,8 +169,9 @@ def _provider_settings(
     settings: dict[str, Any] = {
         "env": environment,
         "alwaysThinkingEnabled": True,
-        "cleanupPeriodDays": 60,
+        "cleanupPeriodDays": 30,
         "includeCoAuthoredBy": False,
+        "skipWebFetchPreflight": True,
     }
     if platform.system() == "Windows":
         environment["CLAUDE_CODE_USE_POWERSHELL_TOOL"] = "1"
@@ -205,7 +206,15 @@ def _agent_options(
         },
         thinking={"type": "adaptive", "display": "summarized"},
         tools={"type": "preset", "preset": "claude_code"},
-        disallowed_tools=["ScheduleWakeup", "CronCreate", "CronList", "CronDelete"],
+        disallowed_tools=[
+            # 禁用会话级别定时任务
+            "ScheduleWakeup",
+            "CronCreate",
+            "CronList",
+            "CronDelete",
+            # Anthropic 默认搜索引擎，第三方模型不支持
+            "WebSearch",
+        ],
         # 定时任务工具绑定当前会话上下文（工作区/思考等级）；执行模式由用户选择
         mcp_servers={
             "xalling-scheduler": build_scheduler_mcp_server(
