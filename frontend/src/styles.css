@@ -511,12 +511,15 @@ html[data-theme="serene"] .main-menu .ant-menu-item,
 html[data-theme="serene"] .settings-menu .ant-menu-submenu-title { color: rgba(232, 226, 217, .7); border-radius: 0; }
 html[data-theme="serene"] .main-menu .ant-menu-item:hover,
 html[data-theme="serene"] .project-row:hover,
-html[data-theme="serene"] .task-row:hover { color: #e8e2d9; background: rgba(60, 51, 42, .8); }
+html[data-theme="serene"] .task-row:hover,
+html[data-theme="serene"] .history-project-heading:hover { color: #e8e2d9; background: rgba(60, 51, 42, .8); }
 html[data-theme="serene"] .main-menu .ant-menu-item-selected { color: #ebe4d8; background: #3c332a; }
 html[data-theme="serene"] .sidebar-bottom { border-top-color: #4b4035; }
 html[data-theme="serene"] .sidebar-settings-button { color: #9a8f84; }
 html[data-theme="serene"] .project-row,
 html[data-theme="serene"] .task-row { color: rgba(232, 226, 217, .62); border-radius: 2px; }
+/* 项目分组标题默认 color: inherit，会继承 html 上的深色正文色，需在深色侧栏里单独指定 */
+html[data-theme="serene"] .history-project-heading { color: #e8e2d9; }
 html[data-theme="serene"] .task-row-active { color: #c7a56b; background: #3c332a; }
 html[data-theme="serene"] .session-running-indicator { color: #c7a56b; border-color: rgba(199, 165, 107, .3); }
 html[data-theme="serene"] .search-palette { border: 1px solid #d9d0c6; border-radius: 6px; background: #fcfaf8; box-shadow: 0 24px 48px -16px rgba(42, 35, 29, .2); }
