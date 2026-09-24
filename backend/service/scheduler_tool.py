@@ -259,7 +259,7 @@ def build_scheduler_mcp_server(
         )
 
     return create_sdk_mcp_server(
-        name="xalling-scheduler",
+        name="Scheduler",
         version="1.0.0",
         tools=[
             create_scheduled_task,

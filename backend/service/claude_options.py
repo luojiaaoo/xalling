@@ -22,11 +22,13 @@ from backend.claude_chat_client import ClaudeChatClient
 from backend.claude_proxy import open_claude_proxy
 from backend.config.setting import (
     CLAUDE_PROXY_LOG_DIRECTORY,
-    USER_CONF_DIRPATH,
     ROOT,
+    USER_CONF_DIRPATH,
 )
 from backend.service.log import claude_sdk_logger
+from backend.service.research_tool import build_research_mcp_server
 from backend.service.scheduler_tool import build_scheduler_mcp_server
+from backend.service.web_search_tool import build_web_search_mcp_server
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ApiProtocol = Literal["anthropic", "chat", "responses"]
@@ -217,12 +219,16 @@ def _agent_options(
         ],
         # 定时任务工具绑定当前会话上下文（工作区/思考等级）；执行模式由用户选择
         mcp_servers={
-            "xalling-scheduler": build_scheduler_mcp_server(
+            "Scheduler": build_scheduler_mcp_server(
                 workspace_path=str(config.project),
                 effort=config.effort,
                 model=config.model,
                 model_site=config.model_site,
             ),
+            # 联网搜索（百度 / DuckDuckGo）补充内置 WebSearch（已禁用，第三方模型不支持）
+            "WebSearch": build_web_search_mcp_server(),
+            # 科研工具（arXiv 论文检索与 PDF 下载）
+            "Research": build_research_mcp_server(),
         },
     )
 

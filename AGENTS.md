@@ -11,6 +11,8 @@ Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与
 - **权限与交互**：工具调用确认、`AskUserQuestion` 结构化问答、计划审批（ExitPlanMode）
 - **斜杠命令与 Skill**：输入框 `/` 唤起命令与技能列表，自动发现用户级与项目级 Skill 目录
 - **定时自动化**：基于 APScheduler 的定时任务（interval / date / cron），任务持久化在 SQLite
+- **联网搜索**：`WebSearchBaidu`、`WebSearchDuckDuckGo`、`WebSearchNews` 以 SDK 内置 MCP 工具注入每个会话，分别对接百度与 DDGS（DuckDuckGo 后端）的网页与新闻结果
+- **科研工具**：`ArxivSearch`、`ArxivDownload` 以 SDK 内置 MCP 工具注入每个会话，支持 arXiv 论文检索与 PDF 下载（保存目录由 `download_dir` 工具参数指定）
 - **模型站点管理**：多供应商模型配置，支持 `anthropic` / `chat` / `responses` 三种 API 协议
 - **用量统计**：按逻辑回合统计主 Agent Token 与子 Agent 消耗，提供会话内用量弹层
 - **会话历史与搜索**：会话列表、全文搜索、运行中会话恢复
