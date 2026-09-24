@@ -4,16 +4,18 @@
 
 Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与智能体，以 pywebview 承载 React 界面，并通过安全、直接的 JavaScript–Python 桥接完成交互。它不把本地 HTTP 服务当作前后端中间层。
 
-## 产品方向
+## 功能特性
 
-界面采用深色、低干扰的桌面工作台风格。参考设计为：左侧常驻导航与项目/任务区，中央保留大面积对话或工作区，输入框位于视觉焦点，快捷任务以轻量卡片呈现。目标是在高信息密度下保持清晰的层级、状态反馈和可操作性。
-
-典型能力包括：
-
-- 新建与管理 AI 任务、项目和会话
-- 在统一对话界面中调用本地 Python 能力和智能体
-- 将任务进度、统计与趋势以卡片和图表展示
-- 为文件、命令等敏感工具调用提供明确的确认与结果反馈
+- **AI 对话工作区**：基于 Claude Agent SDK 的多会话对话，支持子 Agent、后台任务与动态工作流
+- **统一事件协议**：实时流式输出与历史回放共用同一套事件归并逻辑，刷新或切换会话后结构不漂移
+- **权限与交互**：工具调用确认、`AskUserQuestion` 结构化问答、计划审批（ExitPlanMode）
+- **斜杠命令与 Skill**：输入框 `/` 唤起命令与技能列表，自动发现用户级与项目级 Skill 目录
+- **定时自动化**：基于 APScheduler 的定时任务（interval / date / cron），任务持久化在 SQLite
+- **模型站点管理**：多供应商模型配置，支持 `anthropic` / `chat` / `responses` 三种 API 协议
+- **用量统计**：按逻辑回合统计主 Agent Token 与子 Agent 消耗，提供会话内用量弹层
+- **会话历史与搜索**：会话列表、全文搜索、运行中会话恢复
+- **多主题外观**：default / dark / cartoon / illustration / geek / serene 六套主题
+- **本地教程**：内置命令说明等教程文档，在应用内直接查看
 
 ## 架构
 
@@ -21,9 +23,9 @@ Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与
 flowchart LR
   UI[React + TypeScript<br/>Ant Design / Ant Design X / Charts]
   Bridge[pywebview JS–Python bridge]
-  Router[Python routers<br/>validation, configuration & transport]
-  Chat[claude_chat_client<br/>events, history & usage]
-  Agent[Claude Agent SDK<br/>sessions, agents & tools]
+  Router[Python routers<br/>validation, configuration &amp; transport]
+  Chat[claude_chat_client<br/>events, history &amp; usage]
+  Agent[Claude Agent SDK<br/>sessions, agents &amp; tools]
 
   UI <--> |window.pywebview.api<br/>controlled evaluate_js callbacks| Bridge
   Bridge <--> Router
@@ -37,15 +39,15 @@ flowchart LR
 
 | 层级 | 选型 | 用途 |
 | --- | --- | --- |
-| 桌面容器 | [pywebview](https://pywebview.flowrl.com/) | 原生窗口、加载本地 Web UI、JS–Python 桥 |
-| 后端 | Python 3.12 + `uv` | 领域逻辑、文件与系统能力、桥接 API、测试与依赖管理 |
+| 桌面容器 | [pywebview](https://pywebview.flowrl.com/) | 原生无边框窗口、加载本地 Web UI、JS–Python 桥 |
+| 后端 | Python 3.12 + [uv](https://docs.astral.sh/uv/) | 领域逻辑、文件与系统能力、桥接 API、测试与依赖管理 |
 | 基础 UI | [Ant Design](https://ant.design/components/overview-cn/) | 桌面布局、表单、数据展示、导航和反馈组件 |
 | AI UI | [Ant Design X](https://x.ant.design/components/introduce-cn/) | 会话、消息气泡、输入、快捷提示、思考/任务状态等 AI 交互组件 |
-| 图表 | [Ant Design Charts](https://charts.ant.design/examples/statistics/line/#basic) | 任务趋势、统计和分析视图；连续数据优先使用折线图 |
+| 图表 | [Ant Design Charts](https://charts.ant.design/) | 任务趋势、统计和分析视图；连续数据优先使用折线图 |
 | 智能体 | [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/python) | Python 智能体、会话、工具与任务循环 |
+| 定时任务 | APScheduler + SQLAlchemy JobStore | 定时/周期任务调度与持久化 |
 | 配置 | Pydantic Settings + Tomli-W | TOML 配置加载、类型校验与局部更新 |
-
-智能体层已经接入 **Claude Agent SDK for Python**。`backend/claude_chat_client/` 是 SDK 与应用之间的稳定抽象层；路由和前端只依赖它输出的事件、结果与历史快照，不再直接解释 SDK 消息。
+| 打包 | PyInstaller + Inno Setup | Windows 目录分发与安装程序 |
 
 ## 模型配置
 
@@ -56,19 +58,18 @@ flowchart LR
 name = "内部部署 · 阿里云"
 api_key = ""
 api_url = "https://api.example.com"
+# 可选值：anthropic、chat、responses；后两者会通过本地代理转换为 Anthropic Messages
+api_protocol = "anthropic"
+
 [[model.models]]
 name = "Kimi-K2.6"
 
 [[model.models]]
 name = "Qwen3.6-35B-A3B"
-
-[[model]]
-name = "RightCode-gemini"
-api_key = ""
-api_url = "https://api.example.com"
-[[model.models]]
-name = "gemini-3.1-pro-preview"
 ```
+
+- `api_protocol = "anthropic"`：供应商原生支持 Anthropic Messages 协议，直接连接。
+- `api_protocol = "chat"` / `"responses"`：为每个 Claude 会话启动一个仅监听 `127.0.0.1` 的本地代理（`plugins/bin/claude-proxy-rust.exe`，源码见 Git 子模块 [`plugins/claude-proxy-rust`](https://github.com/luojiaaoo/claude-proxy-rust)），把 Anthropic Messages 请求转换为 OpenAI Chat Completions / Responses 接口。连接关闭后自动回收，API Key 不会写入项目文件。
 
 `backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。界面通过 pywebview 桥接获取分组名、模型名和上下文设置，并保存当前选择，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
 
@@ -97,12 +98,12 @@ Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK �
 
 ## 对话系统
 
-旧的 `backend/chat/` 已完全删除。聊天能力统一由以下几层承担：
+聊天能力由以下几层承担：
 
 | 层级 | 职责 |
 | --- | --- |
 | `backend/claude_chat_client/` | 管理 Claude SDK 连接，将 SDK 消息转换为稳定事件，处理权限交互、动态工作流、历史回放和单回合用量 |
-| `backend/router/_claude_options.py` | 将模型、项目、推理强度、权限模式、Skill 目录和本地运行设置转换成 `ClaudeAgentOptions` |
+| `backend/service/claude_options.py` | 将模型、项目、推理强度、权限模式、Skill 目录和本地运行设置转换成 `ClaudeAgentOptions` |
 | `backend/router/chat.py` | 校验界面参数，管理会话级客户端，通过 pywebview 桥发送事件并暴露会话 API |
 | `frontend/src/bridge/client.ts` | 定义可 JSON 序列化的桥接契约，订阅 `xalling:chat-event` |
 | `Workspace.tsx` / `AgentTrace.tsx` | 用同一个事件归并流程渲染实时对话与历史对话 |
@@ -127,10 +128,10 @@ type ChatStreamEvent = {
 ```
 
 - `turn_id` 标识一次用户发起的逻辑回合，用于气泡、搜索和完成态归并。
-- `model_turn_id` 标识该用户回合中的一次模型调用，取自 SDK 的 `AssistantMessage.message_id`；同一次调用并行发出的工具共享该值，不同 Agent Loop 使用不同值。
+- `model_turn_id` 标识该用户回合中的一次模型调用；同一次调用并行发出的工具共享该值，不同 Agent Loop 使用不同值。
 - `parent_tool_use_id` 为空时属于主 Agent；非空时用于把子 Agent 的回复、思考和工具调用嵌入对应的 Agent 工具节点。
 - `session_id` 标识 Claude 持久化会话。
-- 所有 payload 在进入桥接前都会转换成 JSON 安全值；`ChatEvent` 也支持序列化为 SSE 帧，但桌面应用当前使用 pywebview 事件而不是 HTTP/SSE。
+- 所有 payload 在进入桥接前都会转换成 JSON 安全值。
 
 当前事件按职责分为：
 
@@ -146,7 +147,7 @@ type ChatStreamEvent = {
 
 ### 正常回合与动态工作流
 
-普通回合的生命周期是：
+普通回合的生命周期：
 
 ```text
 turn.started
@@ -169,7 +170,7 @@ turn.started
   -> turn.completed
 ```
 
-具体约定如下：
+具体约定：
 
 - `TaskStartedMessage`、`TaskProgressMessage` 和非终态 `TaskUpdatedMessage` 会让逻辑回合保持存活。
 - `TaskNotificationMessage` 表示后台任务已完成，会驱动原来的 SDK query/event stream 继续处理，而不要求用户再发一条“跑完没”。
@@ -181,25 +182,13 @@ turn.started
 
 `turn.completed.data.usage` 和 `ChatResult.usage` 表示“这一次用户提交所触发的逻辑回合”，不是整个会话累计，也不是最后一个 SDK 响应的孤立值。
 
-统计规则：
-
 - 累加本逻辑回合中所有主 Agent `ResultMessage.usage` 的 `input_tokens`、`output_tokens`、`cache_read_input_tokens` 和 `cache_creation_input_tokens`。
 - 动态工作流里中间主 Agent 响应和最终主 Agent 响应都会计入。
 - 子 Agent 自身消耗不会混进主 Agent 的四项 Token；存在子 Agent 时，另以 `subagent_usage.count` 和 `subagent_usage.total_tokens` 返回。
-- 排除当前用户请求之前到达的无关代理结果。
 - `model` 取本回合主 Agent 的模型；`stop_reason` 和 `terminal_reason` 取最终结果。
-- 历史回放会分别聚合顶层和带 `parent_tool_use_id` 的子 Agent 消息；子 Agent 仅保留实时通知与历史 transcript 都能重建的数量和总 Token 两项交集指标。
+- 历史回放会分别聚合顶层和带 `parent_tool_use_id` 的子 Agent 消息。
 
 界面在每条最终 AI 回复下提供“查看响应用量”弹层；运行过子 Agent 时，会在旁边增加“查看子智能体消耗”入口。主 Agent 弹层中的“总 Token”是上述四个 token 字段之和。
-
-### 实时与历史的渲染一致性
-
-- 实时事件通过 `window` 上的 `xalling:chat-event` 分发；前端按 `session_id` 过滤订阅。
-- 历史消息由 `ClaudeChatHistory` 重新生成 `turn.started`、正文/工具/子 Agent 事件，并补出 transcript 中不存在的 `turn.completed`。
-- 子 Agent transcript 会按 `parent_tool_use_id` 插入对应工具节点，支持嵌套子 Agent。
-- 当前正在流式输出的主 Agent 正文只在气泡正文显示，不会同时在执行轨迹中重复一份。
-- 动态工作流遇到 `turn.proxy.completed` 或 `user.proxy.message` 边界时，上一段主 Agent 中间回复会移入默认折叠的执行轨迹；最后一段主 Agent 回复保留在气泡正文。
-- 实时和历史都调用同一个事件归并函数，因此刷新、切换会话后不会改变消息角色、折叠结构或 usage 口径。
 
 ### 会话、搜索与客户端生命周期
 
@@ -208,7 +197,7 @@ turn.started
 - 会话搜索覆盖标题以及可见的用户/主 Agent 文本，返回 `event_id`、`turn_id` 和 `role` 以便界面定位。
 - 正在生成的会话会合并进会话列表，并带有 `running` 状态；界面重连时可用 `get_active_chat()` 恢复当前回合事件。
 - 同一会话不能并发发送两条消息，不同会话可以分别管理。
-- 会话级 SDK 客户端在空闲后保留 5 分钟以便复用；再次使用会取消回收计时。回收客户端只释放运行资源，持久化 transcript 仍由 `ClaudeChatHistory` 加载。
+- 会话级 SDK 客户端在空闲后保留 5 分钟以便复用；再次使用会取消回收计时。
 - 应用关闭时会统一关闭仍保留的客户端和临时配置资源。
 
 ### 权限与特殊工具
@@ -247,22 +236,111 @@ await sendChatMessage(prompt, projectPath, sessionId, effort, permissionMode);
 - 返回值只使用 JSON 可序列化数据。使用 `evaluate_js` 推送事件时，必须通过受控回调传递已安全编码的数据，避免拼接不受信任的脚本。
 - 桥接 API 集中封装在一个前端模块中；业务组件不得散落直接调用 `window.pywebview.api`。
 
-## 项目状态与目录
-
-当前仓库已经具备完整的本地桌面窗口、模型配置、Claude 对话、事件流、权限交互、会话历史与搜索能力。代码按以下边界组织：
+## 项目结构
 
 ```text
 main.py                            # 窗口创建和应用生命周期
-backend/claude_chat_client/        # Claude SDK 稳定抽象、事件、历史和用量
-backend/router/                    # pywebview API、输入校验和应用配置适配
-backend/config/                    # 模型站点和当前选择
-frontend/src/bridge/client.ts      # 前端桥接契约
-frontend/src/components/           # 对话工作区、执行轨迹和权限对话框
-frontend/dist/                     # 构建后的本地静态资源
+backend/
+  claude_chat_client/              # Claude SDK 稳定抽象、事件、历史和用量
+  router/                          # pywebview API、输入校验（chat/command/file/model/theme/…）
+  service/                         # 领域服务实现
+  config/                          # 模型站点和当前选择
+  scheduler.py                     # APScheduler 定时任务调度
+  claude_proxy.py                  # 本地协议转换代理管理
+frontend/
+  src/bridge/client.ts             # 前端桥接契约
+  src/components/                  # 对话工作区、执行轨迹、权限对话框、设置等
+  dist/                            # 构建后的本地静态资源
+plugins/
+  claude-proxy-rust/               # OpenAI 兼容代理（Git 子模块）
+  bin/                             # 编译后的 claude-proxy-rust.exe
+script/
+  build_claude_proxy.bat           # 构建 Rust 代理
+  package_windows.bat              # 一键打包（代理 + 前端 + PyInstaller + 安装包）
+  installer_windows.iss            # Inno Setup 6 安装程序脚本
+tutorials/                         # 应用内教程文档
 tests/                             # 客户端、历史、路由和桥接契约测试
+setting.example.toml               # 模型配置示例（不含 API Key）
+Xalling.spec                       # PyInstaller 打包规格
 ```
 
-前端构建产物由 pywebview 从本地加载；无论开发还是发布，业务交互都保持通过桥接而非 HTTP。
+## 快速开始
+
+前置条件：Python 3.12、[uv](https://docs.astral.sh/uv/)、Node.js。
+
+```powershell
+uv sync
+cd frontend
+npm install
+npm run build
+cd ..
+uv run python main.py
+```
+
+运行前请将 `setting.example.toml` 复制为 `~/.xalling/xalling-setting.toml` 并填入模型站点信息。
+
+## 开发命令
+
+```powershell
+# 静态检查
+uv run ruff check .
+
+# 运行测试
+uv run pytest
+
+# 检查并构建本地前端资源
+cd frontend
+npm run check
+npm run build
+```
+
+修改桥接 API 后，请同时验证：正常调用、非法参数、Python 异常回传，以及长任务状态推送。新增界面时，优先复用 Ant Design 和 Ant Design X 组件，并确保图表容器有明确尺寸。
+
+## 打包与发布（Windows）
+
+发布采用 [PyInstaller](https://pyinstaller.org/en/stable/usage.html) 打包 Python 与 pywebview，并把 `frontend/dist`、`tutorials` 作为应用资源带入，同时附带 `plugins/bin/claude-proxy-rust.exe`。默认使用 `--onedir`，便于排查 pywebview、WebView 运行时和静态资源问题。
+
+> PyInstaller 不是跨平台编译器，必须在目标系统或对应 CI Runner 上分别构建各平台安装包。
+
+### 一键打包
+
+前置条件：Windows 10/11、[Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)、[Rust 工具链](https://www.rust-lang.org/tools/install)、[Inno Setup 6](https://jrsoftware.org/isinfo.php)。
+
+```powershell
+git submodule update --init --recursive
+.\script\package_windows.bat
+```
+
+脚本会依次执行：构建 `claude-proxy-rust` → 构建前端 → PyInstaller 打包 → Inno Setup 生成安装程序。产物位于 `dist\`：
+
+- `dist\Xalling\`：绿色目录版，可直接运行 `Xalling.exe`
+- `dist\Xalling-Setup-<版本>.exe`：安装程序（仅 `--onedir` 模式生成；可传 `onefile` 参数跳过安装包步骤）
+
+版本号由 `script\installer_windows.iss` 的 `MyAppVersion` 维护，需与 `pyproject.toml` 保持一致。
+
+### Linux（GTK / Debian、Ubuntu 示例）
+
+```bash
+sudo apt update
+sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+
+uv add "pywebview[gtk]>=6.2.1"
+uv add --dev pyinstaller
+
+cd frontend
+npm ci
+npm run build
+cd ..
+
+uv run pyinstaller --noconfirm --clean --windowed --onedir \
+  --name Xalling \
+  --add-data "frontend/dist:frontend/dist" \
+  main.py
+
+./dist/Xalling/Xalling
+```
+
+发布前请在目标发行版的干净用户环境中启动一次，验证窗口创建、静态资源加载、`window.pywebview.api` 桥接与中文字体显示。若采用 Qt，应改用 `pywebview[qt]` 并在该平台重新构建，不要把 Windows 构建产物复制到 Linux。
 
 ## 实现约定
 
@@ -282,130 +360,9 @@ tests/                             # 客户端、历史、路由和桥接契约�
 - 工具调用遵循最小权限原则；文件、命令或外部服务操作必须由用户清晰触发，并提供进度、确认和结果反馈。
 - 模型端点、密钥和其他敏感配置仅放在环境变量或本地安全配置中，不得进入前端 bundle、源码或日志。
 
-## 快速开始
-
-前置条件：Python 3.12，以及已安装的 [uv](https://docs.astral.sh/uv/)。
-
-```powershell
-uv sync
-cd frontend
-npm install
-npm run build
-cd ..
-uv run python main.py
-```
-
-## 开发命令
-
-```powershell
-# 静态检查
-uv run ruff check .
-
-# 运行测试
-uv run pytest
-
-# 检查并构建本地前端资源
-cd frontend
-npm run check
-npm run build
-```
-
-修改桥接 API 后，请同时验证：正常调用、非法参数、Python 异常回传，以及长任务状态推送。新增界面时，优先复用 Ant Design 和 Ant Design X 组件，并确保图表容器有明确尺寸。
-
-## 打包与发布（Windows / Linux）
-
-发布采用 [PyInstaller](https://pyinstaller.org/en/stable/usage.html) 打包 Python 与 pywebview，并把 `frontend/dist` 作为应用资源一并带入。入口文件通过 `Path(__file__)` 定位资源，和 PyInstaller 的运行时资源定位方式兼容。
-
-默认使用 `--onedir`：它更便于排查 pywebview、WebView 运行时和静态资源问题。验证稳定后可以将 `--onedir` 改为 `--onefile`；单文件模式会在启动时解压资源，因此启动更慢，且运行时对内置文件的修改不会保留。
-
-> 必须在目标系统或对应 CI Runner 上分别构建 Windows 和 Linux 安装包。PyInstaller 不是跨平台编译器，不能在 Windows 上直接产出可运行的 Linux 包，反之亦然。
-
-### 通用准备
-
-在每个构建平台执行一次：
-
-```powershell
-# 项目根目录
-uv add --dev pyinstaller
-
-Set-Location frontend
-npm ci
-npm run build
-Set-Location ..
-```
-
-`dist/`、`build/`、`*.spec` 是可再生打包产物，不应提交到仓库；相应规则已在 `.gitignore` 中维护。
-
-### OpenAI 兼容代理插件
-
-项目通过 `plugins/claude-proxy-rust` Git 子模块纳入 Rust 代理源码，并把编译后的
-`claude-proxy-rust.exe` 作为 `plugins/bin/` 下的本地插件。模型供应商的“API 协议”
-可以选择 `anthropic`、`chat` 或 `responses`；后两者会启动本地代理，将 Claude
-Agent SDK 的 Anthropic Messages 请求转换为对应的 OpenAI 接口。
-
-首次构建 Windows 包前，请安装 Rust 工具链，并执行：
-
-```powershell
-git submodule update --init --recursive
-.\script\build_claude_proxy.bat
-.\script\package_windows.bat
-```
-
-随后运行现有的打包脚本；如果供应商使用 OpenAI API，请把 API 地址填写为
-OpenAI 兼容服务的基础地址（通常以 `/v1` 结尾），并选择对应的接口类型。
-应用会为每个 Claude 会话启动一个仅监听 `127.0.0.1` 的代理进程，连接关闭后
-自动回收，不会把 API Key 写入项目文件。
-
-### Windows
-
-前置条件：Windows 10/11，以及 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)；pywebview 在 Windows 使用 Edge Chromium 时依赖该运行时。
-
-```powershell
-.\script\build_claude_proxy.bat
-uv run pyinstaller --noconfirm --clean --windowed --onedir `
-  --name Xalling `
-  --add-data "frontend/dist:frontend/dist" `
-  --add-binary "plugins/bin/claude-proxy-rust.exe;plugins/bin" `
-  main.py
-
-.\dist\Xalling\Xalling.exe
-```
-
-将 `dist\Xalling\` 目录整体交付给用户。当前 pywebview 版本可由 PyInstaller 的内置 hook 收集所需组件；若后续引入动态加载的 Python 模块，再按实际缺失信息补充 `--hidden-import`。
-
-### Linux（GTK / Debian、Ubuntu 示例）
-
-Linux 必须选择 GTK 或 Qt 渲染器。首个 Linux 发布版本建议使用 GTK，并在干净的 Debian/Ubuntu 构建机上安装系统依赖：
-
-```bash
-sudo apt update
-sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
-
-# 在 Linux 构建分支中使用 GTK 额外依赖，然后更新 uv.lock
-uv add "pywebview[gtk]>=6.2.1"
-uv add --dev pyinstaller
-
-cd frontend
-npm ci
-npm run build
-cd ..
-
-uv run pyinstaller --noconfirm --clean --windowed --onedir \
-  --name Xalling \
-  --add-data "frontend/dist:frontend/dist" \
-  main.py
-
-./dist/Xalling/Xalling
-```
-
-发布前请在目标发行版的干净用户环境中启动一次，验证窗口创建、静态资源加载、`window.pywebview.api` 桥接与中文字体显示。若采用 Qt，应改用 `pywebview[qt]` 并在该平台重新构建，不要把 Windows 构建产物复制到 Linux。
-
-pywebview 官方的 [冻结说明](https://pywebview.flowrl.com/guide/freezing) 推荐 Windows / Linux 使用 PyInstaller；其 [Linux 安装指南](https://pywebview.flowrl.com/guide/installation) 列出了 GTK 与 Qt 的运行时要求。
-
 ## 继续开发时的检查清单
 
 1. 新增 Claude SDK 消息类型时，同时更新 `models.py`、`message_adapter.py`、历史装配测试和前端事件归并。
 2. 改动逻辑回合结束条件时，覆盖普通回复、异步子 Agent、多个连续后台任务、用户停止和异常中断。
-3. 改动 usage 时，分别验证实时与历史，并明确主 Agent、子 Agent 和任务通知的统计边界。
-4. 改动桥接 API 时，同步更新 Python 路由、`frontend/src/bridge/client.ts` 类型以及非法参数/异常回传测试。
-5. 发布前运行 Python 静态检查和完整测试，并执行前端类型检查与生产构建。
+3. 改动桥接 API 时，同步更新 Python 路由、`frontend/src/bridge/client.ts` 类型以及非法参数/异常回传测试。
+4. 发布前运行 Python 静态检查和完整测试，并执行前端类型检查与生产构建。
