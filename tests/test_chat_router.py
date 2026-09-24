@@ -19,16 +19,16 @@ from backend.claude_chat_client import (
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
+from backend.service.chat import (
+    _ActiveChat,
+    _ChatMessageRequest,
+    _validate_leading_slash,
+)
 from backend.service.claude_options import (
     ClaudeConnectionConfig,
     _agent_options,
     _provider_settings,
     discover_plugins,
-)
-from backend.service.chat import (
-    _ActiveChat,
-    _ChatMessageRequest,
-    _validate_leading_slash,
 )
 from main import ApplicationBridge
 
@@ -742,8 +742,11 @@ def test_chat_router_updates_live_permission_mode_and_retains_config(
 
 
 def test_chat_router_permission_mode_update_creates_client_when_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     bridge_factory: Callable[[], ApplicationBridge],
 ) -> None:
+    configure_model(tmp_path, monkeypatch)
     assert bridge_factory().set_chat_permission_mode(str(uuid4()), "default")
 
 
