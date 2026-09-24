@@ -324,6 +324,36 @@ def test_history_reconstructs_command_messages_and_empty_command_results() -> No
     assert all(event.turn_id == "command-1" for event in events)
 
 
+def test_history_reconstructs_message_first_command_envelope() -> None:
+    messages = [
+        _user_message(
+            "command-1",
+            """<command-message>opencode:agent-browser</command-message>
+            <command-name>/opencode:agent-browser</command-name>
+            <command-args>看下百度主页有什么</command-args>""",
+        )
+    ]
+
+    events = assemble_session_messages(messages)
+
+    assert events[1].event == "user.message"
+    assert events[1].data["content"] == "/opencode:agent-browser 看下百度主页有什么"
+
+
+def test_history_reconstructs_command_envelope_without_args() -> None:
+    messages = [
+        _user_message(
+            "command-1",
+            "<command-message>loop</command-message>\n"
+            "<command-name>/loop</command-name>",
+        )
+    ]
+
+    events = assemble_session_messages(messages)
+
+    assert events[1].data["content"] == "/loop"
+
+
 def test_history_loader_reads_main_and_subagent_transcripts(monkeypatch) -> None:
     main = [_user_message("user-1", "你好")]
     nested = [

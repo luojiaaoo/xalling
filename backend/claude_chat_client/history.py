@@ -6,6 +6,7 @@ import html
 import json
 import re
 from collections.abc import Iterable, Mapping
+from itertools import pairwise
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -43,10 +44,10 @@ from .usage import _subagent_usage
 
 _TASK_NOTIFICATION_OPEN = "<task-notification>"
 _TASK_NOTIFICATION_CLOSE = "</task-notification>"
-_COMMAND_MESSAGE_RE = re.compile(
-    r"^\s*<command-name>\s*(?P<name>.*?)\s*</command-name>\s*"
-    r"<command-message>.*?</command-message>\s*"
-    r"<command-args>\s*(?P<args>.*?)\s*</command-args>\s*$",
+_COMMAND_FIELD_RE = re.compile(
+    r"<(?P<name>command-name|command-message|command-args)>"
+    r"(?P<value>.*?)"
+    r"</(?P=name)>",
     re.DOTALL,
 )
 _LOCAL_COMMAND_STDOUT_RE = re.compile(
@@ -743,13 +744,26 @@ def _command_prompt(content: object) -> str | None:
     text = _content_text(content)
     if text is None:
         return None
-    match = _COMMAND_MESSAGE_RE.match(text)
-    if match is None:
+    fields = list(_COMMAND_FIELD_RE.finditer(text))
+    if len(fields) not in {2, 3}:
         return None
-    name = html.unescape(match.group("name")).strip().removeprefix("/")
+    if text[: fields[0].start()].strip() or text[fields[-1].end() :].strip():
+        return None
+    if any(
+        text[left.end() : right.start()].strip()
+        for left, right in pairwise(fields)
+    ):
+        return None
+    values = {field.group("name"): field.group("value") for field in fields}
+    if (
+        len(values) != len(fields)
+        or not {"command-name", "command-message"}.issubset(values)
+    ):
+        return None
+    name = html.unescape(values["command-name"]).strip().removeprefix("/")
     if not name or any(char.isspace() for char in name):
         return None
-    args = " ".join(html.unescape(match.group("args")).split())
+    args = " ".join(html.unescape(values.get("command-args", "")).split())
     return f"/{name}{f' {args}' if args else ''}"
 
 
