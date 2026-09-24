@@ -1,0 +1,89 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package Xalling for Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.8"
+          enable-cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
+
+      - name: Run backend tests
+        run: uv run pytest -q
+
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+
+      - name: Select package version
+        shell: pwsh
+        run: |
+          $match = Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"$'
+          if ($null -eq $match) {
+            throw "Could not read the project version from pyproject.toml"
+          }
+          $version = $match.Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          }
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Packaging version $version"
+
+      - name: Build package
+        shell: cmd
+        run: call script\package_windows.bat
+
+      - name: Create portable archive
+        shell: pwsh
+        run: Compress-Archive -Path dist\Xalling -DestinationPath dist\Xalling-portable.zip -Force
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xalling-windows-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            dist/Xalling-Setup-*.exe
+            dist/Xalling-portable.zip

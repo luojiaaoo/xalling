@@ -44,7 +44,9 @@ if not defined ISCC (
     echo        then re-run, or set ISCC to the full path of ISCC.exe.
     exit /b 1
 )
-"%ISCC%" script\installer_windows.iss || exit /b 1
+set "ISCC_VERSION_ARG="
+if defined APP_VERSION set "ISCC_VERSION_ARG=/DMyAppVersion=%APP_VERSION%"
+"%ISCC%" %ISCC_VERSION_ARG% script\installer_windows.iss || exit /b 1
 goto :installer_done
 
 :skip_installer
@@ -53,4 +55,4 @@ echo        Skipped: installer packages the --onedir layout. Use the default bui
 :installer_done
 echo [6/6] Done. Output in dist\:
 dir /b dist 2>nul
-pause
+if /i not "%CI%"=="true" pause
