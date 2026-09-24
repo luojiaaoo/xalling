@@ -12,7 +12,7 @@
 AppId={{A9C5B2D1-4E6F-4A3B-8C7D-2E1F0A9B8C7D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=Xalling
+AppPublisher=AI Development Center
 DefaultDirName={autopf}\Xalling
 DefaultGroupName=Xalling
 DisableProgramGroupPage=yes
@@ -28,10 +28,9 @@ SetupIconFile=..\favicon.ico
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
 Source: "..\dist\Xalling\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

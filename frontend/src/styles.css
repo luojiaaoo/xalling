@@ -153,6 +153,8 @@ html[data-theme="dark"] .sidebar-bottom { border-top-color: #1e1e24; }
 html[data-theme="dark"] .sidebar-settings-button { color: rgba(255, 255, 255, 0.7); }
 html[data-theme="dark"] .project-row, html[data-theme="dark"] .task-row { color: rgba(255, 255, 255, 0.6); }
 html[data-theme="dark"] .project-row:hover, html[data-theme="dark"] .task-row:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.06); }
+html[data-theme="dark"] .task-row-active { color: #a99cff; background: rgba(109, 93, 252, 0.28); }
+html[data-theme="dark"] .session-running-indicator { color: #a99cff; border-color: rgba(169, 156, 255, .25); }
 html[data-theme="dark"] .search-palette { background: #1e1e24; box-shadow: 0 24px 60px rgba(0, 0, 0, .5); }
 html[data-theme="dark"] .search-palette-input-row, html[data-theme="dark"] .search-palette-footer { border-color: #30303a; }
 html[data-theme="dark"] .search-palette-footer { color: rgba(255, 255, 255, .45); background: #232329; }
@@ -239,6 +241,8 @@ html[data-theme="cartoon"] .sidebar-bottom { border-top: 2px solid #225555; }
 html[data-theme="cartoon"] .sidebar-settings-button { color: #51463B; }
 html[data-theme="cartoon"] .project-row, html[data-theme="cartoon"] .task-row { color: #6f6353; }
 html[data-theme="cartoon"] .project-row:hover, html[data-theme="cartoon"] .task-row:hover { color: #51463B; background: #E8D29A; }
+html[data-theme="cartoon"] .task-row-active { color: #225555; background: #E8D29A; }
+html[data-theme="cartoon"] .session-running-indicator { color: #225555; border-color: rgba(34, 85, 85, .25); }
 html[data-theme="cartoon"] .search-palette { color: #51463B; border: 2px solid #225555; background: #fff; box-shadow: none; }
 html[data-theme="cartoon"] .search-palette-input-row, html[data-theme="cartoon"] .search-palette-footer { border-color: #CBC4AF; }
 html[data-theme="cartoon"] .search-palette-footer { color: #7a6e5d; background: #FAFAEE; }
@@ -352,6 +356,8 @@ html[data-theme="illustration"] .settings-title p,
 html[data-theme="illustration"] .provider-item-content small,
 html[data-theme="illustration"] .settings-field small,
 html[data-theme="illustration"] .model-list-heading p { color: #666; }
+html[data-theme="illustration"] .task-row-active { color: #2C2C2C; background: #FFE7BA; }
+html[data-theme="illustration"] .session-running-indicator { color: #52C41A; border-color: rgba(82, 196, 26, .3); }
 html[data-theme="illustration"] .settings-kicker,
 html[data-theme="illustration"] .eyebrow { color: #237804; }
 html[data-theme="illustration"] .model-settings-layout { border: 3px solid #2C2C2C; background: #fff; box-shadow: 6px 6px 0 #2C2C2C; }
@@ -434,6 +440,8 @@ html[data-theme="geek"] .settings-kicker,
 html[data-theme="geek"] .provider-item-content small,
 html[data-theme="geek"] .settings-field small,
 html[data-theme="geek"] .model-list-heading p { color: rgba(57, 255, 20, .5); }
+html[data-theme="geek"] .task-row-active { color: #39ff14; background: rgba(57, 255, 20, .2); }
+html[data-theme="geek"] .session-running-indicator { color: #39ff14; border-color: rgba(57, 255, 20, .25); }
 html[data-theme="geek"] .model-settings-layout { border: 2px solid #39ff14; border-radius: 0; background: #030603; box-shadow: 0 0 8px rgba(57, 255, 20, .55), inset 0 0 16px rgba(57, 255, 20, .08); }
 html[data-theme="geek"] .provider-list { border-right: 2px solid #39ff14; background: #030603; }
 html[data-theme="geek"] .provider-item { color: rgba(57, 255, 20, .72); border-radius: 0; }
@@ -509,6 +517,8 @@ html[data-theme="serene"] .sidebar-bottom { border-top-color: #4b4035; }
 html[data-theme="serene"] .sidebar-settings-button { color: #9a8f84; }
 html[data-theme="serene"] .project-row,
 html[data-theme="serene"] .task-row { color: rgba(232, 226, 217, .62); border-radius: 2px; }
+html[data-theme="serene"] .task-row-active { color: #c7a56b; background: #3c332a; }
+html[data-theme="serene"] .session-running-indicator { color: #c7a56b; border-color: rgba(199, 165, 107, .3); }
 html[data-theme="serene"] .search-palette { border: 1px solid #d9d0c6; border-radius: 6px; background: #fcfaf8; box-shadow: 0 24px 48px -16px rgba(42, 35, 29, .2); }
 html[data-theme="serene"] .search-palette-input-row, html[data-theme="serene"] .search-palette-footer { border-color: #e2dcd5; }
 html[data-theme="serene"] .search-palette-footer { color: #9a8f84; background: #f4efe9; }
