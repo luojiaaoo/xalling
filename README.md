@@ -33,7 +33,7 @@ Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领
 
 | 对话工作区 | 斜杠命令与技能 |
 | :-: | :-: |
-| ![对话工作区：子智能体规划结果与用量统计](screenshot/chat-workspace.jpg) | ![输入框 / 唤起命令与技能列表](screenshot/slash-commands.jpg) |
+| ![对话工作区：子智能体规划结果与用量统计](screenshot/chat.jpg) | ![输入框 / 唤起命令与技能列表](screenshot/slash-commands.jpg) |
 
 | `@` 引用文件 | 模型管理 |
 | :-: | :-: |
