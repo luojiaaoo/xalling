@@ -23,6 +23,7 @@ from backend.claude_proxy import open_claude_proxy
 from backend.config.setting import (
     CLAUDE_PROXY_LOG_DIRECTORY,
     USER_CONF_DIRPATH,
+    ROOT,
 )
 from backend.service.log import claude_sdk_logger
 from backend.service.scheduler_tool import build_scheduler_mcp_server
@@ -34,6 +35,19 @@ type ApiProtocol = Literal["anthropic", "chat", "responses"]
 def _claude_proxy_log_filepath(session_id: str) -> Path:
     """Return the isolated proxy log file for one Claude session."""
     return CLAUDE_PROXY_LOG_DIRECTORY / f"{session_id}.log"
+
+
+def _bundled_claude_cli() -> str | None:
+    """返回插件目录内随仓库分发的 claude 可执行文件，保证运行与打包环境一致。
+
+    缺失时返回 None，交回 SDK 自行查找（开发机兜底）。
+    """
+    suffix = ".exe" if platform.system() == "Windows" else ""
+    executable = ROOT / "plugins" / "bin" / f"claude{suffix}"
+    exec_file = str(executable) if executable.is_file() else None
+    if exec_file is None:
+        raise RuntimeError("Can not find executable claude")
+    return exec_file
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +73,7 @@ class ClaudeConnectionConfig:
             and conf.effort == self.effort
             and conf.max_context_tokens == self.max_context_tokens
             and conf.model == self.model
-            and (
-                not self.model_site
-                or not conf.model_site
-                or conf.model_site == self.model_site
-            )
+            and (not self.model_site or not conf.model_site or conf.model_site == self.model_site)
             and conf.project == self.project
             and conf.session_id == self.session_id
             and conf.api_protocol == self.api_protocol
@@ -102,9 +112,9 @@ def _system_prompt_append(config: ClaudeConnectionConfig) -> str:
     mcp_info = (
         "When adding a new MCP server, register it in:\n"
         f"- User-level (all projects): `{user_conf_dir / '.claude.json'}` "
-        "under the top-level \"mcpServers\" key\n"
+        'under the top-level "mcpServers" key\n'
         f"- Project-level (shared via the repo): `{(config.project / '.mcp.json').resolve()}` "
-        "under the \"mcpServers\" key\n"
+        'under the "mcpServers" key\n'
         'Server entry example: `{"type": "stdio", "command": "npx", "args": ["-y", "some-mcp"]}`. '
         "Use ONLY the two files listed above; never register MCP servers anywhere else. "
         "New skills and MCP servers take effect in the next session, not the current one."
@@ -176,6 +186,7 @@ def _agent_options(
     return ClaudeAgentOptions(
         cwd=config.project,
         effort=config.effort,
+        cli_path=_bundled_claude_cli(),
         env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling"},
         extra_args={"allow-dangerously-skip-permissions": None},
         max_turns=200,
@@ -194,7 +205,7 @@ def _agent_options(
         },
         thinking={"type": "adaptive", "display": "summarized"},
         tools={"type": "preset", "preset": "claude_code"},
-        disallowed_tools=['ScheduleWakeup', 'CronCreate', 'CronList', 'CronDelete'],
+        disallowed_tools=["ScheduleWakeup", "CronCreate", "CronList", "CronDelete"],
         # 定时任务工具绑定当前会话上下文（工作区/思考等级）；执行模式由用户选择
         mcp_servers={
             "xalling-scheduler": build_scheduler_mcp_server(

@@ -17,10 +17,12 @@ echo [3/6] Stopping old Xalling process...
 taskkill /IM Xalling.exe /T /F >nul 2>&1
 
 echo [4/6] Building Xalling with PyInstaller...
+call script\fetch_claude_cli.bat || exit /b 1
 uv run pyinstaller --noconfirm %MODE% --windowed --name Xalling --icon favicon.ico ^
     --add-data "frontend/dist;frontend/dist" ^
     --add-data "tutorials;tutorials" ^
     --add-binary "plugins/bin/claude-proxy-rust.exe;plugins/bin" ^
+    --add-binary "plugins/bin/claude.exe;plugins/bin" ^
     --collect-data claude_agent_sdk ^
     --collect-all clr_loader ^
     --hidden-import clr ^

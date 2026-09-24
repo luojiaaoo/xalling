@@ -1,6 +1,7 @@
 """Pydantic settings loaded from the application TOML file."""
 
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -14,6 +15,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+ROOT = Path(frozen_root) if (frozen_root := getattr(sys, "_MEIPASS", None)) else Path(__file__).resolve().parents[2]
 USER_CONF_DIRPATH = Path(os.getcwd()) / ".xalling"
 CURRENT_CONF_FILEPATH = USER_CONF_DIRPATH / "xalling-current.toml"
 # 给 history 中获取历史数据的函数使用，设置环境变量

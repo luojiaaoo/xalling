@@ -14,23 +14,15 @@ from pathlib import Path
 import anyio
 import httpx
 
+from backend.config.setting import ROOT
+
 PROXY_NAME = "claude-proxy-rust"
 PROXY_STARTUP_TIMEOUT = 10.0
 
-
-def _application_root() -> Path:
-    """Return the source or PyInstaller resource root."""
-    frozen_root = getattr(sys, "_MEIPASS", None)
-    if frozen_root:
-        return Path(frozen_root)
-    return Path(__file__).resolve().parents[1]
-
-
 def proxy_executable_path() -> Path:
     """Return the canonical path of the bundled proxy executable."""
-    root = _application_root()
     suffix = ".exe" if sys.platform == "win32" else ""
-    executable = root / "plugins" / "bin" / f"{PROXY_NAME}{suffix}"
+    executable = ROOT / "plugins" / "bin" / f"{PROXY_NAME}{suffix}"
     if executable.is_file():
         return executable
     raise FileNotFoundError(

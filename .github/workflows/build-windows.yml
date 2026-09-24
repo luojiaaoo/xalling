@@ -48,6 +48,10 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --dev
 
+      - name: Fetch pinned Claude Code CLI
+        shell: cmd
+        run: call script\fetch_claude_cli.bat
+
       - name: Run backend tests
         run: uv run pytest -q
 
