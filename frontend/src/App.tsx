@@ -22,6 +22,7 @@ import {
   type ChatSessionSummary,
   type ProjectFolder,
 } from "./bridge/client";
+import useGlassTheme from "./glassTheme";
 import useGeekTheme from "./geekTheme";
 import useIllustrationTheme from "./illustrationTheme";
 import useMuiTheme from "./muiTheme";
@@ -41,7 +42,8 @@ function isThemeName(value: string): value is ThemeName {
     value === "illustration" ||
     value === "geek" ||
     value === "serene" ||
-    value === "mui"
+    value === "mui" ||
+    value === "glass"
   );
 }
 
@@ -78,6 +80,7 @@ export default function App() {
   const geekTheme = useGeekTheme();
   const sereneTheme = useSereneTheme();
   const muiTheme = useMuiTheme();
+  const glassTheme = useGlassTheme();
 
   const refreshChatSessions = useCallback((showLoading = false) => {
     const requestId = chatSessionsRequestIdRef.current + 1;
@@ -112,7 +115,9 @@ export default function App() {
           ? sereneTheme
           : themeName === "mui"
             ? muiTheme
-            : { theme: themes[themeName] };
+            : themeName === "glass"
+              ? glassTheme
+              : { theme: themes[themeName] };
 
   // 启动时从后端读取持久化的主题选择
   useEffect(() => {
