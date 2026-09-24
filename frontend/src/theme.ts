@@ -7,8 +7,9 @@ export type ThemeName =
   | "cartoon"
   | "illustration"
   | "geek"
-  | "serene";
-export type StaticThemeName = Exclude<ThemeName, "illustration" | "geek" | "serene">;
+  | "serene"
+  | "mui";
+export type StaticThemeName = Exclude<ThemeName, "illustration" | "geek" | "serene" | "mui">;
 
 const fontFamily = "Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif";
 

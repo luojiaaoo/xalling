@@ -2,7 +2,7 @@
 
 from backend.config.current import CurrentConfig
 
-THEME_NAMES = ("default", "dark", "cartoon", "illustration", "geek", "serene")
+THEME_NAMES = ("default", "dark", "cartoon", "illustration", "geek", "serene", "mui")
 
 
 class ThemeService:

@@ -16,7 +16,7 @@ Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与
 - **模型站点管理**：多供应商模型配置，支持 `anthropic` / `chat` / `responses` 三种 API 协议
 - **用量统计**：按逻辑回合统计主 Agent Token 与子 Agent 消耗，提供会话内用量弹层
 - **会话历史与搜索**：会话列表、全文搜索、运行中会话恢复
-- **多主题外观**：default / dark / cartoon / illustration / geek / serene 六套主题
+- **多主题外观**：default / dark / cartoon / illustration / geek / serene / mui 七套主题
 - **本地教程**：内置命令说明等教程文档，在应用内直接查看
 
 ## 架构

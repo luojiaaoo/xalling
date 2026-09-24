@@ -408,12 +408,15 @@ def test_theme_router_persists_selection(
     assert router.get_current_theme() == "serene"
 
     router.set_current_theme("geek")
-
     assert router.get_current_theme() == "geek"
+
+    router.set_current_theme("mui")
+
+    assert router.get_current_theme() == "mui"
     with current_path.open("rb") as file:
         assert tomllib.load(file) == {
             "model": {"site": "", "name": ""},
-            "theme": {"name": "geek"},
+            "theme": {"name": "mui"},
         }
     with pytest.raises(ValueError, match="不支持的主题"):
         router.set_current_theme("neon")

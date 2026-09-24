@@ -13,6 +13,7 @@ const themeOptions: Array<{
   { value: "illustration", label: "插画主题", description: "粗线条与明快配色，活泼醒目" },
   { value: "geek", label: "极客主题", description: "荧光绿终端风格，锐利硬朗" },
   { value: "serene", label: "静谧主题", description: "温润米白与深棕配色，安静克制" },
+  { value: "mui", label: "MUI 主题", description: "Material 质感，蓝白配色，层次分明" },
 ];
 
 export function AppearanceSettings({
