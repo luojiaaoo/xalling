@@ -802,6 +802,31 @@ async def _client_normalizes_changing_stream_event_uuids() -> None:
     ] == ["Hello ", "world"]
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_checkpoint_uses_confirmed_human_uuid_without_duplicate_user_echo(enabled):
+    async def run():
+        human = UserMessage(content="edit", uuid="updated-on-start", origin={"kind": "human"})
+        _FakeSDK.batches = [[human, human,
+            UserMessage(content="notification", uuid="proxy", origin={"kind": "task-notification"}),
+            UserMessage(content="child", uuid="child", parent_tool_use_id="agent", origin={"kind": "human"}),
+            _result(origin={"kind": "human"})]]
+        client = ClaudeChatClient(ClaudeAgentOptions(model="test-model", enable_file_checkpointing=enabled))
+        events = []
+        async for event in client.stream("edit"):
+            events.append(event)
+            if event.event == "turn.started":
+                human.uuid = event.turn_id
+        checkpoints = [event for event in events if event.event == "files.checkpoint"]
+        assert len(checkpoints) == int(enabled)
+        if enabled:
+            assert checkpoints[0].data["checkpoint_id"] == human.uuid
+            assert checkpoints[0].id == f"checkpoint:{human.uuid}"
+        assert sum(event.event == "user.message" for event in events) == 1
+        await client.close()
+
+    anyio.run(run)
+
+
 def _result(
     *,
     origin: dict[str, Any],

@@ -38,6 +38,7 @@ import {
 import { finishAgentTrace } from "../chat/trace";
 import { conversationFromEvents, reduceConversationEvent, isConversationEvent, eventTime, turnAssistantKey, contextCompactionText, pendingPermissionsFromEvents, type ConversationMessage } from "../chat/conversation";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { TurnChanges } from "./TurnChanges";
 import {
   TaskComposer,
   type ComposerAttachment,
@@ -237,6 +238,7 @@ export function Workspace({
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(Boolean(initialSessionId));
   const [busy, setBusy] = useState(false);
+  const [restoringFiles, setRestoringFiles] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [permissionRequests, setPermissionRequests] = useState<ChatPermissionRequestEvent[]>([]);
@@ -316,6 +318,7 @@ export function Workspace({
     if (!isConversationEvent(event)) return;
     const assistantKey = turnAssistantKey(event.turn_id);
     setMessages((current) => reduceConversationEvent(current, event));
+    if (event.event.startsWith("files.")) return;
     if (event.event === "turn.completed" || event.event === "turn.failed") {
       closedTurnsRef.current.add(event.turn_id);
       setPermissionRequests((current) => current.filter((item) => item.turn_id !== event.turn_id));
@@ -411,7 +414,7 @@ export function Workspace({
           }
         }
         const activeEvents = activeChat?.events ?? [];
-        const activeTurnIds = new Set(activeEvents.map((event) => event.turn_id));
+        const activeTurnIds = new Set(activeEvents.filter((event) => !event.event.startsWith("files.")).map((event) => event.turn_id));
         const events = [
           ...history.events.filter((event) => !activeTurnIds.has(event.turn_id)),
           ...activeEvents,
@@ -573,7 +576,7 @@ export function Workspace({
   };
 
   const handleSend = (draft: ComposerDraft) => {
-    if (busy) {
+    if (busy || restoringFiles) {
       return;
     }
     messageNumberRef.current += 1;
@@ -815,6 +818,18 @@ export function Workspace({
                   )}
                 </>
               )}
+          {!item.loading && !!item.fileChanges?.length && (
+            <TurnChanges
+              files={item.fileChanges}
+              checkpointId={item.checkpointId}
+              filesRestoredAt={item.filesRestoredAt}
+              disabled={busy || restoringFiles || historyLoading}
+              projectPath={selectedProject?.path ?? null}
+              sessionId={sessionIdRef.current}
+              onRestored={applyLiveEvent}
+              onRestoringChange={setRestoringFiles}
+            />
+          )}
         </article>
       ) : (
         <div className="user-message">
@@ -862,6 +877,7 @@ export function Workspace({
         }`}>
           <TaskComposer
             busy={busy}
+            fileRestoring={restoringFiles}
             conversationStarted={conversationStarted}
             effort={effort}
             modelsRevision={modelsRevision}

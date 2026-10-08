@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, cast, get_args
 
 from claude_agent_sdk import (
@@ -33,6 +33,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from .file_changes import TurnFileChanges
 from .models import (
     AskUserAnswer,
     AskUserQuestionCompletedData,
@@ -185,10 +186,12 @@ class _MessageAdapter:
         self,
         factory: _EventFactory,
         plan_approval_modes: dict[str, PlanApprovalMode],
+        file_changes: TurnFileChanges | None = None,
     ) -> None:
         self.factory = factory
         self.plan_approval_modes = plan_approval_modes
         self.tools: dict[str, _ToolCall] = {}
+        self.file_changes = file_changes if file_changes is not None else TurnFileChanges()
         self.stream_blocks: dict[tuple[str, int], dict[str, Any]] = {}
         self.streams: dict[tuple[str, str | None], _StreamState] = {}
         self._assistant_blocks: dict[
@@ -200,6 +203,25 @@ class _MessageAdapter:
         self._model_turn_sequence = 0
 
     def adapt(self, message: Message) -> list[ChatEvent]:
+        events = self._adapt(message)
+        changed = False
+        for event in events:
+            if event.event not in {"tool.completed", "subagent.tool.completed"} or event.data.get("is_error"):
+                continue
+            tool_id = event.data.get("tool_id")
+            call = self.tools.get(tool_id)
+            if call is not None:
+                result = _tool_result_mapping(event.data.get("content"), event.data.get("tool_use_result"))
+                changed = self.file_changes.apply(call.name, call.input, result, str(tool_id),
+                                                 restorable=event.parent_tool_use_id is None) or changed
+        if changed:
+            events.append(replace(events[-1], event="files.changed",
+                                  id=f"changes:{self.factory.turn_id}:{len(self.file_changes.seen_tools)}",
+                                  model_turn_id=None, parent_tool_use_id=None,
+                                  data={"files": self.file_changes.snapshot()}))
+        return events
+
+    def _adapt(self, message: Message) -> list[ChatEvent]:
         """Convert every currently known SDK ``Message`` variant."""
         if isinstance(message, StreamEvent):
             return self._stream_event(message)
@@ -584,6 +606,18 @@ class _MessageAdapter:
                         )
                     )
         return events
+
+    def file_checkpoint(self, message: UserMessage) -> ChatEvent | None:
+        """Expose only an SDK-acknowledged, top-level human checkpoint UUID."""
+        if (
+            not message.uuid or message.parent_tool_use_id is not None
+            or not message.origin or message.origin.get("kind") != "human"
+            or not (isinstance(message.content, str) or any(isinstance(block, TextBlock) for block in message.content))
+        ):
+            return None
+        event = self.factory.make("files.checkpoint", {"checkpoint_id": message.uuid})
+        # A stable separate namespace avoids collisions with history's sequence.
+        return replace(event, id=f"checkpoint:{message.uuid}")
 
     def _tool_request(
         self,

@@ -1,0 +1,20 @@
+.diff-viewer { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.diff-viewer-controls { display: flex; flex: none; gap: 8px; padding: 8px 12px; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+.diff-preview-limit { padding: 8px 12px; font-size: 12px; }
+.diff-viewer-scroll { min-height: 0; flex: 1; overflow: auto; }
+.diff-viewer-table { min-width: 100%; width: max-content; border-collapse: collapse; font: 12px/1.8 Consolas, "SFMono-Regular", monospace; tab-size: 4; }
+.diff-viewer-table td { padding: 0 10px; white-space: pre; vertical-align: top; }
+.diff-line-number { width: 48px; min-width: 48px; text-align: right; color: color-mix(in srgb, currentColor 50%, transparent); border-right: 1px solid color-mix(in srgb, currentColor 10%, transparent); user-select: none; }
+.diff-prefix { width: 24px; user-select: none; }
+.diff-meta { background: color-mix(in srgb, #1677ff 9%, transparent); opacity: .8; }
+.diff-add { background: color-mix(in srgb, #52c41a 14%, transparent); }
+.diff-remove { background: color-mix(in srgb, #ff4d4f 14%, transparent); }
+.diff-empty { background: color-mix(in srgb, currentColor 3%, transparent); }
+.diff-viewer-table.split { width: 100%; table-layout: fixed; }
+.diff-viewer-table.split .diff-number-column { width: 44px; }
+.diff-viewer-table.split td { min-width: 0; padding: 0 8px; }
+.diff-viewer-table.split .diff-code, .diff-viewer-table.split .diff-meta td { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-viewer-table.split td:nth-child(3) { border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.diff-viewer-table.split th { position: sticky; top: 0; padding: 4px 8px; background: var(--ant-color-bg-container, #fafafa); text-align: left; font-weight: 500; }
+.diff-viewer-table.split th + th { border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.message-action-button:disabled { opacity: .45; cursor: not-allowed; }

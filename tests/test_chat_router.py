@@ -157,6 +157,10 @@ async def test_xalling_claude_options_preserve_provider_and_session_settings(
     assert options_resume.session_id is None
     assert options_new.settings == str(settings_path)
     assert options_new.model == "claude-sonnet"
+    assert options_new.enable_file_checkpointing is True
+    assert options_resume.enable_file_checkpointing is True
+    assert "replay-user-messages" in options_new.extra_args
+    assert "replay-user-messages" in options_resume.extra_args
 
 
 async def test_discover_plugins_includes_existing_user_and_project_roots(

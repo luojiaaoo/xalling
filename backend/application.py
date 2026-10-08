@@ -31,6 +31,14 @@ class ApplicationServices:
         if not task.cancelled():
             task.exception()  # Consume errors even if its HTTP caller disconnected.
 
+    async def rewind_chat_files(self, **parameters: Any) -> dict[str, object]:
+        if self.closing:
+            raise RuntimeError("应用正在关闭")
+        task = asyncio.create_task(self.chat.rewind_chat_files(**parameters))
+        self.tasks.add(task)
+        task.add_done_callback(self._finish_task)
+        return await asyncio.shield(task)
+
     async def shutdown(self) -> None:
         self.closing = True
         self.chat.deny_pending_permissions()

@@ -67,6 +67,7 @@ import {
 
 type TaskComposerProps = {
   busy?: boolean;
+  fileRestoring?: boolean;
   conversationStarted?: boolean;
   effort: number;
   modelsRevision: number;
@@ -201,6 +202,7 @@ function filterSlashItems(items: SlashItem[], query: string): SlashItem[] {
 
 export function TaskComposer({
   busy = false,
+  fileRestoring = false,
   conversationStarted = false,
   effort,
   modelsRevision,
@@ -514,6 +516,7 @@ export function TaskComposer({
   };
 
   const handleSubmit = async (value: string) => {
+    if (fileRestoring) return;
     const content = value.trim();
     if (!content && !attachmentItems.length) {
       messageApi.warning("请输入消息或添加附件。");
@@ -887,6 +890,7 @@ export function TaskComposer({
         </div>
       )}
       <Sender
+        disabled={fileRestoring}
         ref={senderRef}
         className="task-sender"
         autoSize={{ minRows: conversationStarted ? 2 : 3, maxRows: 7 }}
@@ -985,24 +989,26 @@ export function TaskComposer({
           : "描述你想完成的任务，使用 @ 添加上下文，使用 / 选择命令或能力"}
         header={(
           <>
-            <Tooltip
-              title={conversationStarted
-                ? "当前会话已锁定工作区；新建任务后可重新选择"
-                : selectedProject?.path}
-            >
-              <button
-                aria-disabled={conversationStarted || selectingProject}
-                aria-label={conversationStarted ? "当前会话的工作区已锁定" : "选择工作区"}
-                className={`composer-project${conversationStarted ? " composer-project-locked" : ""}`}
-                disabled={conversationStarted || selectingProject}
-                type="button"
-                onClick={() => void chooseProjectFolder()}
+            <div className="composer-project-row">
+              <Tooltip
+                title={conversationStarted
+                  ? "当前会话已锁定工作区；新建任务后可重新选择"
+                  : selectedProject?.path}
               >
-                {selectingProject ? <LoadingOutlined spin /> : <FolderOpenOutlined />}
-                <span>{selectedProject?.name ?? "选择项目"}</span>
-                {conversationStarted ? <LockOutlined /> : <DownOutlined />}
-              </button>
-            </Tooltip>
+                <button
+                  aria-disabled={conversationStarted || selectingProject}
+                  aria-label={conversationStarted ? "当前会话的工作区已锁定" : "选择工作区"}
+                  className={`composer-project${conversationStarted ? " composer-project-locked" : ""}`}
+                  disabled={conversationStarted || selectingProject}
+                  type="button"
+                  onClick={() => void chooseProjectFolder()}
+                >
+                  {selectingProject ? <LoadingOutlined spin /> : <FolderOpenOutlined />}
+                  <span>{selectedProject?.name ?? "选择项目"}</span>
+                  {conversationStarted ? <LockOutlined /> : <DownOutlined />}
+                </button>
+              </Tooltip>
+            </div>
             <Sender.Header
               closable={false}
               forceRender
@@ -1144,7 +1150,7 @@ export function TaskComposer({
                 <Button
                   aria-label="发送消息"
                   className="sender-send-button"
-                  disabled={!prompt.trim() && !attachmentItems.length}
+                  disabled={fileRestoring || (!prompt.trim() && !attachmentItems.length)}
                   icon={<ArrowUpOutlined />}
                   onClick={() => void handleSubmit(prompt)}
                   shape="circle"

@@ -22,6 +22,9 @@ type EventName = Literal[
     "turn.failed",
     "user.message",
     "user.proxy.message",
+    "files.checkpoint",
+    "files.changed",
+    "files.restored",
     "assistant.message.started",
     "assistant.message.delta",
     "assistant.message.stopped",
@@ -254,6 +257,25 @@ class ChatEvent:
             f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
         )
 
+    def to_payload(self, session_id: str | None = None) -> dict[str, Any]:
+        """Serialize the canonical envelope and UI projection for a transport.
+
+        The application may bind a session to frames whose SDK message omitted
+        it; both projections must carry the same session identity.
+        """
+        resolved_session_id = session_id if session_id is not None else self.session_id
+        render = render_event(self)
+        render["session_id"] = resolved_session_id
+        return {**self.to_dict(), "session_id": resolved_session_id, "render": render}
+
+
+@dataclass(frozen=True, slots=True)
+class FileRestoreResult:
+    """A successful file restoration and its checkpoint metadata outcome."""
+
+    event: ChatEvent
+    metadata_saved: bool
+
 
 def render_event(event: ChatEvent) -> dict[str, Any]:
     """Build the UI-facing projection of a client event.
@@ -357,6 +379,10 @@ def render_event(event: ChatEvent) -> dict[str, Any]:
             "denial_message": data.get("denial_message"),
             "interrupt": data.get("interrupt") is True,
         }
+    elif event.event == "files.changed":
+        render_data = {"files": data.get("files", [])}
+    elif event.event in {"files.checkpoint", "files.restored"}:
+        render_data = {"checkpoint_id": data.get("checkpoint_id")}
     elif event.event == "permission.mode.changed":
         render_data = {"mode": data.get("mode")}
     elif event.event == "turn.started":

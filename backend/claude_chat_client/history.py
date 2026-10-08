@@ -412,7 +412,7 @@ def _adapt_history_message(
         child_messages = nested_by_tool_id.get(tool_id)
         if not child_messages:
             continue
-        child_adapter = _MessageAdapter(factory, adapter.plan_approval_modes)
+        child_adapter = _MessageAdapter(factory, adapter.plan_approval_modes, adapter.file_changes)
         child_ancestors = ancestors | {tool_id}
         for child_message in child_messages:
             events.extend(

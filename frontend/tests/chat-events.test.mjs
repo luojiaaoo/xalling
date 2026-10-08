@@ -16,6 +16,47 @@ const event = (kind, data = {}, options = {}) => ({ id: `event-${++sequence}`, k
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const assistant = (messages) => messages.find((item) => item.key === "turn-turn-assistant");
 
+test("checkpoints attach to user messages and restoring earlier files creates no assistant turn", () => {
+  const messages = conversationFromEvents([
+    event("turn.started"), event("user.message", { content: "edit files" }),
+    event("files.checkpoint", { checkpoint_id: "checkpoint" }),
+    event("turn.completed", { content: "done" }),
+    event("turn.started", {}, { turn_id: "next" }),
+    event("user.message", { content: "continue" }, { turn_id: "next" }),
+    event("turn.completed", { content: "next done" }, { turn_id: "next" }),
+  ]);
+  const restored = reduceConversationEvent(messages, event("files.restored", { checkpoint_id: "checkpoint" }));
+  assert.equal(restored.length, messages.length);
+  assert.equal(restored[0].checkpointId, "checkpoint");
+  assert.equal(restored[0].filesRestoredAt, "2026-10-08T00:00:00Z");
+  assert.equal(restored.filter((item) => item.loading).length, 0);
+  assert.equal(restored.find((item) => item.key === "turn-next-assistant").content, "next done");
+});
+
+test("file changes stay attached to their completed turn and empty net snapshots clear earlier changes", () => {
+  const files = [{ path: "file", additions: 2, deletions: 1, patch: "patch", partial: false, restorable: true }];
+  let messages = conversationFromEvents([
+    event("turn.started"), event("user.message", { content: "edit" }),
+    event("files.checkpoint", { checkpoint_id: "checkpoint" }),
+    event("files.changed", { files }),
+    event("turn.completed", { content: "done" }),
+    event("turn.started", {}, { turn_id: "next" }),
+    event("user.message", { content: "continue" }, { turn_id: "next" }),
+    event("files.changed", { files: [{ ...files[0], additions: 5 }] }, { turn_id: "next" }),
+    event("turn.completed", { content: "next done" }, { turn_id: "next" }),
+  ]);
+  assert.equal(assistant(messages).fileChanges[0].additions, 2);
+  assert.equal(assistant(messages).checkpointId, "checkpoint");
+  assert.equal(messages.find((item) => item.key === "turn-next-assistant").fileChanges[0].additions, 5);
+  messages = reduceConversationEvent(messages, event("files.restored", { checkpoint_id: "checkpoint" }));
+  assert.equal(assistant(messages).filesRestoredAt, "2026-10-08T00:00:00Z");
+  messages = reduceConversationEvent(messages, event("files.changed", { files: [] }));
+  assert.equal(assistant(messages).fileChanges.length, 0);
+  assert.equal(assistant(messages).loading, false);
+  assert.equal(assistant(messages).content, "done");
+  assert.equal(messages.length, 4);
+});
+
 test("live and history share completion, absolute blocks and durations", () => {
   const begin = [event("turn.started"), event("user.message", { content: "hello" })];
   const complete = event("assistant.reply.completed", { trace_id: "model:1", text: "answer" });

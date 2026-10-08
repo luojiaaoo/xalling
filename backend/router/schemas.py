@@ -34,6 +34,11 @@ class SessionRequest(RequestModel):
     session_id: str | None = Field(default=None, max_length=128)
 
 
+class FileRewindRequest(RequestModel):
+    session_id: str = Field(min_length=1, max_length=128)
+    checkpoint_id: str = Field(min_length=1, max_length=128)
+
+
 class AttachmentRequest(RequestModel):
     filename: str = Field(min_length=1, max_length=255)
     data: str = Field(min_length=1, max_length=70 * 1024 * 1024)

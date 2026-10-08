@@ -21,11 +21,17 @@ from claude_agent_sdk import (
 )
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from backend.claude_chat_client import ChatEvent, ClaudeChatClient, ClaudeChatHistory
+from backend.claude_chat_client import (
+    ChatEvent,
+    ClaudeChatClient,
+    ClaudeChatHistory,
+    CompletionHandler,
+    FileCheckpointStore,
+)
 from backend.claude_chat_client.command_results import EMPTY_COMMAND_RESULTS
-from backend.claude_chat_client.models import CompletionHandler, render_event
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
+    USER_CONF_DIRPATH,
     ModelConfig,
     ModelSiteConfig,
     default_project_folder,
@@ -277,6 +283,8 @@ class ChatService:
         self._event_sink = event_sink
         self._active_chats: dict[str, _ActiveChat] = {}
         self._history = ClaudeChatHistory()
+        self._checkpoints = FileCheckpointStore(USER_CONF_DIRPATH / "file-checkpoints")
+        self._restoring_projects: set[Path] = set()
         set_scheduled_task_executor(self._run_scheduled_task)
 
     async def send_chat_message(
@@ -310,6 +318,8 @@ class ChatService:
         existing = self._active_chats.get(active_session_id)
         if existing is not None and existing.running:
             raise RuntimeError("当前会话正在生成，请先停止后再发送")
+        if request.project_path.resolve() in self._restoring_projects:
+            raise ValueError("当前工作区正在恢复文件，请稍后发送")
 
         site, selected_model = await self._get_current_provider(
             model_site=request.model_site,
@@ -334,6 +344,8 @@ class ChatService:
         server_info = await client.get_server_info() if first_token.startswith("/") else {}
         _validate_leading_slash(request.prompt, server_info or {})
 
+        if request.project_path.resolve() in self._restoring_projects:
+            raise ValueError("当前工作区正在恢复文件，请稍后发送")
         now = int(time() * 1000)
         title = " ".join(request.prompt.split()) or "未命名会话"
         active_chat.events.clear()
@@ -378,6 +390,8 @@ class ChatService:
         config: ClaudeConnectionConfig,
     ) -> _ActiveChat:
         active_chat = self._active_chats.get(config.session_id)
+        if config.project.resolve() in self._restoring_projects:
+            raise ValueError("当前工作区正在恢复文件，请稍后操作")
         # 已经有了session，并且配置保持一样
         if active_chat is not None and active_chat.config.config_equal(config):
             if active_chat.config.permission_mode != config.permission_mode:
@@ -678,10 +692,14 @@ class ChatService:
                     "历史会话工作区与连接配置不一致："
                     f"{history_cwd} != {active_chat.config.project}"
                 )
+            history_events = await asyncer.asyncify(self._checkpoints.project_history)(
+                normalized, active_chat.config.project, tuple(snapshot.events),
+            )
             payload = snapshot.to_dict()
+            payload["events"] = [event.to_dict() for event in history_events]
             payload["render_events"] = [
                 self._event_payload(event, normalized)
-                for event in snapshot.events
+                for event in history_events
             ]
 
         payload["permission_mode"] = active_chat.config.permission_mode
@@ -745,6 +763,32 @@ class ChatService:
         await active_chat.client.request_stop()
         return True
 
+    async def rewind_chat_files(self, session_id: str, checkpoint_id: str) -> dict[str, object]:
+        """Restore a confirmed checkpoint in its owning session and workspace."""
+        normalized = self._normalize_optional_session_id(session_id)
+        checkpoint_id = self._normalize_optional_session_id(checkpoint_id)
+        if normalized is None or checkpoint_id is None:
+            raise ValueError("会话或检查点标识无效")
+        active = self._active_chats.get(normalized)
+        if active is None:
+            raise ValueError("请先打开检查点所属的会话，再恢复文件")
+        project = active.config.project.resolve()
+        if project in self._restoring_projects:
+            raise ValueError("当前工作区正在恢复文件，请稍后操作")
+        if any(chat.running for chat in self._active_chats.values() if chat.config.project.resolve() == project):
+            raise ValueError("当前工作区有会话正在生成，请先停止后再恢复文件")
+        self._restoring_projects.add(project)
+        try:
+            result = await self._checkpoints.rewind_files(
+                normalized, project, checkpoint_id, active.client.rewind_files,
+            )
+            warning = None if result.metadata_saved else "文件恢复已执行，但恢复记录保存失败。"
+            await self._emit_chat_event(result.event, session_id=normalized)
+            return {"restored": True, "checkpoint_id": checkpoint_id, "warning": warning,
+                    "event": self._event_payload(result.event, normalized)}
+        finally:
+            self._restoring_projects.discard(project)
+
     async def close_chat_client(self, session_id: str | None = None) -> bool:
         normalized = self._normalize_optional_session_id(session_id)
         if normalized is None:
@@ -752,6 +796,8 @@ class ChatService:
         active_chat = self._active_chats.get(normalized)
         if active_chat is None:
             return False
+        if active_chat.config.project.resolve() in self._restoring_projects:
+            raise ValueError("当前工作区正在恢复文件，请稍后关闭")
         if active_chat.running:
             raise ValueError("会话正在生成，无法刷新配置")
         await self._close_active_chat(normalized, active_chat)
@@ -941,6 +987,10 @@ class ChatService:
 
     async def _emit_chat_event(self, event: ChatEvent, *, session_id: str) -> bool:
         active_chat = self._active_chats.get(session_id)
+        if active_chat is not None and not await self._checkpoints.record_event(
+            session_id, active_chat.config.project, event,
+        ):
+            return False
         if active_chat is not None:
             active_chat.events.append(event)
             if event.event == "permission.mode.changed":
@@ -990,9 +1040,7 @@ class ChatService:
 
     @staticmethod
     def _event_payload(event: ChatEvent, session_id: str) -> dict[str, Any]:
-        render = render_event(event)
-        render["session_id"] = session_id
-        return {**event.to_dict(), "session_id": session_id, "render": render}
+        return event.to_payload(session_id)
 
     @staticmethod
     def _normalize_optional_session_id(value: object) -> str | None:

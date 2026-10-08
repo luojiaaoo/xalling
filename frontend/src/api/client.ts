@@ -5,6 +5,7 @@ import { request } from "./http";
 export { TransportDisconnectedError } from "./websocket";
 
 type ApplicationApi = {
+  rewind_chat_files: (sessionId: string, checkpointId: string) => Promise<FileRewindResult>;
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
@@ -508,6 +509,7 @@ export async function getSkills(
 }
 
 const applicationApi: ApplicationApi = {
+  rewind_chat_files: (session_id, checkpoint_id) => request("POST", "/api/chat/files/rewind", { body: { session_id, checkpoint_id }, silent: true }),
   minimize_window: () => request("POST", "/api/window/minimize"),
   toggle_maximize_window: () => request("POST", "/api/window/maximize"),
   close_window: () => request("POST", "/api/window/close"),
@@ -545,6 +547,30 @@ const applicationApi: ApplicationApi = {
   get_tutorial: (tutorial_id) => request("GET", `/api/tutorials/${encodeURIComponent(tutorial_id)}`),
   report_frontend_error: (kind, message, stack) => request("POST", "/api/logs/frontend", { body: { kind, message, stack }, silent: true }),
 };
+
+export type TurnFileChange = {
+  path: string;
+  status: "added" | "modified";
+  additions: number | null;
+  deletions: number | null;
+  patch: string;
+  partial: boolean;
+  truncated: boolean;
+  restorable: boolean;
+};
+export type FileRewindResult = {
+  restored: boolean;
+  checkpoint_id: string;
+  warning: string | null;
+  event: ChatRenderEvent;
+};
+
+export async function rewindChatFiles(sessionId: string, checkpointId: string): Promise<FileRewindResult> {
+  const result = await applicationApi.rewind_chat_files(sessionId, checkpointId);
+  const event = decodeChatRenderEvent(result.event);
+  if (!event) throw new Error("文件恢复响应无效，请刷新查看文件状态。");
+  return { ...result, event };
+}
 
 
 export async function getModelGroups(): Promise<ModelGroup[]> {

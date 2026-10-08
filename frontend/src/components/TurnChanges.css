@@ -1,0 +1,23 @@
+.turn-changes { margin-top: 18px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 12px; overflow: hidden; font-size: 12px; }
+.turn-changes-header { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.turn-changes-summary { flex: 1; min-width: 0; }
+.turn-changes-summary strong { font-size: 13px; font-weight: 500; }
+.turn-changes-summary > div { margin-top: 3px; }
+.turn-changes-actions { display: flex; align-items: center; gap: 12px; }
+.turn-changes-actions .message-action-button { width: auto; gap: 5px; padding: 3px 5px; font-size: 12px; }
+.turn-changes-actions .message-action-label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+.turn-change-counts { display: inline-flex; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.turn-change-counts .added { color: #55ad7e; }
+.turn-change-counts .removed { color: #d7746c; }
+.turn-change-unknown { opacity: .6; font-size: 11px; }
+.turn-changes-files { border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+.turn-change-row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 9px 14px; background: transparent; border: 0; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.turn-change-row:hover, .turn-change-row.selected { background: color-mix(in srgb, currentColor 7%, transparent); }
+.turn-change-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-changes-expand { padding: 8px 14px 12px; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; opacity: .7; }
+.turn-changes-restored, .turn-changes-note { padding: 8px 14px; opacity: .7; font-size: 12px; }
+.turn-changes-review { display: flex; height: min(65vh, 600px); min-height: 250px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 8px; overflow: hidden; }
+.turn-changes-navigation { width: 260px; flex-shrink: 0; overflow: auto; border-right: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+.turn-changes-diff { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.turn-changes-diff-title { padding: 10px 14px; border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent); overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 700px) { .turn-changes-header { flex-wrap: wrap; } .turn-changes-actions { margin-left: auto; } .turn-changes-review { flex-direction: column; } .turn-changes-navigation { width: 100%; max-height: 120px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent); } }

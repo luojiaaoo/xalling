@@ -27,6 +27,20 @@
 
 去重按事件和内容块身份执行，不能按正文相等去重，否则会吞掉模型在不同块中有意重复的内容。`turn.proxy.completed` 和 `user.proxy.message` 保留原回合，并把中间回复留在轨迹里。诊断和 hook 仍保留在后端协议中，前端不会为其创建空回复。
 
+## 文件检查点
+
+Claude 连接同时启用 `enable_file_checkpointing` 和 `replay-user-messages`。适配层仅对 SDK 回传的主 Agent 人类输入 UUID 发出 `files.checkpoint`，不会将本地合成消息或后台通知当作已建立的检查点。重复的用户消息回显不会创建第二个用户气泡。
+
+`FileCheckpointStore` 在本地 `file-checkpoints/<session UUID>.json` 保存确认收到的检查点标识、事件身份、所属工作区、恢复时间及每轮最后一份 `files.changed` 差异快照。差异包含预览文件内容，不保存完整聊天正文。历史加载仍使用 SDK 公共消息字段，以 `message_uuid` 接回对应回合；保存的快照优先于缺少结构化工具结果的历史重建，不读取原生 transcript。旧会话没有已记录的检查点时不显示恢复按钮。
+
+检查点存储、历史补齐、恢复事件构造和传输投影均归 `backend/claude_chat_client/`：`file_checkpoint.py` 接收应用注入的目录，提供 `record_event()`、`project_history()` 和 `rewind_files()`；`models.py` 定义 `ChatEvent` / `FileRestoreResult`，由 `ChatEvent.to_payload()` 生成统一的事件及 UI 投影。service 层只消费包的公共接口，负责工作区锁、配置、应用任务和事件转发，不定义或构造 `ChatEvent`。
+
+`POST /api/chat/files/rewind` 校验检查点归属，通过保留或恢复连接的 SDK 客户端调用公共 `rewind_files()`。同一工作区生成期间不能恢复，恢复期间不能开始新的生成、重复恢复或关闭客户端；HTTP 取消不会取消应用持有的恢复任务。成功后产生 `files.restored`，实时推送和 HTTP 返回均通过同一事件归并器更新回合状态，不创建模型回合。
+
+`file_changes.py` 从成功的 SDK Write / Edit / NotebookEdit 结果提取文件变更，每个逻辑回合独立统计。同一文件以首次成功编辑前的内容和最后一次编辑后的内容计算净差异；编辑后又还原的文件不计入。只读、失败或拒绝的调用不计入。内容缺失、过大或前后不连续时标为部分记录，不编造净增删行数；普通子 Agent 的文件编辑可展示，但标记为不在主 Agent 检查点恢复范围内。命令行修改不从 Git 工作区猜测。`files.changed` 使用统一事件投影，前端归并器将文件快照挂在对应 AI 回合，生成期间不显示变更卡片，完成、停止或失败后均能查看已经发生的修改。
+
+前端 `TurnChanges` 在回复下显示文件列表、净增删行数和展开入口，`DiffViewer` 显示保存的本轮差异，`FileCheckpointAction` 在卡片中提供撤销确认。恢复只改文件，保留对话和修改记录；恢复较早消息会撤销该检查点之后 SDK 跟踪的修改，不依赖 Git 提交。独立 Git 面板及其 HTTP 接口已移除。
+
 ## 验证
 
 ```powershell

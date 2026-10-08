@@ -188,10 +188,11 @@ def _agent_options(
 ) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         cwd=config.project,
+        enable_file_checkpointing=True,
         effort=config.effort,
         cli_path=_bundled_claude_cli(),
         env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling"},
-        extra_args={"allow-dangerously-skip-permissions": None},
+        extra_args={"allow-dangerously-skip-permissions": None, "replay-user-messages": None},
         max_turns=200,
         model=config.model,
         permission_mode=config.permission_mode,

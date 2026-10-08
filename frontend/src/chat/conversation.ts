@@ -1,8 +1,11 @@
-import { isPermissionRequestEvent, type ChatPermissionRequestEvent, type ChatRenderEvent, type ChatUsage } from "../api/client";
+import { isPermissionRequestEvent, type ChatPermissionRequestEvent, type ChatRenderEvent, type ChatUsage, type TurnFileChange } from "../api/client";
 import { applyRenderEvent, finishAgentTrace, hasTraceTool, stripExitPlanContent, type AgentTraceItem } from "./trace";
 
 export type ConversationMessage = {
   content: string;
+  checkpointId?: string;
+  filesRestoredAt?: string;
+  fileChanges?: TurnFileChange[];
   expandedTraceItemKeys?: string[];
   finalOutputKey?: string;
   finalOutputKeys?: string[];
@@ -50,6 +53,7 @@ const toolEvents = new Set([
 
 export function isConversationEvent(event: ChatRenderEvent): boolean {
   return event.event === "turn.started" || event.event === "user.message"
+    || event.event === "files.checkpoint" || event.event === "files.restored" || event.event === "files.changed"
     || event.event === "turn.completed" || event.event === "turn.failed"
     || event.event === "turn.proxy.completed" || event.event === "user.proxy.message"
     || /^(assistant|subagent)\.(reply|thinking)\.(started|delta|stopped|completed)$/.test(event.event)
@@ -122,6 +126,19 @@ function applyAssistantEvent(message: ConversationMessage, event: ChatRenderEven
 
 /** Both live delivery and history replay call this same reducer. */
 export function reduceConversationEvent(messages: ConversationMessage[], event: ChatRenderEvent): ConversationMessage[] {
+  if (event.event === "files.changed") {
+    if (event.parent_tool_use_id !== null || !Array.isArray(event.data.files)) return messages;
+    const fileChanges = event.data.files as TurnFileChange[];
+    return messages.map((item) => item.key === turnAssistantKey(event.turn_id) ? { ...item, fileChanges } : item);
+  }
+  if (event.event === "files.checkpoint" || event.event === "files.restored") {
+    const checkpointId = event.data.checkpoint_id;
+    if (event.parent_tool_use_id !== null || typeof checkpointId !== "string") return messages;
+    return messages.map((item) => (item.key === turnUserKey(event.turn_id)
+      || item.key === turnAssistantKey(event.turn_id) || item.checkpointId === checkpointId)
+      ? { ...item, checkpointId, filesRestoredAt: event.event === "files.restored" ? event.created_at : item.filesRestoredAt }
+      : item);
+  }
   if (!isConversationEvent(event)) return messages;
   const assistantKey = turnAssistantKey(event.turn_id);
   if (event.event === "user.message") {

@@ -21,6 +21,8 @@ Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领
 - **AI 对话工作区**：基于 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/python) 的多会话对话，支持子 Agent、后台任务与动态工作流
 - **统一事件协议**：实时流式输出与历史回放共用同一套事件归并逻辑，刷新或切换会话后结构不漂移
 - **权限与交互**：工具调用确认、`AskUserQuestion` 结构化问答、计划审批（ExitPlanMode）
+- **本轮文件修改**：每轮回复结束后显示修改文件、净增删行数及“查看变更”，同一文件多次编辑合并为本轮差异，重新打开会话仍能查看已保存的修改记录；统计成功的 Write / Edit / NotebookEdit 文件工具调用，缺少完整内容时明确显示行数未知
+- **文件检查点与恢复**：默认启用 `enable_file_checkpointing`，变更卡片提供“撤销修改”，确认后调用 SDK `rewind_files` 恢复到本轮开始前并保留聊天记录。较早检查点也会撤销之后 SDK 跟踪的文件修改；覆盖主 Agent 的文件编辑工具，命令行及普通子 Agent 修改不在恢复范围内
 - **斜杠命令与 Skill**：输入框 `/` 唤起命令与技能列表，自动发现用户级与项目级 Skill 目录
 - **定时自动化**：基于 APScheduler 的定时任务（interval / date / cron），任务持久化在 SQLite
 - **模型站点管理**：多供应商模型配置，支持 `anthropic` / `chat` / `responses` 三种 API 协议

@@ -331,8 +331,11 @@ class ClaudeChatClient:
 
     async def rewind_files(self, user_message_id: str) -> None:
         """Restore files to a checkpoint created for a user message."""
-        sdk = await self._connected_sdk()
-        await sdk.rewind_files(user_message_id)
+        if self.active:
+            raise ValueError("会话正在生成，请先停止后再恢复文件")
+        async with self._turn_lock:
+            sdk = await self._connected_sdk()
+            await sdk.rewind_files(user_message_id)
 
     async def _connected_sdk(self) -> ClaudeSDKClient:
         await self.connect()
@@ -493,6 +496,7 @@ class ClaudeChatClient:
         turn_events: list[ChatEvent] = []
         active_task_ids: set[str] = set()
         background_chain_started = False
+        checkpoint_ids: set[str] = set()
 
         async def submitted_message() -> AsyncIterator[dict[str, Any]]:
             yield {
@@ -572,6 +576,12 @@ class ClaudeChatClient:
                             status,
                             sorted(active_task_ids),
                         )
+
+                    if self._options.enable_file_checkpointing and isinstance(message, UserMessage):
+                        checkpoint = adapter.file_checkpoint(message)
+                        if checkpoint is not None and message.uuid not in checkpoint_ids:
+                            checkpoint_ids.add(message.uuid)
+                            await queue.put(checkpoint)
 
                     is_submitted_echo = (
                         isinstance(message, UserMessage)

@@ -5,7 +5,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Path, Query
 
 from backend.router.dependencies import ChatDep, ServicesDep, authenticate
-from backend.router.schemas import ChatConnectionRequest, ChatMessageRequest, PermissionDecisionRequest, SessionRequest
+from backend.router.schemas import (
+    ChatConnectionRequest,
+    ChatMessageRequest,
+    FileRewindRequest,
+    PermissionDecisionRequest,
+    SessionRequest,
+)
 from backend.service.log import capture_api_errors
 
 router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(authenticate)])
@@ -54,6 +60,12 @@ async def get_context_usage(session_id: SessionId, chat: ChatDep) -> dict[str, A
 @capture_api_errors
 async def stop_chat_message(body: SessionRequest, chat: ChatDep) -> bool:
     return await chat.stop_chat_message(body.session_id)
+
+
+@router.post("/files/rewind")
+@capture_api_errors
+async def rewind_chat_files(body: FileRewindRequest, services: ServicesDep) -> dict[str, object]:
+    return await services.rewind_chat_files(**body.model_dump())
 
 
 @router.post("/close")
