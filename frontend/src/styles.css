@@ -1460,7 +1460,10 @@ html[data-theme="serene"] .composer-project-locked:hover { color: #c4bab0; backg
 .task-attachments .ant-file-card-image-img img { width: 36px !important; height: 36px !important; object-fit: cover; }
 .task-attachments .ant-file-card-list-remove { inset-block-start: 2px; inset-inline-end: 2px; transform: none; font-size: 12px; }
 .task-attachments .ant-attachment-list-upload-btn { width: 36px; height: 36px; font-size: 16px; }
-.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.composer-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; }
+.composer-tools, .composer-options { min-width: 0; max-width: 100%; }
+.composer-options { justify-content: flex-end; margin-inline-start: auto; }
+.composer-footer .ant-space-item { max-width: 100%; }
 .composer-footer .ant-btn { color: #6d6e7e; font-size: 12px; }
 .composer-footer .ant-btn:hover { color: #5d4cf0 !important; background: #f1efff !important; }
 .permission-mode-dropdown .ant-dropdown-menu { min-width: 310px; }
@@ -1472,7 +1475,7 @@ html[data-theme="serene"] .composer-project-locked:hover { color: #c4bab0; backg
 .sender-stop-button { color: #fff !important; border: 0; background: #6d5dfc !important; box-shadow: none; }
 .sender-stop-button .anticon, .permission-stop-button .anticon { font-size: 12px; }
 .tool-permission-actions .permission-stop-button { min-width: 32px; }
-.model-select { min-width: 260px; max-width: 320px; }
+.model-select { width: 260px; min-width: 0; max-width: 100%; }
 .model-select .ant-select-selector { padding-inline: 7px !important; color: #6d6e7e; font-size: 12px; }
 .model-select:not(.ant-select-disabled):hover .ant-select-selector { color: #5d4cf0; background: #f1efff; }
 .model-select .ant-select-selection-item { overflow: hidden; text-overflow: ellipsis; }
@@ -1507,6 +1510,5 @@ html[data-theme="serene"] .composer-project-locked:hover { color: #c4bab0; backg
   .chat-column { padding-block: 12px 20px; }
   .chat-bubbles .ant-bubble-content { max-width: 88%; }
   .composer { width: 100%; }
-  .composer-footer { flex-wrap: wrap; gap: 8px; }
-  .model-select { min-width: 150px; max-width: 190px; }
+  .model-select { width: 190px; }
 }

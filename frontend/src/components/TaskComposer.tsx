@@ -1038,7 +1038,7 @@ export function TaskComposer({
         )}
         footer={(
           <div className="composer-footer">
-            <Space size={6}>
+            <Space className="composer-tools" size={6} wrap>
               <Tooltip title="添加图片或文件">
                 <Badge count={attachmentItems.length} size="small">
                   <Button
@@ -1070,7 +1070,7 @@ export function TaskComposer({
                 </Button>
               </Dropdown>
             </Space>
-            <Space size={6}>
+            <Space className="composer-options" size={6} wrap>
               <Tooltip title="刷新配置">
                 <Button
                   aria-label="刷新配置"

@@ -1,5 +1,5 @@
-import { DownOutlined, FileTextOutlined, UpOutlined } from "@ant-design/icons";
-import { Button, Modal } from "antd";
+import { DownOutlined, FileTextOutlined, QuestionCircleOutlined, UpOutlined } from "@ant-design/icons";
+import { Button, Modal, Tooltip } from "antd";
 import { useState } from "react";
 
 import type { ChatRenderEvent, TurnFileChange } from "../api/client";
@@ -47,7 +47,12 @@ export function TurnChanges(props: Props) {
       <div className="turn-changes-header">
         <FileTextOutlined />
         <div className="turn-changes-summary">
-          <strong>已修改 {files.length} 个文件</strong>
+          <div className="turn-changes-title">
+            <strong>已修改 {files.length} 个文件</strong>
+            <Tooltip title="仅记录原生文件修改工具（Write、Edit、NotebookEdit）的变更。通过 Bash 执行的修改或删除不会记录，也无法通过检查点恢复。完整变更请通过 Git 仓库管理。" trigger={["hover", "focus", "click"]}>
+              <button type="button" className="turn-changes-help" aria-label="文件修改记录范围"><QuestionCircleOutlined /></button>
+            </Tooltip>
+          </div>
           <div><Counts additions={hasCounts ? additions : null} deletions={hasCounts ? deletions : null} />{partial && hasCounts && <span className="turn-change-unknown"> 部分行数未知</span>}</div>
         </div>
         <div className="turn-changes-actions">
