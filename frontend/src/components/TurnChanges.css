@@ -1,13 +1,13 @@
 .turn-changes { width: 100%; max-width: 520px; box-sizing: border-box; margin-top: 18px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 12px; overflow: hidden; font-size: 12px; }
-.turn-changes-header { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
-.turn-changes-summary { flex: 1; min-width: 0; }
-.turn-changes-summary strong { font-size: 13px; font-weight: 500; }
+.turn-changes-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; }
+.turn-changes-summary { flex: 1 1 140px; min-width: 0; }
+.turn-changes-summary strong { font-size: 13px; font-weight: 500; white-space: nowrap; }
 .turn-changes-summary > div { margin-top: 3px; }
 .turn-changes-summary .turn-changes-title { display: flex; align-items: center; gap: 6px; margin-top: 0; }
 .turn-changes-help { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: inherit; opacity: .55; cursor: help; font-size: 12px; }
 .turn-changes-help:hover, .turn-changes-help:focus-visible { opacity: 1; }
 .turn-changes-help:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-.turn-changes-actions { display: flex; align-items: center; gap: 12px; }
+.turn-changes-actions { display: flex; align-items: center; gap: 12px; margin-inline-start: auto; }
 .turn-changes-actions .message-action-button { width: auto; gap: 5px; padding: 3px 5px; font-size: 12px; }
 .turn-changes-actions .message-action-label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 .turn-change-counts { display: inline-flex; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }

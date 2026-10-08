@@ -513,15 +513,20 @@ export function Workspace({
     if (index < 0) {
       return undefined;
     }
-    focusBubbleKeyRef.current = null;
     const frame = requestAnimationFrame(() => {
-      const target = chatScrollRef.current
+      const scrollBox = chatScrollRef.current;
+      const target = scrollBox
         ?.querySelectorAll(".chat-bubbles .ant-bubble")
         .item(index);
-      if (!(target instanceof HTMLElement)) {
+      if (!scrollBox || !(target instanceof HTMLElement)) {
         return;
       }
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      focusBubbleKeyRef.current = null;
+      // 只滚动消息列表，避免 scrollIntoView 连带滚动外层工作区和输入框。
+      const top = scrollBox.scrollTop + target.getBoundingClientRect().top
+        - scrollBox.getBoundingClientRect().top - scrollBox.clientTop
+        - (parseFloat(getComputedStyle(target).scrollMarginTop) || 0);
+      scrollBox.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
       target.classList.add("search-jump-target");
       window.setTimeout(() => target.classList.remove("search-jump-target"), 2600);
     });
