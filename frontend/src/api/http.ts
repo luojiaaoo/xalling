@@ -1,5 +1,5 @@
 /** Authenticated same-origin calls to typed FastAPI routes. */
-import { notifyBridgeError } from "./bridgeMessage";
+import { notifyApiError } from "./apiMessage";
 import { connectEvents, connectionToken, TransportDisconnectedError } from "./websocket";
 
 type RequestOptions = {
@@ -51,7 +51,7 @@ export async function request<T>(method: string, path: string, options: RequestO
     return result as T;
   } catch (error) {
     const failure: unknown = controller.signal.aborted ? controller.signal.reason : error;
-    if (!options.silent) notifyBridgeError(path, failure);
+    if (!options.silent) notifyApiError(path, failure);
     throw failure;
   } finally {
     if (timer !== undefined) clearTimeout(timer);

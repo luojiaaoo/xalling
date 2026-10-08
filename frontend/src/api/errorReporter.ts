@@ -1,6 +1,6 @@
 import { reportFrontendError } from "./client";
 
-// 浏览器控制台错误实时上报到本地 browser.log（Python 侧 LogRouter 接收）。
+// 浏览器控制台错误实时上报到本地 browser.log（由 FastAPI 日志接口接收）。
 // 覆盖三类来源：console.error/warn、未捕获异常、未处理的 Promise rejection。
 
 const DEDUPE_WINDOW_MS = 1000;
@@ -23,7 +23,7 @@ function formatArg(arg: unknown): string {
 }
 
 function report(kind: string, message: string, stack?: string): void {
-  // 相同错误短时间内只上报一次，避免错误风暴打满桥接
+  // 相同错误短时间内只上报一次，避免大量重复请求。
   const fingerprint = `${kind}:${message}`;
   const now = Date.now();
   if (fingerprint === lastFingerprint && now - lastReportedAt < DEDUPE_WINDOW_MS) {

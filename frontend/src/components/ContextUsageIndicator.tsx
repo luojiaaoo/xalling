@@ -2,7 +2,7 @@ import { FundOutlined } from "@ant-design/icons";
 import { Button, Popover, Progress } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getContextUsage, type ContextUsage } from "../bridge/client";
+import { getContextUsage, type ContextUsage } from "../api/client";
 
 type ContextUsageIndicatorProps = {
   busy: boolean;

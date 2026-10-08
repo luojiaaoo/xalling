@@ -1,4 +1,4 @@
-"""Command and skill metadata normalization behind the bridge."""
+"""Command and skill metadata normalization behind the local API."""
 
 from typing import Any, TypedDict
 

@@ -1,4 +1,4 @@
-"""Native window behavior behind the bridge."""
+"""Native window behavior behind the local API."""
 
 import sys
 from dataclasses import dataclass
@@ -91,7 +91,7 @@ def _select_work_area(
 
 
 class WindowService:
-    """Manage the native window state behind the bridge."""
+    """Manage the native window state behind the local API."""
 
     def __init__(self) -> None:
         self._window: Any | None = None

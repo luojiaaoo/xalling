@@ -10,7 +10,7 @@ import { useState } from "react";
 import type {
   ChatAskUserQuestionRequestEvent,
   ChatPermissionAnswers,
-} from "../bridge/client";
+} from "../api/client";
 
 type AskUserQuestionDialogProps = {
   decision: "allow" | "deny" | null;

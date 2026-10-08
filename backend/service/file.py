@@ -1,4 +1,4 @@
-"""Project file search and attachment persistence behind the bridge."""
+"""Project file search and attachment persistence behind the local API."""
 
 import base64
 import binascii

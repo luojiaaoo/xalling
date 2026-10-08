@@ -3,7 +3,7 @@ import { Input } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 
-import { searchChatSessions, type ChatSearchMatch } from "../bridge/client";
+import { searchChatSessions, type ChatSearchMatch } from "../api/client";
 
 /** 把摘要里命中的关键词包上 <mark>，大小写不敏感。 */
 function renderSearchSnippet(snippet: string, query: string): ReactNode {

@@ -1,7 +1,7 @@
 import { CloseOutlined, FullscreenOutlined, MinusOutlined, ShrinkOutlined } from "@ant-design/icons";
 import { Button } from "antd";
 
-import { closeWindow, minimizeWindow, toggleMaximizeWindow } from "../bridge/client";
+import { closeWindow, minimizeWindow, toggleMaximizeWindow } from "../api/client";
 import { TutorialHelp } from "./TutorialHelp";
 
 type TitleBarProps = {

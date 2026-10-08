@@ -8,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import { Think, ThoughtChain } from "@ant-design/x";
 
-import type { ChatRenderEvent } from "../bridge/client";
+import type { ChatRenderEvent } from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type TraceStatus = "error" | "running" | "success";

@@ -108,7 +108,7 @@ Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK �
 | `backend/service/claude_options.py` | 将模型、项目、推理强度、权限模式、Skill 目录和本地运行设置转换成 `ClaudeAgentOptions` |
 | `backend/router/chat.py` | 声明会话 HTTP 接口，通过 Pydantic 与依赖注入校验参数、获取共享服务 |
 | `backend/service/chat.py` | 管理会话级客户端与回合，将事件交给 `service/events.py` 通过 WebSocket 推送 |
-| `frontend/src/bridge/client.ts` | 封装 HTTP API 契约，订阅 `xalling:chat-event` |
+| `frontend/src/api/client.ts` | 封装 HTTP API 契约，订阅 `xalling:chat-event` |
 | `Workspace.tsx` / `AgentTrace.tsx` | 用同一个事件归并流程渲染实时对话与历史对话 |
 
 `ClaudeChatClient` 对外提供 `send()`、`stream()`、中断、权限响应、模型/权限模式切换、MCP 状态和后台任务控制等能力。`ClaudeChatHistory` 负责会话列表、历史加载、全文搜索以及将持久化 transcript 恢复成同一套事件。
@@ -214,7 +214,7 @@ HTTP API 当前提供：发送消息、列出会话、搜索会话、读取会�
 
 ### 前端调用 Python
 
-各业务模块声明原生 `APIRouter`，前端统一从 `frontend/src/bridge/client.ts` 调用，底层 HTTP 请求由 `http.ts` 管理：
+各业务模块声明原生 `APIRouter`，前端统一从 `frontend/src/api/client.ts` 调用，底层 HTTP 请求由 `http.ts` 管理：
 
 ```ts
 await sendChatMessage(prompt, projectPath, sessionId, effort, permissionMode);
@@ -252,9 +252,9 @@ backend/
   scheduler.py                     # APScheduler 定时任务调度
   claude_proxy.py                  # 本地协议转换代理管理
 frontend/
-  src/bridge/client.ts             # 前端 API 契约与事件归并
-  src/bridge/http.ts               # HTTP 调用、鉴权与异常处理
-  src/bridge/websocket.ts          # 事件连接与重连
+  src/api/client.ts             # 前端 API 契约与事件归并
+  src/api/http.ts               # HTTP 调用、鉴权与异常处理
+  src/api/websocket.ts          # 事件连接与重连
   src/components/                  # 对话工作区、执行轨迹、权限对话框、设置等
   dist/                            # 构建后的本地静态资源
 plugins/
@@ -372,5 +372,5 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 
 1. 新增 Claude SDK 消息类型时，同时更新 `models.py`、`message_adapter.py`、历史装配测试和前端事件归并。
 2. 改动逻辑回合结束条件时，覆盖普通回复、异步子 Agent、多个连续后台任务、用户停止和异常中断。
-3. 改动 HTTP / WebSocket API 时，同步更新 Python 路由、`frontend/src/bridge/client.ts` 类型以及非法参数/异常回传测试。
+3. 改动 HTTP / WebSocket API 时，同步更新 Python 路由、`frontend/src/api/client.ts` 类型以及非法参数/异常回传测试。
 4. 发布前运行 Python 静态检查和完整测试，并执行前端类型检查与生产构建。

@@ -14,8 +14,8 @@ import type { MenuProps } from "antd";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import type { ChatSessionSummary, ProjectFolder } from "../bridge/client";
-import { getHomeFolder } from "../bridge/client";
+import type { ChatSessionSummary, ProjectFolder } from "../api/client";
+import { getHomeFolder } from "../api/client";
 import { BrandMark } from "./BrandMark";
 
 const navigation: MenuProps["items"] = [

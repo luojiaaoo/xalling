@@ -173,9 +173,9 @@ backend/
   service/                         # 领域服务实现
   config/                          # 模型站点和当前选择
 frontend/
-  src/bridge/client.ts             # 前端 API 契约与事件归并
-  src/bridge/http.ts               # HTTP 调用、鉴权与异常处理
-  src/bridge/websocket.ts          # 事件连接与重连
+  src/api/client.ts             # 前端 API 契约与事件归并
+  src/api/http.ts               # HTTP 调用、鉴权与异常处理
+  src/api/websocket.ts          # 事件连接与重连
   src/components/                  # 对话工作区、执行轨迹、权限对话框、设置等
 plugins/
   claude-proxy-rust/               # OpenAI 兼容代理（Git 子模块）

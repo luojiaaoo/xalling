@@ -1,4 +1,4 @@
-"""Model provider configuration behind the bridge."""
+"""Model provider configuration behind the local API."""
 
 from typing import Literal, TypedDict
 
@@ -265,7 +265,7 @@ class ModelService:
 
     @staticmethod
     def _validate_name(value: object, label: str) -> str:
-        """Validate a short, non-empty identifier supplied through the bridge."""
+        """Validate a short, non-empty identifier supplied through the local API."""
         if not isinstance(value, str):
             raise TypeError(f"{label}必须是字符串")
         normalized = value.strip()

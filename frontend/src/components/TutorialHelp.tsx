@@ -7,7 +7,7 @@ import {
   listTutorials,
   type TutorialDocument,
   type TutorialSummary,
-} from "../bridge/client";
+} from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type TocItem = {

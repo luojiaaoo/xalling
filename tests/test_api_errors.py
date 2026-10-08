@@ -33,9 +33,9 @@ def test_capture_api_errors_logs_to_console_and_file(
 
     @capture_api_errors
     def fail() -> None:
-        raise ValueError("bridge failed")
+        raise ValueError("API failed")
 
-    with pytest.raises(ValueError, match="bridge failed"):
+    with pytest.raises(ValueError, match="API failed"):
         fail()
 
     logger.complete()  # enqueue=True 时日志异步落盘，先等队列刷完
@@ -43,9 +43,9 @@ def test_capture_api_errors_logs_to_console_and_file(
     file_output = error_log.read_text(encoding="utf-8")
     for output in (console_output, file_output):
         assert "FastAPI call failed" in output
-        assert "ValueError: bridge failed" in output
+        assert "ValueError: API failed" in output
         assert "test_capture_api_errors_logs_to_console_and_file.<locals>.fail" in output
-    assert "error=ValueError: bridge failed" in access_log.read_text(encoding="utf-8")
+    assert "error=ValueError: API failed" in access_log.read_text(encoding="utf-8")
 
 
 def test_capture_api_errors_supports_async_functions(
@@ -57,13 +57,13 @@ def test_capture_api_errors_supports_async_functions(
 
     @capture_api_errors
     async def fail() -> None:
-        raise RuntimeError("async bridge failed")
+        raise RuntimeError("async API failed")
 
-    with pytest.raises(RuntimeError, match="async bridge failed"):
+    with pytest.raises(RuntimeError, match="async API failed"):
         asyncio.run(fail())
 
     logger.complete()
-    assert "RuntimeError: async bridge failed" in error_log.read_text(encoding="utf-8")
+    assert "RuntimeError: async API failed" in error_log.read_text(encoding="utf-8")
 
 
 def test_capture_api_errors_logs_redacted_inputs_and_outputs(

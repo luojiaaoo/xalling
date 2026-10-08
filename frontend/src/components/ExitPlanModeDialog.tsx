@@ -10,7 +10,7 @@ import { useState } from "react";
 import type {
   ChatPlanExecutionMode,
   ChatPermissionRequestEvent,
-} from "../bridge/client";
+} from "../api/client";
 import { ChatMarkdown } from "./ChatMarkdown";
 
 type ExitPlanModeDialogProps = {

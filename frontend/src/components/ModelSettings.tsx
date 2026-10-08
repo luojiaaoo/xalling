@@ -28,7 +28,7 @@ import {
   type ApiProtocol,
   type ModelConfig,
   type ModelSite,
-} from "../bridge/client";
+} from "../api/client";
 
 type ProviderDraft = {
   originalName: string | null;
@@ -76,7 +76,7 @@ function draftFromSite(site: ModelSite): ProviderDraft {
   };
 }
 
-function formatBridgeError(error: unknown): string {
+function formatApiError(error: unknown): string {
   return error instanceof Error ? error.message : "保存失败，请稍后重试。";
 }
 
@@ -116,7 +116,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
         setDraft(newDraft());
       }
     } catch (loadError) {
-      setError(formatBridgeError(loadError));
+      setError(formatApiError(loadError));
     } finally {
       setLoading(false);
     }
@@ -177,7 +177,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
       setModelPickerOpen(true);
       setFeedback(`已获取 ${names.length} 个模型，请选择需要添加的模型。`);
     } catch (fetchError) {
-      setError(formatBridgeError(fetchError));
+      setError(formatApiError(fetchError));
     } finally {
       setFetchingModels(false);
     }
@@ -243,7 +243,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
       onModelsChanged();
       setFeedback("模型配置已保存。");
     } catch (saveError) {
-      setError(formatBridgeError(saveError));
+      setError(formatApiError(saveError));
     } finally {
       setSaving(false);
     }
@@ -264,7 +264,7 @@ export function ModelSettings({ onModelsChanged, section }: ModelSettingsProps) 
       onModelsChanged();
       setFeedback("供应商已删除。");
     } catch (deleteError) {
-      setError(formatBridgeError(deleteError));
+      setError(formatApiError(deleteError));
     } finally {
       setSaving(false);
     }

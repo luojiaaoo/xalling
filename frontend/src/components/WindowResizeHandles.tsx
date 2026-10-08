@@ -1,6 +1,6 @@
 import { useRef, type PointerEvent } from "react";
 
-import { resizeWindow } from "../bridge/client";
+import { resizeWindow } from "../api/client";
 
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 600;

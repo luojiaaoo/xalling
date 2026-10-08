@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 
 const compiled = ts.transpileModule(
-  readFileSync(new URL("../src/bridge/http.ts", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/api/http.ts", import.meta.url), "utf8"),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText;
 
@@ -20,8 +20,8 @@ function environment(fetch) {
   const api = {};
   runInNewContext(compiled, {
     exports: api, window, URL, AbortController, fetch,
-    require: (module) => module === "./bridgeMessage"
-      ? { notifyBridgeError: (...args) => reports.push(args) }
+    require: (module) => module === "./apiMessage"
+      ? { notifyApiError: (...args) => reports.push(args) }
       : { connectEvents: () => eventsReady, connectionToken: () => "credential", TransportDisconnectedError },
     setTimeout: (callback) => { const handle = {}; timers.set(handle, callback); return handle; },
     clearTimeout: (handle) => timers.delete(handle),

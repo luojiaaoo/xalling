@@ -15,7 +15,7 @@ import {
   getHomeFolder,
   listAllScheduledTasks,
   type ScheduledTaskSummary,
-} from "../bridge/client";
+} from "../api/client";
 
 const scheduleTypeLabels: Record<ScheduledTaskSummary["schedule_type"], string> = {
   interval: "周期任务",

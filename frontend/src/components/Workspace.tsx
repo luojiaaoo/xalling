@@ -30,7 +30,7 @@ import {
   type ModelSelection,
   type ProjectFolder,
   type SubagentUsage,
-} from "../bridge/client";
+} from "../api/client";
 import { pickQuote } from "../quotes";
 import {
   AgentTrace,

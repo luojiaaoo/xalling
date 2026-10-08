@@ -1,4 +1,4 @@
-"""UI theme persistence behind the bridge."""
+"""UI theme persistence behind the local API."""
 
 from backend.config.current import CurrentConfig
 

@@ -56,7 +56,7 @@ import {
   type ModelSelection,
   type ProjectFileMatch,
   type ProjectFolder,
-} from "../bridge/client";
+} from "../api/client";
 import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 import { ExitPlanModeDialog } from "./ExitPlanModeDialog";

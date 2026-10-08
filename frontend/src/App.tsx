@@ -3,7 +3,7 @@ import { MenuUnfoldOutlined, PlusCircleOutlined } from "@ant-design/icons";
 import { App as AntdApp, Button, Tooltip } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { BridgeMessageHost } from "./bridge/BridgeMessageHost";
+import { ApiMessageHost } from "./api/ApiMessageHost";
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { Automation } from "./components/Automation";
 import { ModelSettings } from "./components/ModelSettings";
@@ -21,7 +21,7 @@ import {
   type ChatPermissionMode,
   type ChatSessionSummary,
   type ProjectFolder,
-} from "./bridge/client";
+} from "./api/client";
 import useGlassTheme from "./glassTheme";
 import useGeekTheme from "./geekTheme";
 import useIllustrationTheme from "./illustrationTheme";
@@ -210,7 +210,7 @@ export default function App() {
 
   const handlePermissionModeObserved = useCallback((nextMode: ChatPermissionMode) => {
     // The SDK status event is authoritative; invalidate any optimistic mode
-    // update that is still waiting for a bridge response.
+    // update that is still waiting for an API response.
     permissionModeRequestRef.current += 1;
     setPermissionMode(nextMode);
   }, []);
@@ -290,7 +290,7 @@ export default function App() {
   return (
     <XProvider {...configProps}>
       <AntdApp>
-        <BridgeMessageHost />
+        <ApiMessageHost />
         <div className="desktop-app">
         <TitleBar maximized={windowMaximized} onMaximizedChange={setWindowMaximized} />
         <WindowResizeHandles disabled={windowMaximized} />

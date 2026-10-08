@@ -38,17 +38,17 @@ pytestmark = pytest.mark.anyio
 async def chat_service_factory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[Callable[[], ChatService]]:
-    bridges: list[ChatService] = []
+    services: list[ChatService] = []
     monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
 
     def create() -> ChatService:
-        bridge = ChatService()
-        bridges.append(bridge)
-        return bridge
+        service = ChatService()
+        services.append(service)
+        return service
 
     yield create
-    for bridge in bridges:
-        await bridge.shutdown_clients()
+    for service in services:
+        await service.shutdown_clients()
 
 
 def configure_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

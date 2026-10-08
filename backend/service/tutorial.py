@@ -1,4 +1,4 @@
-"""Tutorial markdown document access behind the bridge."""
+"""Tutorial markdown document access behind the local API."""
 
 import re
 from pathlib import Path
