@@ -4,11 +4,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from backend.async_runtime import AsyncRuntime
 from backend.config.setting import ModelConfig, Settings, get_settings
 
 
-def test_settings_loads_model_group_automatically(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.anyio
+async def test_settings_loads_model_group_automatically(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "setting.toml"
     path.write_text(
         '[[model]]\nname = "内部部署"\napi_key = "secret"\n'
@@ -23,8 +23,7 @@ def test_settings_loads_model_group_automatically(tmp_path, monkeypatch: pytest.
     )
     monkeypatch.setitem(Settings.model_config, "toml_file", path)
 
-    with AsyncRuntime() as runtime:
-        config = runtime.call(get_settings)
+    config = await get_settings()
 
     assert config.model[0].name == "内部部署"
     assert config.model[0].api_key == "secret"

@@ -10,8 +10,8 @@ from typing import Any
 import aiofiles
 
 from backend.config.setting import SESSION_DEBUG_DIRECTORY
-from .models import _jsonable
 
+from .models import _jsonable
 
 SESSION_DEBUG_KINDS = frozenset({"realtime", "history"})
 

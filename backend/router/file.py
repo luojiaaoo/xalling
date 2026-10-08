@@ -1,20 +1,28 @@
-"""Project file methods exposed to the local Web UI."""
+"""Project file search and attachment persistence routes."""
 
-from backend.service.file import DEFAULT_LIMIT, FileService
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
+
+from backend.router.dependencies import authenticate
+from backend.router.schemas import AttachmentRequest
+from backend.service.file import FileService
+from backend.service.log import capture_api_errors
+
+router = APIRouter(prefix="/api/files", tags=["files"], dependencies=[Depends(authenticate)])
 
 
-class FileRouter:
-    """Search files inside the project and persist UI attachments."""
+@router.get("/search")
+@capture_api_errors
+def search_project_files(
+    project_path: Annotated[str, Query(min_length=1, max_length=32768)],
+    query: Annotated[str, Query(max_length=1000)] = "",
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+) -> list[dict[str, object]]:
+    return FileService.search_project_files(project_path, query, limit)
 
-    def save_attachment(self, filename: str, data: str) -> dict[str, str]:
-        """Save one attachment and return its on-disk absolute path."""
-        return FileService.save_attachment(filename, data)
 
-    def search_project_files(
-        self,
-        project_path: str,
-        query: str,
-        limit: int = DEFAULT_LIMIT,
-    ) -> list[dict[str, object]]:
-        """Return project entries whose name or relative path matches the query."""
-        return FileService.search_project_files(project_path, query, limit)
+@router.post("/attachments")
+@capture_api_errors
+def save_attachment(body: AttachmentRequest) -> dict[str, str]:
+    return FileService.save_attachment(body.filename, body.data)

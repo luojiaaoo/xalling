@@ -1,11 +1,17 @@
+import pytest
+
+from backend.router.command import get_allowed_command_names, get_commands, get_skills
+from backend.router.schemas import ChatConnectionRequest
+from backend.service.chat import ChatService
 from backend.service.command import (
     ALLOWED_COMMAND_NAMES,
     is_allowed_leading_slash,
 )
-from main import ApplicationBridge
+
+pytestmark = pytest.mark.anyio
 
 
-def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
+async def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
     monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
     server_info = {
         "commands": [
@@ -37,7 +43,7 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
         ]
     }
 
-    router = ApplicationBridge()
+    chat = ChatService()
     requested_sessions: list[str] = []
 
     async def get_server_info(
@@ -49,11 +55,11 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
         requested_sessions.append(session_id)
         return server_info
 
-    monkeypatch.setattr(router, "_get_chat_server_info", get_server_info)
+    monkeypatch.setattr(chat, "get_chat_server_info", get_server_info)
 
     session_id = "session-id"
     try:
-        assert router.get_commands(session_id) == [
+        assert await get_commands(ChatConnectionRequest(session_id=session_id), chat) == [
             {
                 "name": "compact",
                 "description": "Summarize the conversation",
@@ -61,8 +67,8 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
                 "aliases": [],
             }
         ]
-        assert router.get_allowed_command_names() == sorted(ALLOWED_COMMAND_NAMES)
-        assert router.get_skills(session_id) == [
+        assert get_allowed_command_names() == sorted(ALLOWED_COMMAND_NAMES)
+        assert await get_skills(ChatConnectionRequest(session_id=session_id), chat) == [
             {
                 "name": ".agents:review",
                 "description": "(.agents) Review changes",
@@ -83,7 +89,7 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
             },
         ]
     finally:
-        router._close_bridge()
+        await chat.shutdown_clients()
     assert requested_sessions == [session_id, session_id]
     assert is_allowed_leading_slash("compact", server_info) is True
     assert is_allowed_leading_slash(".agents:review", server_info) is True
@@ -94,12 +100,12 @@ def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
     assert is_allowed_leading_slash("list-agents", server_info) is False
 
 
-def test_command_router_handles_missing_command_list(monkeypatch) -> None:
+async def test_command_router_handles_missing_command_list(monkeypatch) -> None:
     monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
-    router = ApplicationBridge()
+    chat = ChatService()
 
     async def get_server_info(
-        _session_id: str,
+        session_id: str,
         project_path=None,
         effort="high",
         permission_mode="default",
@@ -107,13 +113,13 @@ def test_command_router_handles_missing_command_list(monkeypatch) -> None:
         return {"commands": None}
 
     monkeypatch.setattr(
-        router,
-        "_get_chat_server_info",
+        chat,
+        "get_chat_server_info",
         get_server_info,
     )
 
     try:
-        assert router.get_commands("session-id") == []
-        assert router.get_skills("session-id") == []
+        assert await get_commands(ChatConnectionRequest(session_id="session-id"), chat) == []
+        assert await get_skills(ChatConnectionRequest(session_id="session-id"), chat) == []
     finally:
-        router._close_bridge()
+        await chat.shutdown_clients()

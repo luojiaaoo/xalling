@@ -1,8 +1,10 @@
 export type ApiProtocol = "anthropic" | "chat" | "responses";
 
-import { notifyBridgeError } from "./bridgeMessage";
+import { TRANSPORT_READY_EVENT } from "./websocket";
+import { request } from "./http";
+export { TransportDisconnectedError } from "./websocket";
 
-type PyWebviewApi = {
+type ApplicationApi = {
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
@@ -74,7 +76,7 @@ type PyWebviewApi = {
     effort: ChatEffort,
     permissionMode: ChatPermissionMode,
   ) => Promise<ChatSessionHistory>;
-  get_active_chat: (sessionId: string) => Promise<ActiveChat | null>;
+  get_active_chat: (sessionId: string, includeCompleted?: boolean) => Promise<ActiveChat | null>;
   get_context_usage: (sessionId: string) => Promise<ContextUsage | null>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
   close_chat_client: (sessionId: string | null) => Promise<boolean>;
@@ -311,6 +313,7 @@ export type ActiveChat = {
   events: ChatRenderEvent[];
   render_events?: unknown;
   session_id: string;
+  running: boolean;
 };
 
 const CHAT_STREAM_EVENT = "xalling:chat-event";
@@ -354,7 +357,7 @@ function decodeChatRenderEvent(value: unknown): ChatRenderEvent | null {
     return null;
   }
   const envelope = value as ChatEventEnvelope;
-  // The Python bridge owns SDK -> UI normalization. Raw envelopes are
+  // The Python adapter owns SDK -> UI normalization. Raw envelopes are
   // intentionally rejected so rendering code cannot depend on SDK payloads.
   if (
     typeof envelope.render !== "object"
@@ -427,37 +430,34 @@ export function isAskUserQuestionRequest(
     && questions.every(isUserQuestion);
 }
 
-declare global {
-  interface Window {
-    pywebview?: { api: PyWebviewApi };
-  }
-}
-
 export async function minimizeWindow(): Promise<void> {
-  await window.pywebview?.api.minimize_window();
+  const api = applicationApi;
+  await api.minimize_window();
 }
 
 export async function toggleMaximizeWindow(): Promise<boolean> {
-  const result = await window.pywebview?.api.toggle_maximize_window();
-  return result?.maximized ?? false;
+  const api = applicationApi;
+  return (await api.toggle_maximize_window()).maximized;
 }
 
 export async function closeWindow(): Promise<void> {
-  await window.pywebview?.api.close_window();
+  const api = applicationApi;
+  await api.close_window();
 }
 
 export async function resizeWindow(width: number, height: number, edge: string): Promise<void> {
-  await window.pywebview?.api.resize_window(width, height, edge);
+  const api = applicationApi;
+  await api.resize_window(width, height, edge);
 }
 
 export async function selectProjectFolder(): Promise<ProjectFolder | null> {
-  const api = await getBridgeApi();
-  return (await api?.select_project_folder()) ?? null;
+  const api = applicationApi;
+  return (await api.select_project_folder()) ?? null;
 }
 
 export async function getHomeFolder(): Promise<ProjectFolder | null> {
-  const api = await getBridgeApi();
-  return (await api?.get_home_folder()) ?? null;
+  const api = applicationApi;
+  return (await api.get_home_folder()) ?? null;
 }
 
 export async function searchProjectFiles(
@@ -465,18 +465,15 @@ export async function searchProjectFiles(
   query: string,
   limit = 30,
 ): Promise<ProjectFileMatch[]> {
-  const api = await getBridgeApi();
-  return (await api?.search_project_files(projectPath, query, limit)) ?? [];
+  const api = applicationApi;
+  return (await api.search_project_files(projectPath, query, limit)) ?? [];
 }
 
 export async function saveAttachment(
   filename: string,
   data: string,
 ): Promise<{ path: string; name: string }> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   return api.save_attachment(filename, data);
 }
 
@@ -486,15 +483,15 @@ export async function getCommands(
   effort: ChatEffort,
   permissionMode: ChatPermissionMode,
 ): Promise<ClaudeCommand[]> {
-  const api = await getBridgeApi();
+  const api = applicationApi;
   return (
-    (await api?.get_commands(sessionId, projectPath, effort, permissionMode)) ?? []
+    (await api.get_commands(sessionId, projectPath, effort, permissionMode)) ?? []
   );
 }
 
 export async function getAllowedCommandNames(): Promise<string[]> {
-  const api = await getBridgeApi();
-  return (await api?.get_allowed_command_names()) ?? [];
+  const api = applicationApi;
+  return (await api.get_allowed_command_names()) ?? [];
 }
 
 export async function getSkills(
@@ -503,76 +500,67 @@ export async function getSkills(
   effort: ChatEffort,
   permissionMode: ChatPermissionMode,
 ): Promise<ClaudeCommand[]> {
-  const api = await getBridgeApi();
+  const api = applicationApi;
   return (
-    (await api?.get_skills(sessionId, projectPath, effort, permissionMode)) ?? []
+    (await api.get_skills(sessionId, projectPath, effort, permissionMode)) ?? []
   );
 }
 
-async function getBridgeApi(): Promise<PyWebviewApi | undefined> {
-  if (window.pywebview?.api) {
-    return withErrorNotifier(window.pywebview.api);
-  }
+const applicationApi: ApplicationApi = {
+  minimize_window: () => request("POST", "/api/window/minimize"),
+  toggle_maximize_window: () => request("POST", "/api/window/maximize"),
+  close_window: () => request("POST", "/api/window/close"),
+  resize_window: (width, height, edge) => request("POST", "/api/window/resize", { body: { width, height, edge } }),
+  select_project_folder: () => request("POST", "/api/window/project-folder"),
+  get_home_folder: () => request("GET", "/api/window/home-folder"),
+  search_project_files: (project_path, query, limit = 30) => request("GET", "/api/files/search", { query: { project_path, query, limit } }),
+  save_attachment: (filename, data) => request("POST", "/api/files/attachments", { body: { filename, data } }),
+  get_commands: (session_id, project_path, effort, permission_mode) => request("POST", "/api/commands/list", { body: { session_id, project_path, effort, permission_mode } }),
+  get_allowed_command_names: () => request("GET", "/api/commands/allowed"),
+  get_skills: (session_id, project_path, effort, permission_mode) => request("POST", "/api/commands/skills", { body: { session_id, project_path, effort, permission_mode } }),
+  get_model_groups: () => request("GET", "/api/models/groups"),
+  get_model_sites: () => request("GET", "/api/models/sites"),
+  fetch_model_names: (api_url, api_key) => request("POST", "/api/models/remote-names", { body: { api_url, api_key } }),
+  save_model_site: (original_name, name, api_url, api_key, models, api_protocol = "anthropic") => request("PUT", "/api/models/sites", { body: { original_name, name, api_url, api_key, models, api_protocol } }),
+  delete_model_site: (name) => request("DELETE", "/api/models/sites", { query: { name } }),
+  get_current_model: () => request("GET", "/api/models/current"),
+  set_current_model: (site, model) => request("PUT", "/api/models/current", { body: { site, model } }),
+  send_chat_message: (prompt, project_path, session_id, effort, permission_mode, model_site = null, model = null) => request("POST", "/api/chat/messages", { body: { prompt, project_path, session_id, effort, permission_mode, model_site, model }, timeoutMs: 24 * 60 * 60 * 1000 }),
+  set_chat_permission_mode: (session_id, permission_mode, project_path, effort) => request("PUT", "/api/chat/permission-mode", { body: { session_id, permission_mode, project_path, effort } }),
+  list_chat_sessions: () => request("GET", "/api/chat/sessions"),
+  list_scheduled_tasks: (project_path) => request("GET", "/api/chat/scheduled-tasks", { query: { project_path } }),
+  list_all_scheduled_tasks: () => request("GET", "/api/chat/all-scheduled-tasks"),
+  delete_scheduled_task: (task_id, project_path) => request("DELETE", `/api/chat/scheduled-tasks/${encodeURIComponent(task_id)}`, { query: { project_path } }),
+  search_chat_sessions: (query) => request("GET", "/api/chat/search", { query: { query } }),
+  get_chat_session: (project_path, session_id, effort, permission_mode) => request("POST", "/api/chat/history", { body: { project_path, session_id, effort, permission_mode } }),
+  get_active_chat: (session_id, include_completed = false) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/active`, { query: { include_completed } }),
+  get_context_usage: (session_id) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/context`),
+  stop_chat_message: (session_id) => request("POST", "/api/chat/stop", { body: { session_id } }),
+  close_chat_client: (session_id) => request("POST", "/api/chat/close", { body: { session_id } }),
+  respond_chat_permission: (permission_id, allowed, answers, feedback, execution_mode) => request("POST", "/api/chat/permissions", { body: { permission_id, allowed, answers, feedback, execution_mode } }),
+  get_current_theme: () => request("GET", "/api/theme"),
+  set_current_theme: (name) => request("PUT", "/api/theme", { body: { name } }),
+  list_tutorials: () => request("GET", "/api/tutorials"),
+  get_tutorial: (tutorial_id) => request("GET", `/api/tutorials/${encodeURIComponent(tutorial_id)}`),
+  report_frontend_error: (kind, message, stack) => request("POST", "/api/logs/frontend", { body: { kind, message, stack }, silent: true }),
+};
 
-  if (window.location.protocol === "file:") {
-    await new Promise<void>((resolve) => {
-      window.addEventListener("pywebviewready", () => resolve(), { once: true });
-    });
-  }
-
-  const api = window.pywebview?.api;
-  return api ? withErrorNotifier(api) : undefined;
-}
-
-const bridgeApiProxyCache = new WeakMap<PyWebviewApi, PyWebviewApi>();
-
-// 统一包装 js2py 调用：后端抛出的异常先通过 message 提示，再继续向上抛出，
-// 保证调用方原有的错误处理逻辑不受影响。report_frontend_error 自身不上浮提示，
-// 避免错误上报失败时又触发新的提示形成循环。
-function withErrorNotifier(api: PyWebviewApi): PyWebviewApi {
-  const cached = bridgeApiProxyCache.get(api);
-  if (cached) {
-    return cached;
-  }
-  const proxy = new Proxy(api, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof value !== "function" || prop === "report_frontend_error") {
-        return value;
-      }
-      const call = value as unknown as (...args: unknown[]) => unknown;
-      return async (...args: unknown[]) => {
-        try {
-          return await Reflect.apply(call, target, args);
-        } catch (error) {
-          notifyBridgeError(String(prop), error);
-          throw error;
-        }
-      };
-    },
-  });
-  bridgeApiProxyCache.set(api, proxy);
-  return proxy;
-}
 
 export async function getModelGroups(): Promise<ModelGroup[]> {
-  const api = await getBridgeApi();
-  return (await api?.get_model_groups()) ?? [];
+  const api = applicationApi;
+  return (await api.get_model_groups()) ?? [];
 }
 
 export async function getModelSites(): Promise<ModelSite[]> {
-  const api = await getBridgeApi();
-  return (await api?.get_model_sites()) ?? [];
+  const api = applicationApi;
+  return (await api.get_model_sites()) ?? [];
 }
 
 export async function fetchModelNames(
   apiUrl: string,
   apiKey: string,
 ): Promise<string[]> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   return api.fetch_model_names(apiUrl, apiKey);
 }
 
@@ -584,10 +572,7 @@ export async function saveModelSite(
   models: ModelConfig[],
   apiProtocol: ApiProtocol = "anthropic",
 ): Promise<void> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   await api.save_model_site(
     originalName,
     name,
@@ -599,21 +584,18 @@ export async function saveModelSite(
 }
 
 export async function deleteModelSite(name: string): Promise<void> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   await api.delete_model_site(name);
 }
 
 export async function getCurrentModel(): Promise<ModelSelection | null> {
-  const api = await getBridgeApi();
-  return (await api?.get_current_model()) ?? null;
+  const api = applicationApi;
+  return (await api.get_current_model()) ?? null;
 }
 
 export async function setCurrentModel(site: string, model: string): Promise<void> {
-  const api = await getBridgeApi();
-  await api?.set_current_model(site, model);
+  const api = applicationApi;
+  await api.set_current_model(site, model);
 }
 
 export async function sendChatMessage(
@@ -624,10 +606,7 @@ export async function sendChatMessage(
   permissionMode: ChatPermissionMode,
   model: ModelSelection | null = null,
 ): Promise<ChatReply> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
 
   return api.send_chat_message(
     prompt,
@@ -646,10 +625,7 @@ export async function setChatPermissionMode(
   projectPath: string | null,
   effort: ChatEffort,
 ): Promise<boolean> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("妗岄潰搴旂敤妗ユ帴灏氭湭鍑嗗濂?");
-  }
+  const api = applicationApi;
   return api.set_chat_permission_mode(
     sessionId,
     permissionMode,
@@ -659,36 +635,33 @@ export async function setChatPermissionMode(
 }
 
 export async function listChatSessions(): Promise<ChatSessionSummary[]> {
-  const api = await getBridgeApi();
-  return (await api?.list_chat_sessions()) ?? [];
+  const api = applicationApi;
+  return (await api.list_chat_sessions()) ?? [];
 }
 
 export async function listScheduledTasks(
   projectPath: string | null,
 ): Promise<ScheduledTaskSummary[]> {
-  const api = await getBridgeApi();
-  return (await api?.list_scheduled_tasks(projectPath)) ?? [];
+  const api = applicationApi;
+  return (await api.list_scheduled_tasks(projectPath)) ?? [];
 }
 
 export async function listAllScheduledTasks(): Promise<ScheduledTaskSummary[]> {
-  const api = await getBridgeApi();
-  return (await api?.list_all_scheduled_tasks()) ?? [];
+  const api = applicationApi;
+  return (await api.list_all_scheduled_tasks()) ?? [];
 }
 
 export async function deleteScheduledTask(
   taskId: string,
   projectPath: string | null,
 ): Promise<ScheduledTaskSummary> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   return api.delete_scheduled_task(taskId, projectPath);
 }
 
 export async function searchChatSessions(query: string): Promise<ChatSearchMatch[]> {
-  const api = await getBridgeApi();
-  return (await api?.search_chat_sessions(query)) ?? [];
+  const api = applicationApi;
+  return (await api.search_chat_sessions(query)) ?? [];
 }
 
 export async function getChatSession(
@@ -697,10 +670,7 @@ export async function getChatSession(
   effort: ChatEffort,
   permissionMode: ChatPermissionMode,
 ): Promise<ChatSessionHistory> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   const result = await api.get_chat_session(projectPath, sessionId, effort, permissionMode);
   return {
     ...result,
@@ -708,48 +678,72 @@ export async function getChatSession(
   };
 }
 
-export async function getActiveChat(sessionId: string): Promise<ActiveChat | null> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
-  const result = await api.get_active_chat(sessionId);
+export async function getActiveChat(
+  sessionId: string, includeCompleted = false,
+): Promise<ActiveChat | null> {
+  const api = applicationApi;
+  const result = await api.get_active_chat(sessionId, includeCompleted);
   return result
     ? { ...result, events: decodeEventList(result.render_events ?? result.events) }
     : null;
 }
 
 export async function getContextUsage(sessionId: string): Promise<ContextUsage | null> {
-  const api = await getBridgeApi();
-  return (await api?.get_context_usage(sessionId)) ?? null;
+  const api = applicationApi;
+  return (await api.get_context_usage(sessionId)) ?? null;
 }
 
 export function subscribeChatEvents(
   sessionId: string,
   onEvent: (event: ChatRenderEvent) => void,
+  onRecovered?: (snapshot: ActiveChat | null) => void,
 ): () => void {
+  let disposed = false;
+  let recovering = false;
+  let buffered: ChatRenderEvent[] = [];
+  let recoveryGeneration = 0;
   const handleStreamEvent: EventListener = (event) => {
     const detail = (event as CustomEvent<unknown>).detail;
     const renderEvent = decodeChatRenderEvent(detail);
     if (renderEvent?.session_id === sessionId) {
-      onEvent(renderEvent);
+      if (recovering) buffered.push(renderEvent);
+      else onEvent(renderEvent);
     }
   };
+  const recover = (event: Event) => {
+    if (!(event as CustomEvent<{ reconnected: boolean }>).detail?.reconnected) return;
+    const generation = ++recoveryGeneration;
+    recovering = true;
+    void getActiveChat(sessionId, true).then((snapshot) => {
+      if (!disposed && generation === recoveryGeneration) {
+        snapshot?.events.forEach(onEvent);
+        onRecovered?.(snapshot);
+      }
+    }).catch(() => undefined).finally(() => {
+      if (generation !== recoveryGeneration) return;
+      recovering = false;
+      const queued = buffered;
+      buffered = [];
+      if (!disposed) queued.forEach(onEvent);
+    });
+  };
   window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
-  return () => window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
+  window.addEventListener(TRANSPORT_READY_EVENT, recover);
+  return () => {
+    disposed = true;
+    window.removeEventListener(CHAT_STREAM_EVENT, handleStreamEvent);
+    window.removeEventListener(TRANSPORT_READY_EVENT, recover);
+  };
 }
 
 export async function stopChatMessage(sessionId: string | null): Promise<boolean> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   return api.stop_chat_message(sessionId);
 }
 
 export async function closeChatClient(sessionId: string | null): Promise<boolean> {
-  const api = await getBridgeApi();
-  return (await api?.close_chat_client(sessionId)) ?? false;
+  const api = applicationApi;
+  return (await api.close_chat_client(sessionId)) ?? false;
 }
 
 export async function respondChatPermission(
@@ -759,10 +753,7 @@ export async function respondChatPermission(
   feedback?: string,
   executionMode?: ChatPlanExecutionMode,
 ): Promise<boolean> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   return api.respond_chat_permission(
     permissionId,
     allowed,
@@ -773,26 +764,23 @@ export async function respondChatPermission(
 }
 
 export async function getCurrentTheme(): Promise<string> {
-  const api = await getBridgeApi();
-  return (await api?.get_current_theme()) ?? "default";
+  const api = applicationApi;
+  return (await api.get_current_theme()) ?? "default";
 }
 
 export async function setCurrentTheme(name: string): Promise<void> {
-  const api = await getBridgeApi();
-  if (!api) {
-    throw new Error("桌面应用桥接尚未准备好");
-  }
+  const api = applicationApi;
   await api.set_current_theme(name);
 }
 
 export async function listTutorials(): Promise<TutorialSummary[]> {
-  const api = await getBridgeApi();
-  return (await api?.list_tutorials()) ?? [];
+  const api = applicationApi;
+  return (await api.list_tutorials()) ?? [];
 }
 
 export async function getTutorial(tutorialId: string): Promise<TutorialDocument | null> {
-  const api = await getBridgeApi();
-  return (await api?.get_tutorial(tutorialId)) ?? null;
+  const api = applicationApi;
+  return (await api.get_tutorial(tutorialId)) ?? null;
 }
 
 export async function reportFrontendError(
@@ -800,7 +788,7 @@ export async function reportFrontendError(
   message: string,
   stack: string | null,
 ): Promise<void> {
-  // 静默上报：桥接不可用（如纯浏览器调试）时直接丢弃，不能再产生新错误
-  const api = await getBridgeApi();
-  await api?.report_frontend_error(kind, message, stack);
+  // 上报失败不显示通知，避免日志上报再次触发日志。
+  const api = applicationApi;
+  await api.report_frontend_error(kind, message, stack);
 }

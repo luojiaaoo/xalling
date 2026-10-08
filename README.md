@@ -14,7 +14,7 @@
 
 ## 简介
 
-Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领域逻辑与 Claude Agent SDK 智能体，前端用 React + Ant Design 构建界面，两者通过 pywebview 的 JS–Python 桥直接通信。
+Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领域逻辑与 Claude Agent SDK 智能体，前端用 React + Ant Design 构建界面，两者通过仅监听本机的 FastAPI HTTP 接口和 WebSocket 通信，pywebview 负责桌面窗口。
 
 ## 功能特性
 
@@ -48,25 +48,25 @@ Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领
 ```mermaid
 flowchart LR
   UI[React + TypeScript<br/>Ant Design / Ant Design X / Charts]
-  Bridge[pywebview JS–Python bridge]
-  Router[Python routers<br/>validation, configuration &amp; transport]
+  Transport[FastAPI HTTP + WebSocket]
+  Router[FastAPI APIRouter<br/>validation, configuration &amp; transport]
   Chat[claude_chat_client<br/>events, history &amp; usage]
   Agent[Claude Agent SDK<br/>sessions, agents &amp; tools]
 
-  UI <--> |window.pywebview.api<br/>controlled evaluate_js callbacks| Bridge
-  Bridge <--> Router
+  UI <--> |HTTP JSON / WebSocket ChatEvent| Transport
+  Transport <--> Router
   Router <--> Chat
   Chat <--> Agent
 ```
 
-所有业务数据都经 pywebview 的 JS–Python 桥传递；Python 服务不监听 localhost 端口，前端也不通过 `fetch`、Axios、WebSocket 或 SSE 调用本地后端。详细通信契约与事件协议见 [AGENTS.md](AGENTS.md)。
+业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。各业务模块使用原生 `APIRouter`，共享服务和聊天任务由 FastAPI `lifespan` 管理。FastAPI / Uvicorn 仅监听 `127.0.0.1` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证与来源校验。详细通信契约与事件协议见 [AGENTS.md](AGENTS.md)。
 
 ## 技术栈
 
 | 层级 | 选型 | 用途 |
 | --- | --- | --- |
-| 桌面容器 | [pywebview](https://pywebview.flowrl.com/) | 原生无边框窗口、加载本地 Web UI、JS–Python 桥 |
-| 后端 | Python 3.12 + [uv](https://docs.astral.sh/uv/) | 领域逻辑、文件与系统能力、桥接 API、测试与依赖管理 |
+| 桌面容器 | [pywebview](https://pywebview.flowrl.com/) | 原生无边框窗口、加载本机 Web UI |
+| 后端 | Python 3.12 + FastAPI / Uvicorn + [uv](https://docs.astral.sh/uv/) | 领域逻辑、文件与系统能力、HTTP / WebSocket API、测试与依赖管理 |
 | 基础 UI | [Ant Design](https://ant.design/components/overview-cn/) | 桌面布局、表单、数据展示、导航和反馈组件 |
 | AI UI | [Ant Design X](https://x.ant.design/components/introduce-cn/) | 会话、消息气泡、输入、快捷提示、思考/任务状态等 AI 交互组件 |
 | 图表 | [Ant Design Charts](https://charts.ant.design/) | 任务趋势、统计和分析视图 |
@@ -139,6 +139,7 @@ uv run pytest
 # 前端类型检查与生产构建
 cd frontend
 npm run check
+npm test
 npm run build
 ```
 
@@ -165,12 +166,16 @@ git submodule update --init --recursive
 ```text
 main.py                            # 窗口创建和应用生命周期
 backend/
+  websocket_server.py             # FastAPI 应用、lifespan 与 Uvicorn 服务
+  application.py                  # 应用服务、聊天任务与关闭清理
   claude_chat_client/              # Claude SDK 稳定抽象、事件、历史和用量
-  router/                          # pywebview API 与输入校验
+  router/                          # FastAPI APIRouter 与输入校验
   service/                         # 领域服务实现
   config/                          # 模型站点和当前选择
 frontend/
-  src/bridge/client.ts             # 前端桥接契约
+  src/bridge/client.ts             # 前端 API 契约与事件归并
+  src/bridge/http.ts               # HTTP 调用、鉴权与异常处理
+  src/bridge/websocket.ts          # 事件连接与重连
   src/components/                  # 对话工作区、执行轨迹、权限对话框、设置等
 plugins/
   claude-proxy-rust/               # OpenAI 兼容代理（Git 子模块）
@@ -179,7 +184,7 @@ script/
   installer_windows.iss            # Inno Setup 6 安装程序脚本
 screenshot/                        # README 界面截图
 tutorials/                         # 应用内教程文档
-tests/                             # 客户端、历史、路由和桥接契约测试
+tests/                             # 客户端、历史、路由和 HTTP / WebSocket 契约测试
 setting.example.toml               # 模型配置示例（不含 API Key）
 Xalling.spec                       # PyInstaller 打包规格
 ```

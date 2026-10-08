@@ -1,15 +1,22 @@
-"""Theme-related methods exposed to the local Web UI."""
+"""Theme routes; blocking configuration I/O runs in FastAPI's thread pool."""
 
+from fastapi import APIRouter, Depends
+
+from backend.router.dependencies import authenticate
+from backend.router.schemas import ThemeRequest
+from backend.service.log import capture_api_errors
 from backend.service.theme import ThemeService
 
+router = APIRouter(prefix="/api/theme", tags=["theme"], dependencies=[Depends(authenticate)])
 
-class ThemeRouter:
-    """Read and persist the UI theme selected in the desktop app."""
 
-    def get_current_theme(self) -> str:
-        """Return the persisted theme name, defaulting to the light theme."""
-        return ThemeService.get_current_theme()
+@router.get("")
+@capture_api_errors
+def get_current_theme() -> str:
+    return ThemeService.get_current_theme()
 
-    def set_current_theme(self, name: str) -> None:
-        """Validate and persist the theme chosen from the settings screen."""
-        ThemeService.set_current_theme(name)
+
+@router.put("")
+@capture_api_errors
+def set_current_theme(body: ThemeRequest) -> None:
+    ThemeService.set_current_theme(body.name)

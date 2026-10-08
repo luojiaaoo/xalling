@@ -20,6 +20,7 @@ import {
   sendChatMessage,
   stopChatMessage,
   subscribeChatEvents,
+  TransportDisconnectedError,
   type ChatPermissionAnswers,
   type ChatPermissionMode,
   type ChatPlanExecutionMode,
@@ -608,6 +609,23 @@ export function Workspace({
       return;
     }
     applyLiveEvent(event);
+  }, (snapshot) => {
+    setBusy(snapshot?.running ?? false);
+    setStopping(false);
+    setPermissionRequests(snapshot?.events.filter(isPermissionRequestEvent) ?? []);
+    if (snapshot?.running) {
+      setMessages((current) => current.map((item) => (
+        item.key === activeAssistantKeyRef.current
+          ? { ...item, loading: true, status: undefined }
+          : item
+      )));
+    } else if (!snapshot) {
+      setMessages((current) => current.map((item) => (
+        item.key === activeAssistantKeyRef.current && item.loading
+          ? { ...item, loading: false, status: "error", content: item.content || "连接已恢复，请重新发送此消息。" }
+          : item
+      )));
+    }
   }), [applyLiveEvent]);
 
   useEffect(() => {
@@ -873,6 +891,7 @@ export function Workspace({
       conversationReady = Promise.resolve();
     }
 
+    let connectionLost = false;
     void conversationReady
       .then(() => uploadAttachments(draft.attachments))
       .then((attachmentPaths) => sendChatMessage(
@@ -908,6 +927,10 @@ export function Workspace({
         onSessionsChanged?.();
       })
       .catch((error: unknown) => {
+        if (error instanceof TransportDisconnectedError) {
+          connectionLost = true;
+          return;
+        }
         const stopped = stopRequestedRef.current;
         const resolvedAssistantKey = activeAssistantKeyRef.current ?? assistantKey;
         setMessages((current) => current.map((item) => (
@@ -924,7 +947,7 @@ export function Workspace({
         )));
       })
       .finally(() => {
-        setBusy(false);
+        if (!connectionLost) setBusy(false);
         setStopping(false);
         setPermissionRequests([]);
         onSessionsChanged?.();

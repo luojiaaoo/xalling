@@ -2,45 +2,12 @@ import os
 from pathlib import Path
 
 import webview
-from loguru import logger
 
-from backend.async_runtime import bridge_api
 from backend.patch import hide_claude_console_windows
-from backend.router import (
-    ChatRouter,
-    FileRouter,
-    LogRouter,
-    ModelRouter,
-    ThemeRouter,
-    TutorialRouter,
-    WindowRouter,
-)
-from backend.service.log import capture_bridge_api_errors
-from backend.scheduler import shutdown_scheduler
+from backend.service.window import WindowService
+from backend.websocket_server import LocalWebSocketServer
 
 DEBUG = os.environ.get("XALLING_DEBUG", "0") == "1"
-
-
-@bridge_api
-@capture_bridge_api_errors
-class ApplicationBridge(
-    WindowRouter,
-    FileRouter,
-    ModelRouter,
-    ThemeRouter,
-    TutorialRouter,
-    ChatRouter,
-    LogRouter,
-):
-    """Compose the JSON-only routers exposed to the local Web UI."""
-
-    async def _shutdown_bridge(self) -> None:
-        # 关闭所有的client
-        shutdown_scheduler()
-        # 关闭所有client
-        await self._chat_service.shutdown_clients()
-        # 刷日志
-        logger.complete()
 
 
 def main() -> None:
@@ -57,26 +24,29 @@ def main() -> None:
 
     # 仅带 drag-region CSS 类的元素可拖动无边框窗口。
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
-    bridge = ApplicationBridge()
-    window = webview.create_window(
-        "Xalling",
-        url=index_file.resolve().as_uri(),
-        js_api=bridge,
-        width=1280,
-        height=820,
-        min_size=(400, 600),
-        resizable=True,
-        frameless=True,
-        easy_drag=False,
-        text_select=True,
-        shadow=True,
-        background_color="#f7f7fb",
-    )
-    bridge.bind_window(window)
+    window_service = WindowService()
+    server: LocalWebSocketServer | None = None
     try:
+        server = LocalWebSocketServer(index_file.parent, window_service)
+        server.start()
+        window = webview.create_window(
+            "Xalling",
+            url=server.url,
+            width=1280,
+            height=820,
+            min_size=(400, 600),
+            resizable=True,
+            frameless=True,
+            easy_drag=False,
+            text_select=True,
+            shadow=True,
+            background_color="#f7f7fb",
+        )
+        window_service.bind_window(window)
         webview.start(debug=DEBUG)
     finally:
-        bridge._close_bridge()
+        if server is not None:
+            server.stop()
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
-"""Chat session management behind the bridge."""
+"""Chat session management on the application event loop."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
 from functools import partial
@@ -265,14 +265,14 @@ class _ActiveChat:
 class ChatService:
     """Validate UI input and adapt application settings to the chat client.
 
-    事件通过 event_sink 回调交给桥接层推送前端，返回 True 表示已送达；
+    事件通过异步 event_sink 回调交给 WebSocket 推送前端，返回 True 表示已送达；
     送达失败时对未派发的工具权限请求自动拒绝。
     """
 
     def __init__(
         self,
         *,
-        event_sink: Callable[[dict[str, Any]], bool] | None = None,
+        event_sink: Callable[[dict[str, Any]], Awaitable[bool]] | None = None,
     ) -> None:
         self._event_sink = event_sink
         self._active_chats: dict[str, _ActiveChat] = {}
@@ -550,6 +550,15 @@ class ChatService:
             if self._active_chats.get(session_id) is active_chat:
                 self._active_chats.pop(session_id, None)
 
+    def deny_pending_permissions(self) -> None:
+        """Reject pending UI interactions when the last UI connection closes."""
+        for active_chat in list(self._active_chats.values()):
+            pending_ids = set(active_chat.client.pending_permission_ids)
+            for event in list(active_chat.events):
+                request_id = event.data.get("request_id")
+                if isinstance(request_id, str) and request_id in pending_ids:
+                    self._deny_undeliverable_permission(active_chat, event)
+
     async def shutdown_clients(self) -> None:
         """Close every retained chat client."""
         active_items = list(self._active_chats.values())
@@ -686,12 +695,16 @@ class ChatService:
         payload["effort"] = active_chat.config.effort
         return payload
 
-    def get_active_chat(self, session_id: str) -> dict[str, object] | None:
+    def get_active_chat(
+        self, session_id: str, include_completed: bool = False,
+    ) -> dict[str, object] | None:
+        if type(include_completed) is not bool:
+            raise TypeError("是否包含已完成回合必须是布尔值")
         normalized = self._normalize_optional_session_id(session_id)
         if normalized is None:
             return None
         active_chat = self._active_chats.get(normalized)
-        if active_chat is None or not active_chat.running:
+        if active_chat is None or (not active_chat.running and not include_completed):
             return None
         pending_ids = set(active_chat.client.pending_permission_ids)
         events = [
@@ -702,6 +715,7 @@ class ChatService:
         ]
         return {
             "session_id": normalized,
+            "running": active_chat.running,
             "events": events,
             "render_events": events,
         }
@@ -920,7 +934,7 @@ class ChatService:
             raise ValueError("请回答全部问题后再提交")
         return decision.answers
 
-    def _emit_chat_event(self, event: ChatEvent, *, session_id: str) -> bool:
+    async def _emit_chat_event(self, event: ChatEvent, *, session_id: str) -> bool:
         active_chat = self._active_chats.get(session_id)
         if active_chat is not None:
             active_chat.events.append(event)
@@ -932,7 +946,7 @@ class ChatService:
                         permission_mode=mode,
                     )
         delivered = (
-            self._event_sink(self._event_payload(event, session_id))
+            await self._event_sink(self._event_payload(event, session_id))
             if self._event_sink is not None
             else False
         )

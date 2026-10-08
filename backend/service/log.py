@@ -1,4 +1,4 @@
-"""Application logging channels, file sinks, and bridge-call capture."""
+"""Application logging channels, file sinks, and API-call capture."""
 
 import inspect
 import sys
@@ -7,26 +7,27 @@ from functools import wraps
 from typing import Any, cast
 
 from loguru import logger
+from pydantic import BaseModel
 
 from backend.config.setting import (
     ACCESS_LOG_FILEPATH,
     BROWSER_LOG_FILEPATH,
-    ERROR_LOG_FILEPATH,
     CLAUDE_SDK_FILEPATH,
+    ERROR_LOG_FILEPATH,
     LOG_DIRECTORY,
 )
 
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "password", "secret", "token")
 
-# 高频调用、刷日志没意义的桥接方法：不打 call/result 访问日志，但异常仍记录
+# 高频或包含大量数据的 API 不记录 call/result 访问日志，但异常仍记录。
 SILENT_ACCESS_LOG_CALLS = frozenset(
     {
-        "WindowRouter.resize_window",   # 无意义
-        "ChatRouter.list_chat_sessions",   # 高频
-        "ChatRouter.get_context_usage",   # 高频
-        "FileRouter.save_attachment",   # 文件保存
-        "ChatRouter.get_active_chat",  # 包含大量工具信息
+        "resize_window",  # 无意义
+        "list_chat_sessions",  # 高频
+        "get_context_usage",  # 高频
+        "save_attachment",  # 文件保存
+        "get_active_chat",  # 包含大量工具信息
     }
 )
 
@@ -123,6 +124,8 @@ def _mask(value: Any) -> Any:
 
 
 def _redact(value: Any, key: object = None) -> Any:
+    if isinstance(value, BaseModel):
+        value = value.model_dump()
     if _is_sensitive_key(key):
         return _mask(value)
     if isinstance(value, dict):
@@ -142,12 +145,14 @@ def _call_input(
     arguments = dict(inspect.signature(func).bind_partial(*args, **kwargs).arguments)
     arguments.pop("self", None)
     arguments.pop("cls", None)
+    for internal in ("chat", "window", "services"):
+        arguments.pop(internal, None)
     return _redact(arguments)
 
 
-def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
-    """Log a bridge function's input, output, and exceptions."""
-    if getattr(func, "__bridge_error_captured__", False):
+def capture_api_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
+    """Log an API function's input, output, and exceptions."""
+    if getattr(func, "__api_error_captured__", False):
         return func
 
     log_access = func.__qualname__ not in SILENT_ACCESS_LOG_CALLS
@@ -158,57 +163,37 @@ def capture_bridge_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
             _ensure_logging_configured()
             if log_access:
-                access_logger.info(f"JS-Python call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
+                access_logger.info(f"FastAPI call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
             try:
                 result = await func(*args, **kwargs)
             except Exception as error:
-                access_logger.info(f"JS-Python result: {func.__qualname__} | error={type(error).__name__}: {error}")
-                error_logger.exception(f"JS-Python bridge call failed: {func.__qualname__}")
+                access_logger.info(f"FastAPI result: {func.__qualname__} | error={type(error).__name__}: {error}")
+                error_logger.exception(f"FastAPI call failed: {func.__qualname__}")
                 raise
             if log_access:
-                access_logger.info(f"JS-Python result: {func.__qualname__} | output={_redact(result)!r}")
+                access_logger.info(f"FastAPI result: {func.__qualname__} | output={_redact(result)!r}")
             return result
 
-        async_wrapper.__bridge_error_captured__ = True
+        async_wrapper.__api_error_captured__ = True
         return cast(Callable[P, R], async_wrapper)
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         _ensure_logging_configured()
         if log_access:
-            access_logger.info(f"JS-Python call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
+            access_logger.info(f"FastAPI call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
         try:
             result = func(*args, **kwargs)
         except Exception as error:
-            access_logger.info(f"JS-Python result: {func.__qualname__} | error={type(error).__name__}: {error}")
-            error_logger.exception(f"JS-Python bridge call failed: {func.__qualname__}")
+            access_logger.info(f"FastAPI result: {func.__qualname__} | error={type(error).__name__}: {error}")
+            error_logger.exception(f"FastAPI call failed: {func.__qualname__}")
             raise
         if log_access:
-            access_logger.info(f"JS-Python result: {func.__qualname__} | output={_redact(result)!r}")
+            access_logger.info(f"FastAPI result: {func.__qualname__} | output={_redact(result)!r}")
         return result
 
-    wrapper.__bridge_error_captured__ = True
+    wrapper.__api_error_captured__ = True
     return wrapper
-
-
-def capture_bridge_api_errors[T: type[Any]](cls: T) -> T:
-    """Apply bridge logging to every public method on an API class."""
-    for name in dir(cls):
-        if name.startswith("_"):
-            continue
-
-        descriptor = inspect.getattr_static(cls, name)
-        if isinstance(descriptor, staticmethod):
-            wrapped = staticmethod(capture_bridge_errors(descriptor.__func__))
-        elif isinstance(descriptor, classmethod):
-            wrapped = classmethod(capture_bridge_errors(descriptor.__func__))
-        elif inspect.isfunction(descriptor):
-            wrapped = capture_bridge_errors(descriptor)
-        else:
-            continue
-        setattr(cls, name, wrapped)
-
-    return cls
 
 
 class LogService:

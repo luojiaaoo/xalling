@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.router import FileRouter
+from backend.service.file import FileService
 
 
 @pytest.fixture()
@@ -18,7 +18,7 @@ def project(tmp_path: Path) -> Path:
 
 
 def test_file_router_searches_files_and_folders(project: Path) -> None:
-    router = FileRouter()
+    router = FileService()
 
     files = router.search_project_files(str(project), "models")
     assert [item["name"] for item in files] == ["models.py"]
@@ -34,7 +34,7 @@ def test_file_router_searches_files_and_folders(project: Path) -> None:
 
 
 def test_file_router_skips_ignored_directories(project: Path) -> None:
-    router = FileRouter()
+    router = FileService()
 
     results = router.search_project_files(str(project), "trace_fake")
     assert results == []
@@ -42,7 +42,7 @@ def test_file_router_skips_ignored_directories(project: Path) -> None:
 
 def test_file_router_lists_top_level_entries_for_empty_query(project: Path) -> None:
     (project / "README.md").write_text("# demo", encoding="utf-8")
-    router = FileRouter()
+    router = FileService()
 
     results = router.search_project_files(str(project), "")
     names = [item["name"] for item in results]
@@ -51,7 +51,7 @@ def test_file_router_lists_top_level_entries_for_empty_query(project: Path) -> N
 
 
 def test_file_router_rejects_missing_project(tmp_path: Path) -> None:
-    router = FileRouter()
+    router = FileService()
 
     with pytest.raises(ValueError, match="项目文件夹不存在"):
         router.search_project_files(str(tmp_path / "missing"), "trace")

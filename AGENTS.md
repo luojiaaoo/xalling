@@ -2,7 +2,7 @@
 
 > Your Desktop, Reimagined with AI.
 
-Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与智能体，以 pywebview 承载 React 界面，并通过安全、直接的 JavaScript–Python 桥接完成交互。它不把本地 HTTP 服务当作前后端中间层。
+Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与智能体，以 pywebview 承载 React 界面，并通过仅监听本机的 FastAPI HTTP 接口与 WebSocket 完成业务调用和实时事件通信。
 
 ## 功能特性
 
@@ -24,25 +24,25 @@ Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与
 ```mermaid
 flowchart LR
   UI[React + TypeScript<br/>Ant Design / Ant Design X / Charts]
-  Bridge[pywebview JS–Python bridge]
-  Router[Python routers<br/>validation, configuration &amp; transport]
+  Transport[FastAPI HTTP + WebSocket]
+  Router[FastAPI APIRouter<br/>validation, configuration &amp; transport]
   Chat[claude_chat_client<br/>events, history &amp; usage]
   Agent[Claude Agent SDK<br/>sessions, agents &amp; tools]
 
-  UI <--> |window.pywebview.api<br/>controlled evaluate_js callbacks| Bridge
-  Bridge <--> Router
+  UI <--> |HTTP JSON / WebSocket ChatEvent| Transport
+  Transport <--> Router
   Router <--> Chat
   Chat <--> Agent
 ```
 
-所有业务数据都经 pywebview 的 JS–Python 桥传递；Python 服务不监听 localhost 端口，前端也不通过 `fetch`、Axios、WebSocket 或 SSE 调用本地后端。
+业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。FastAPI / Uvicorn 仅监听 `127.0.0.1` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证与来源校验。
 
 ## 技术栈
 
 | 层级 | 选型 | 用途 |
 | --- | --- | --- |
-| 桌面容器 | [pywebview](https://pywebview.flowrl.com/) | 原生无边框窗口、加载本地 Web UI、JS–Python 桥 |
-| 后端 | Python 3.12 + [uv](https://docs.astral.sh/uv/) | 领域逻辑、文件与系统能力、桥接 API、测试与依赖管理 |
+| 桌面容器 | [pywebview](https://pywebview.flowrl.com/) | 原生无边框窗口、加载本机 Web UI |
+| 后端 | Python 3.12 + FastAPI / Uvicorn + [uv](https://docs.astral.sh/uv/) | 领域逻辑、文件与系统能力、HTTP / WebSocket API、测试与依赖管理 |
 | 基础 UI | [Ant Design](https://ant.design/components/overview-cn/) | 桌面布局、表单、数据展示、导航和反馈组件 |
 | AI UI | [Ant Design X](https://x.ant.design/components/introduce-cn/) | 会话、消息气泡、输入、快捷提示、思考/任务状态等 AI 交互组件 |
 | 图表 | [Ant Design Charts](https://charts.ant.design/) | 任务趋势、统计和分析视图；连续数据优先使用折线图 |
@@ -73,7 +73,7 @@ name = "Qwen3.6-35B-A3B"
 - `api_protocol = "anthropic"`：供应商原生支持 Anthropic Messages 协议，直接连接。
 - `api_protocol = "chat"` / `"responses"`：为每个 Claude 会话启动一个仅监听 `127.0.0.1` 的本地代理（`plugins/bin/claude-proxy-rust.exe`，源码见 Git 子模块 [`plugins/claude-proxy-rust`](https://github.com/luojiaaoo/claude-proxy-rust)），把 Anthropic Messages 请求转换为 OpenAI Chat Completions / Responses 接口。连接关闭后自动回收，API Key 不会写入项目文件。
 
-`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。界面通过 pywebview 桥接获取分组名、模型名和上下文设置，并保存当前选择，不会接触 API Key 或 API URL。推理强度是对话界面的临时状态，不写入配置文件。
+`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。对话界面通过 HTTP API 获取分组名、模型名和上下文设置，并保存当前选择；模型设置页通过已认证的本机连接编辑站点配置。推理强度是对话界面的临时状态，不写入配置文件。
 
 真实配置位于 `~/.xalling/xalling-setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
 
@@ -106,8 +106,9 @@ Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK �
 | --- | --- |
 | `backend/claude_chat_client/` | 管理 Claude SDK 连接，将 SDK 消息转换为稳定事件，处理权限交互、动态工作流、历史回放和单回合用量 |
 | `backend/service/claude_options.py` | 将模型、项目、推理强度、权限模式、Skill 目录和本地运行设置转换成 `ClaudeAgentOptions` |
-| `backend/router/chat.py` | 校验界面参数，管理会话级客户端，通过 pywebview 桥发送事件并暴露会话 API |
-| `frontend/src/bridge/client.ts` | 定义可 JSON 序列化的桥接契约，订阅 `xalling:chat-event` |
+| `backend/router/chat.py` | 声明会话 HTTP 接口，通过 Pydantic 与依赖注入校验参数、获取共享服务 |
+| `backend/service/chat.py` | 管理会话级客户端与回合，将事件交给 `service/events.py` 通过 WebSocket 推送 |
+| `frontend/src/bridge/client.ts` | 封装 HTTP API 契约，订阅 `xalling:chat-event` |
 | `Workspace.tsx` / `AgentTrace.tsx` | 用同一个事件归并流程渲染实时对话与历史对话 |
 
 `ClaudeChatClient` 对外提供 `send()`、`stream()`、中断、权限响应、模型/权限模式切换、MCP 状态和后台任务控制等能力。`ClaudeChatHistory` 负责会话列表、历史加载、全文搜索以及将持久化 transcript 恢复成同一套事件。
@@ -133,7 +134,7 @@ type ChatStreamEvent = {
 - `model_turn_id` 标识该用户回合中的一次模型调用；同一次调用并行发出的工具共享该值，不同 Agent Loop 使用不同值。
 - `parent_tool_use_id` 为空时属于主 Agent；非空时用于把子 Agent 的回复、思考和工具调用嵌入对应的 Agent 工具节点。
 - `session_id` 标识 Claude 持久化会话。
-- 所有 payload 在进入桥接前都会转换成 JSON 安全值。
+- 所有 payload 在进入 WebSocket 前都会转换成 JSON 安全值。
 
 当前事件按职责分为：
 
@@ -194,12 +195,12 @@ turn.started
 
 ### 会话、搜索与客户端生命周期
 
-桥接层当前提供：发送消息、列出会话、搜索会话、读取会话历史、读取正在运行的事件快照、停止生成以及响应权限请求。
+HTTP API 当前提供：发送消息、列出会话、搜索会话、读取会话历史、读取正在运行的事件快照、停止生成以及响应权限请求。
 
 - 会话搜索覆盖标题以及可见的用户/主 Agent 文本，返回 `event_id`、`turn_id` 和 `role` 以便界面定位。
 - 正在生成的会话会合并进会话列表，并带有 `running` 状态；界面重连时可用 `get_active_chat()` 恢复当前回合事件。
 - 同一会话不能并发发送两条消息，不同会话可以分别管理。
-- 会话级 SDK 客户端在空闲后保留 5 分钟以便复用；再次使用会取消回收计时。
+- 会话级 SDK 客户端在完成回合后保留以便复用；变更连接配置或关闭会话时回收。
 - 应用关闭时会统一关闭仍保留的客户端和临时配置资源。
 
 ### 权限与特殊工具
@@ -213,44 +214,47 @@ turn.started
 
 ### 前端调用 Python
 
-Python 通过 `js_api` 暴露 API，前端统一从一个桥接模块调用：
+各业务模块声明原生 `APIRouter`，前端统一从 `frontend/src/bridge/client.ts` 调用，底层 HTTP 请求由 `http.ts` 管理：
 
 ```ts
 await sendChatMessage(prompt, projectPath, sessionId, effort, permissionMode);
 ```
 
-桥接现已承载窗口控制、模型配置、项目文件、Claude 命令/Skill、消息发送、历史查询、运行中会话恢复、停止生成和权限响应。所有业务组件统一调用 `frontend/src/bridge/client.ts`，不直接访问 `window.pywebview.api`。桥接调用是异步的，参数和返回值只使用可 JSON 序列化的数据。
+窗口控制、文件、模型、命令、历史、停止生成和权限响应使用 `/api/*` HTTP 接口；请求使用 JSON body 或 query/path 参数，响应直接返回 JSON 数据。共享请求模型采用 Pydantic 严格校验，禁止未知字段。非法参数返回 400/422，未认证请求返回 401，来源不符返回 403，内部异常返回 500 与通用提示，不泄露 Python 内部对象或敏感参数。
+
+FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天任务、权限响应与事件推送都运行在 Uvicorn 的同一个事件循环中。聊天任务由应用持有，HTTP 请求取消不会取消正在生成的回合；应用关闭时拒绝权限请求、停止调度器、取消聊天任务并关闭客户端。同步文件操作和原生窗口调用使用普通 `def` 路由，由 FastAPI 线程池执行。`main.py` 只负责桌面窗口和服务启停，无需额外的 `AsyncRuntime`。
 
 ### Python 推送界面
 
-长任务或智能体流式执行时，Python 使用 `window.evaluate_js(...)` 分发 `xalling:chat-event`。事件内容先通过 `json.dumps` 安全编码，前端再按 `session_id` 订阅并归并成 Ant Design X 消息、思考链、工具调用和子 Agent 轨迹。无法投递的权限请求会由后端自动拒绝。
+服务器通过 `{ type: "event", event: "chat", data: ChatEvent }` 推送 JSON 事件，前端再按 `session_id` 订阅与归并。事件保留统一的实时/历史协议。连接断开后，前端会拒绝待处理的调用并自动重连，通过 `get_active_chat(session_id, true)` 恢复保留客户端的事件快照，包括断线期间已完成的回合及 `running` 状态；写操作不会自动重发。快照恢复期间的新事件先缓冲，快照与缓冲事件仍按事件 ID 去重。最后一个界面连接断开时，后端拒绝尚未完成的权限交互，避免 SDK 永久等待。
 
-### 明确禁止
+### 连接与安全
 
-- 不使用 Flask、FastAPI、Django、aiohttp、uvicorn 等方式为 UI 提供业务 HTTP API。
-- 不使用 REST、`fetch`、Axios、XHR、WebSocket、SSE 或 localhost 端口在本地前后端间传输业务数据。
-- 不将密钥、模型端点或 Python 内部对象传入前端。
-
-### 桥接实现要求
-
-- 前端必须等待 `pywebviewready` 事件后再调用桥接 API。
-- Python 通过 `webview.create_window(..., js_api=api)` 暴露职责单一的 API；所有入参须进行类型、长度与权限校验。
-- 返回值只使用 JSON 可序列化数据。使用 `evaluate_js` 推送事件时，必须通过受控回调传递已安全编码的数据，避免拼接不受信任的脚本。
-- 桥接 API 集中封装在一个前端模块中；业务组件不得散落直接调用 `window.pywebview.api`。
+- Uvicorn 仅监听 `127.0.0.1` 的随机端口，FastAPI 同时提供 `frontend/dist` 静态资源。
+- 每次启动生成随机连接凭证，通过窗口 URL 的 fragment 传给前端。前端将其保存在当前 origin 的 sessionStorage，并清除地址栏 fragment；刷新可恢复凭证。
+- WebSocket 用 `xalling` 与 `auth.<凭证>` 子协议完成握手，后端还必须校验同源 Origin 与 Host。凭证不得进入访问日志。
+- HTTP API 使用 `Authorization: Bearer <凭证>`，校验 Host 和存在的 Origin；前端先建立事件连接，再提交业务请求，以便接收权限事件。
+- 前端业务组件必须集中调用 `client.ts`，不得直接创建连接或访问 `window.pywebview.api`。
+- pywebview 只承担原生窗口能力，不配置 `js_api`，业务事件不使用 `evaluate_js`。
+- 返回值只使用 JSON 可序列化数据；密钥等敏感配置不得进入 bundle 或日志。模型设置只能通过已认证的本机连接访问。
 
 ## 项目结构
 
 ```text
-main.py                            # 窗口创建和应用生命周期
+main.py                            # 原生窗口与本机服务启动、关闭
 backend/
+  websocket_server.py             # FastAPI 应用、lifespan 与 Uvicorn 服务
+  application.py                  # 应用服务、聊天任务与关闭清理
   claude_chat_client/              # Claude SDK 稳定抽象、事件、历史和用量
-  router/                          # pywebview API、输入校验（chat/command/file/model/theme/…）
+  router/                          # FastAPI APIRouter、输入校验（chat/command/file/model/theme/…）
   service/                         # 领域服务实现
   config/                          # 模型站点和当前选择
   scheduler.py                     # APScheduler 定时任务调度
   claude_proxy.py                  # 本地协议转换代理管理
 frontend/
-  src/bridge/client.ts             # 前端桥接契约
+  src/bridge/client.ts             # 前端 API 契约与事件归并
+  src/bridge/http.ts               # HTTP 调用、鉴权与异常处理
+  src/bridge/websocket.ts          # 事件连接与重连
   src/components/                  # 对话工作区、执行轨迹、权限对话框、设置等
   dist/                            # 构建后的本地静态资源
 plugins/
@@ -261,7 +265,7 @@ script/
   package_windows.bat              # 一键打包（代理 + 前端 + PyInstaller + 安装包）
   installer_windows.iss            # Inno Setup 6 安装程序脚本
 tutorials/                         # 应用内教程文档
-tests/                             # 客户端、历史、路由和桥接契约测试
+tests/                             # 客户端、历史、路由和 HTTP / WebSocket 契约测试
 setting.example.toml               # 模型配置示例（不含 API Key）
 Xalling.spec                       # PyInstaller 打包规格
 ```
@@ -292,11 +296,13 @@ uv run pytest
 
 # 检查并构建本地前端资源
 cd frontend
+npm test
 npm run check
+npm test
 npm run build
 ```
 
-修改桥接 API 后，请同时验证：正常调用、非法参数、Python 异常回传，以及长任务状态推送。新增界面时，优先复用 Ant Design 和 Ant Design X 组件，并确保图表容器有明确尺寸。
+修改 HTTP / WebSocket API 后，请同时验证：正常调用、非法参数、Python 异常回传，以及长任务状态推送。新增界面时，优先复用 Ant Design 和 Ant Design X 组件，并确保图表容器有明确尺寸。
 
 ## 打包与发布（Windows）
 
@@ -342,7 +348,7 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 ./dist/Xalling/Xalling
 ```
 
-发布前请在目标发行版的干净用户环境中启动一次，验证窗口创建、静态资源加载、`window.pywebview.api` 桥接与中文字体显示。若采用 Qt，应改用 `pywebview[qt]` 并在该平台重新构建，不要把 Windows 构建产物复制到 Linux。
+发布前请在目标发行版的干净用户环境中启动一次，验证窗口创建、静态资源加载、WebSocket 连接与中文字体显示。若采用 Qt，应改用 `pywebview[qt]` 并在该平台重新构建，不要把 Windows 构建产物复制到 Linux。
 
 ## 实现约定
 
@@ -355,7 +361,7 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 
 ### Python 与智能体
 
-- Python 负责领域服务、桥接 API、智能体运行与敏感能力控制；不得阻塞 pywebview UI 线程。
+- Python 负责领域服务、HTTP / WebSocket API、智能体运行与敏感能力控制；不得阻塞 pywebview UI 线程和 ASGI 事件循环。
 - Claude Agent SDK 的代理、会话、工具与任务循环封装在 `backend/claude_chat_client/`；路由只负责应用输入、配置和传输。
 - 实时与历史必须输出同一套 `ChatEvent`，新增 SDK 消息类型时先在适配层定义语义，再由界面消费，禁止前端直接依赖 SDK 原始对象。
 - 文件、命令、MCP 或网络工具必须经过权限模式或显式用户确认；`AskUserQuestion` 和计划审批使用专门的结构化交互。
@@ -366,5 +372,5 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 
 1. 新增 Claude SDK 消息类型时，同时更新 `models.py`、`message_adapter.py`、历史装配测试和前端事件归并。
 2. 改动逻辑回合结束条件时，覆盖普通回复、异步子 Agent、多个连续后台任务、用户停止和异常中断。
-3. 改动桥接 API 时，同步更新 Python 路由、`frontend/src/bridge/client.ts` 类型以及非法参数/异常回传测试。
+3. 改动 HTTP / WebSocket API 时，同步更新 Python 路由、`frontend/src/bridge/client.ts` 类型以及非法参数/异常回传测试。
 4. 发布前运行 Python 静态检查和完整测试，并执行前端类型检查与生产构建。

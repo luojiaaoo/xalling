@@ -1,16 +1,15 @@
-"""Log methods exposed to the local Web UI."""
+"""Frontend error reporting route."""
 
-from backend.service.log import LogService
+from fastapi import APIRouter, Depends
+
+from backend.router.dependencies import authenticate
+from backend.router.schemas import FrontendErrorRequest
+from backend.service.log import LogService, capture_api_errors
+
+router = APIRouter(prefix="/api/logs", tags=["logs"], dependencies=[Depends(authenticate)])
 
 
-class LogRouter:
-    """Receive error reports from the Web UI and write them to its own log."""
-
-    def report_frontend_error(
-        self,
-        kind: str,
-        message: str,
-        stack: str | None = None,
-    ) -> None:
-        """Record a frontend console error, uncaught exception, or rejection."""
-        LogService.report_frontend_error(kind, message, stack)
+@router.post("/frontend")
+@capture_api_errors
+def report_frontend_error(body: FrontendErrorRequest) -> None:
+    LogService.report_frontend_error(body.kind, body.message, body.stack)

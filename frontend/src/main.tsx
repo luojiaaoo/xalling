@@ -4,12 +4,10 @@ import { createRoot } from "react-dom/client";
 import "antd/dist/reset.css";
 import "./styles.css";
 import App from "./App";
-import { installPy2JsErrorNotifier } from "./bridge/bridgeMessage";
 import { installErrorReporter } from "./bridge/errorReporter";
 
 // 在 React 渲染之前安装，确保最早期的错误也能捕获
 installErrorReporter();
-installPy2JsErrorNotifier();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

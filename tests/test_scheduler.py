@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import anyio
+import pytest
 
 
 def test_scheduled_task_executor_is_called() -> None:
@@ -177,17 +178,18 @@ def test_update_scheduled_task_replaces_schedule_and_prompt() -> None:
     anyio.run(scenario)
 
 
-def test_application_bridge_runs_scheduled_task_as_async() -> None:
+@pytest.mark.anyio
+async def test_chat_service_runs_scheduled_task_as_async() -> None:
     from backend.scheduler import ScheduledTask
-    from main import ApplicationBridge
+    from backend.service.chat import ChatService
 
-    bridge = ApplicationBridge()
+    chat = ChatService()
     calls: list[tuple[str, dict[str, object]]] = []
 
     async def fake_send(prompt: str, **kwargs: object) -> None:
         calls.append((prompt, kwargs))
 
-    bridge._chat_service.send_chat_message = fake_send
+    chat.send_chat_message = fake_send
     task = ScheduledTask(
         task_id="task-id",
         session_id="session-id",
@@ -200,9 +202,9 @@ def test_application_bridge_runs_scheduled_task_as_async() -> None:
         schedule_value="2026-09-22 11:38",
     )
     try:
-        bridge._async_runtime.call(bridge._chat_service._run_scheduled_task, task)
+        await chat._run_scheduled_task(task)
     finally:
-        bridge._close_bridge()
+        await chat.shutdown_clients()
 
     assert len(calls) == 1
     prompt, kwargs = calls[0]

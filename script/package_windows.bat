@@ -26,6 +26,11 @@ uv run pyinstaller --noconfirm %MODE% --windowed --name Xalling --icon favicon.i
     --collect-data claude_agent_sdk ^
     --collect-all clr_loader ^
     --hidden-import clr ^
+    --hidden-import uvicorn.logging ^
+    --hidden-import uvicorn.loops.asyncio ^
+    --hidden-import uvicorn.protocols.http.h11_impl ^
+    --hidden-import uvicorn.protocols.websockets.websockets_sansio_impl ^
+    --hidden-import uvicorn.lifespan.on ^
     main.py || exit /b 1
 
 echo [5/6] Building installer with Inno Setup...

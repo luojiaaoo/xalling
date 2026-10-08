@@ -13,6 +13,7 @@ from pydantic_settings import (
 
 from backend.config.setting import CURRENT_CONF_FILEPATH
 
+
 class CurrentModelConfig(BaseModel):
     """The currently selected model site and model name."""
 

@@ -1,14 +1,12 @@
 import asyncio
-import inspect
 from pathlib import Path
 
 import pytest
 from loguru import logger
 
+from backend.router import routers
 from backend.service import log
-from backend.router.log import LogRouter
-from backend.service.log import capture_bridge_api_errors, capture_bridge_errors
-from main import ApplicationBridge
+from backend.service.log import LogService, capture_api_errors
 
 
 def configure_test_logging(
@@ -23,7 +21,7 @@ def configure_test_logging(
     log.configure_logging()
 
 
-def test_capture_bridge_errors_logs_to_console_and_file(
+def test_capture_api_errors_logs_to_console_and_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -33,7 +31,7 @@ def test_capture_bridge_errors_logs_to_console_and_file(
     access_log = log_directory / "access.log"
     configure_test_logging(log_directory, monkeypatch)
 
-    @capture_bridge_errors
+    @capture_api_errors
     def fail() -> None:
         raise ValueError("bridge failed")
 
@@ -44,20 +42,20 @@ def test_capture_bridge_errors_logs_to_console_and_file(
     console_output = capsys.readouterr().err
     file_output = error_log.read_text(encoding="utf-8")
     for output in (console_output, file_output):
-        assert "JS-Python bridge call failed" in output
+        assert "FastAPI call failed" in output
         assert "ValueError: bridge failed" in output
-        assert "test_capture_bridge_errors_logs_to_console_and_file.<locals>.fail" in output
+        assert "test_capture_api_errors_logs_to_console_and_file.<locals>.fail" in output
     assert "error=ValueError: bridge failed" in access_log.read_text(encoding="utf-8")
 
 
-def test_capture_bridge_errors_supports_async_functions(
+def test_capture_api_errors_supports_async_functions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     error_log = tmp_path / "error.log"
     configure_test_logging(tmp_path, monkeypatch)
 
-    @capture_bridge_errors
+    @capture_api_errors
     async def fail() -> None:
         raise RuntimeError("async bridge failed")
 
@@ -68,7 +66,7 @@ def test_capture_bridge_errors_supports_async_functions(
     assert "RuntimeError: async bridge failed" in error_log.read_text(encoding="utf-8")
 
 
-def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
+def test_capture_api_errors_logs_redacted_inputs_and_outputs(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -76,7 +74,7 @@ def test_capture_bridge_errors_logs_redacted_inputs_and_outputs(
     access_log = tmp_path / "access.log"
     configure_test_logging(tmp_path, monkeypatch)
 
-    @capture_bridge_errors
+    @capture_api_errors
     def exchange(prompt: str, api_key: str) -> dict[str, str]:
         return {"answer": prompt.upper(), "api_key": api_key}
 
@@ -102,7 +100,7 @@ def test_frontend_errors_log_to_separate_browser_file(
     error_log = tmp_path / "error.log"
     configure_test_logging(tmp_path, monkeypatch)
 
-    LogRouter().report_frontend_error(
+    LogService().report_frontend_error(
         "unhandledrejection",
         "frontend failed",
         "Error: frontend failed\n    at app.js:1:1",
@@ -115,46 +113,7 @@ def test_frontend_errors_log_to_separate_browser_file(
     assert "frontend failed" not in error_log.read_text(encoding="utf-8")
 
 
-def test_capture_bridge_api_errors_wraps_inherited_public_methods(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    configure_test_logging(tmp_path, monkeypatch)
-
-    class Router:
-        def exposed(self) -> str:
-            return "ok"
-
-        @staticmethod
-        def static_exposed() -> str:
-            return "static"
-
-        def _internal(self) -> None:
-            raise RuntimeError
-
-    @capture_bridge_api_errors
-    class Bridge(Router):
-        pass
-
-    bridge = Bridge()
-
-    assert bridge.exposed() == "ok"
-    assert bridge.static_exposed() == "static"
-    assert getattr(bridge.exposed, "__bridge_error_captured__", False)
-    assert getattr(bridge.static_exposed, "__bridge_error_captured__", False)
-    assert not getattr(bridge._internal, "__bridge_error_captured__", False)
-
-
-def test_application_bridge_captures_every_public_method() -> None:
-    public_methods = [
-        name
-        for name in dir(ApplicationBridge)
-        if not name.startswith("_")
-        and inspect.isroutine(inspect.getattr_static(ApplicationBridge, name))
-    ]
-
-    assert public_methods
-    assert all(
-        getattr(getattr(ApplicationBridge, name), "__bridge_error_captured__", False)
-        for name in public_methods
-    )
+def test_every_http_endpoint_captures_errors() -> None:
+    endpoints = [route.endpoint for router in routers for route in router.routes]
+    assert endpoints
+    assert all(getattr(endpoint, "__api_error_captured__", False) for endpoint in endpoints)

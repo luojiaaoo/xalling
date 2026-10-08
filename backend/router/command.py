@@ -1,58 +1,28 @@
-"""Claude command and skill methods exposed to the local Web UI."""
+"""Claude command and skill routes using the application chat dependency."""
 
-from abc import ABC, abstractmethod
-from typing import Any
+from fastapi import APIRouter, Depends
 
+from backend.router.dependencies import ChatDep, authenticate
+from backend.router.schemas import ChatConnectionRequest
 from backend.service.command import ClaudeCommand, CommandService
+from backend.service.log import capture_api_errors
+
+router = APIRouter(prefix="/api/commands", tags=["commands"], dependencies=[Depends(authenticate)])
 
 
-class CommandRouter(ABC):
-    """Expose live commands through clients retained by ChatRouter."""
+@router.post("/list")
+@capture_api_errors
+async def get_commands(body: ChatConnectionRequest, chat: ChatDep) -> list[ClaudeCommand]:
+    return CommandService.get_commands(await chat.get_chat_server_info(**body.model_dump()))
 
-    async def get_commands(
-        self,
-        session_id: str,
-        project_path: str | None = None,
-        effort: str = "high",
-        permission_mode: str = "default",
-    ) -> list[ClaudeCommand]:
-        """Return regular commands from the session's live SDK client."""
-        return CommandService.get_commands(
-            await self._get_chat_server_info(
-                session_id,
-                project_path=project_path,
-                effort=effort,
-                permission_mode=permission_mode,
-            ),
-        )
 
-    def get_allowed_command_names(self) -> list[str]:
-        """Return command names the chat API allows at the prompt start."""
-        return CommandService.get_allowed_command_names()
+@router.get("/allowed")
+@capture_api_errors
+def get_allowed_command_names() -> list[str]:
+    return CommandService.get_allowed_command_names()
 
-    async def get_skills(
-        self,
-        session_id: str,
-        project_path: str | None = None,
-        effort: str = "high",
-        permission_mode: str = "default",
-    ) -> list[ClaudeCommand]:
-        """Return skills from the session's live SDK client."""
-        return CommandService.get_skills(
-            await self._get_chat_server_info(
-                session_id,
-                project_path=project_path,
-                effort=effort,
-                permission_mode=permission_mode,
-            ),
-        )
 
-    @abstractmethod
-    async def _get_chat_server_info(
-        self,
-        session_id: str,
-        project_path: str | None = None,
-        effort: str = "high",
-        permission_mode: str = "default",
-    ) -> dict[str, Any]:
-        """Return live server metadata for a retained chat session."""
+@router.post("/skills")
+@capture_api_errors
+async def get_skills(body: ChatConnectionRequest, chat: ChatDep) -> list[ClaudeCommand]:
+    return CommandService.get_skills(await chat.get_chat_server_info(**body.model_dump()))

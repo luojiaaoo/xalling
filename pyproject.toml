@@ -13,12 +13,14 @@ dependencies = [
     "baidusearch>=1.0.3",
     "claude-agent-sdk>=0.2.157",
     "ddgs>=9.16.0",
+    "fastapi>=0.142.2",
     "httpx",
     "loguru>=0.7.3",
     "pydantic-settings>=2.15.0",
     "pywebview>=6.2.1",
     "sqlalchemy>=2.0.0",
     "tomli-w>=1.2.0",
+    "uvicorn[standard]>=0.52.4",
     "yarl",
 ]
 
