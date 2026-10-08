@@ -623,6 +623,11 @@ async def test_get_active_chat_replays_only_pending_permission_requests(
     assert active is not None
     permission_events = [item for item in active["events"] if item["event"] == "permission.requested"]
     assert [item["data"]["request_id"] for item in permission_events] == ["pending"]
+    assert len(active["covered_event_ids"]) == 3
+    router._active_chats[session_id].events.append(event("turn.completed"))
+    completed = router.get_active_chat(session_id, True)
+    assert completed is not None
+    assert completed["running"] is False
 
 
 async def test_chat_router_denies_permission_when_transport_is_unavailable(

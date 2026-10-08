@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, cast, get_args
 
 from claude_agent_sdk import (
@@ -66,6 +66,15 @@ class _StreamState:
 
     stream_uuid: str
     message_id: str
+
+
+@dataclass(slots=True)
+class _AssistantBlockState:
+    """SDK assistant envelopes contain consecutive slices of one message."""
+
+    next_index: int = 0
+    envelope_offsets: dict[str, int] = field(default_factory=dict)
+    text_blocks: dict[int, str] = field(default_factory=dict)
 
 
 class _EventFactory:
@@ -182,6 +191,9 @@ class _MessageAdapter:
         self.tools: dict[str, _ToolCall] = {}
         self.stream_blocks: dict[tuple[str, int], dict[str, Any]] = {}
         self.streams: dict[tuple[str, str | None], _StreamState] = {}
+        self._assistant_blocks: dict[
+            tuple[str | None, str | None, str], _AssistantBlockState
+        ] = {}
         self.main_text: list[str] = []
         self.main_models: list[str] = []
         self.last_main_stop_reason: str | None = None
@@ -350,11 +362,23 @@ class _MessageAdapter:
             self.main_models.append(message.model)
             self.last_main_stop_reason = message.stop_reason or self.last_main_stop_reason
 
-        for block in message.content:
+        scope = (message.session_id or self.factory.session_id, parent_id, model_turn_id)
+        blocks = self._assistant_blocks.setdefault(scope, _AssistantBlockState())
+        offset = blocks.envelope_offsets.get(message.uuid) if message.uuid else None
+        if offset is None:
+            offset = blocks.next_index
+            if message.uuid:
+                blocks.envelope_offsets[message.uuid] = offset
+            blocks.next_index += len(message.content)
+        # Claude sends thinking/text/tool blocks in separate assistant packets.
+        # enumerate(packet.content) starts at zero each time, while stream_event
+        # indices span the whole model message. Preserve that global identity.
+        for block_index, block in enumerate(message.content, start=offset):
             if isinstance(block, TextBlock):
                 event: EventName = "subagent.reply.completed" if is_subagent else "assistant.reply.completed"
                 if not is_subagent:
                     message_text.append(block.text)
+                    blocks.text_blocks[block_index] = block.text
                 events.append(
                     self.factory.make(
                         event,
@@ -363,6 +387,8 @@ class _MessageAdapter:
                             "model": message.model,
                             "message_id": message.message_id,
                             "message_uuid": message.uuid,
+                            "block_index": block_index,
+                            "block_id": f"{model_turn_id}:{block_index}",
                         },
                         model_turn_id=model_turn_id,
                         session_id=message.session_id,
@@ -380,6 +406,8 @@ class _MessageAdapter:
                             "model": message.model,
                             "message_id": message.message_id,
                             "message_uuid": message.uuid,
+                            "block_index": block_index,
+                            "block_id": f"{model_turn_id}:{block_index}",
                         },
                         model_turn_id=model_turn_id,
                         session_id=message.session_id,
@@ -453,7 +481,7 @@ class _MessageAdapter:
             # A turn may contain commentary before tools and a final response
             # afterwards. ResultMessage.result corresponds to the latest
             # textual assistant message, so retain that same fallback here.
-            self.main_text = message_text
+            self.main_text = [text for _, text in sorted(blocks.text_blocks.items())]
         if message.error is not None:
             events.append(
                 self.factory.make(

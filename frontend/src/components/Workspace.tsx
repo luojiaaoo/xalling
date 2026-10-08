@@ -34,11 +34,9 @@ import {
 import { pickQuote } from "../quotes";
 import {
   AgentTrace,
-  applyRenderEvent,
-  finishAgentTrace,
-  stripExitPlanContent,
-  type AgentTraceItem,
 } from "./AgentTrace";
+import { finishAgentTrace } from "../chat/trace";
+import { conversationFromEvents, reduceConversationEvent, isConversationEvent, eventTime, turnAssistantKey, contextCompactionText, pendingPermissionsFromEvents, type ConversationMessage } from "../chat/conversation";
 import { ChatMarkdown } from "./ChatMarkdown";
 import {
   TaskComposer,
@@ -57,20 +55,6 @@ const greetingsByPeriod: string[][] = [
   ["下午好呀，午后时光，稳稳推进就好。", "下午好呀，离目标又近了一步，继续加油。", "下午好呀，来杯咖啡，把剩下的交给我。"],
   ["晚上好呀，忙了一天辛苦了，放轻松。", "晚上好呀，今晚就别太操劳啦，剩下的交给我。", "晚上好呀，愿今晚的效率与好心情同在。"],
 ];
-
-type ConversationMessage = {
-  content: string;
-  expandedTraceItemKeys?: string[];
-  finalOutputKey?: string;
-  key: string;
-  loading?: boolean;
-  role: "ai" | "user";
-  status?: "abort" | "error" | "success";
-  trace?: AgentTraceItem[];
-  traceExpanded?: boolean;
-  usage?: ChatUsage;
-  workingSeconds?: number;
-};
 
 function formatTokenCount(value: number): string {
   const formatScaled = (scaled: number, unit: "K" | "M" | "亿") => (
@@ -218,151 +202,6 @@ function errorText(error: unknown): string {
   return "发送失败，请检查模型配置后重试。";
 }
 
-function applyEventToAssistant(
-  message: ConversationMessage,
-  event: ChatRenderEvent,
-): ConversationMessage {
-  const trace = message.trace ?? [];
-  const isTopLevelEvent = event.parent_tool_use_id === null;
-  const foldsCurrentOutput = isTopLevelEvent && (
-    event.event === "turn.proxy.completed"
-    || event.event === "user.proxy.message"
-  );
-  const currentContent = foldsCurrentOutput ? "" : message.content;
-  const currentOutputKey = foldsCurrentOutput ? undefined : message.finalOutputKey;
-  const isOutputEvent = event.event.startsWith("assistant.reply.")
-    && typeof event.data.trace_id === "string";
-  const traceId = typeof event.data.trace_id === "string" ? event.data.trace_id : event.id;
-  const outputKey = `${traceId}:reply`;
-  const startsNewOutput = (
-    event.event === "assistant.reply.started"
-    || event.event === "assistant.reply.delta"
-  ) && isTopLevelEvent
-    && !trace.some((traceItem) => traceItem.key === outputKey);
-  const separator = startsNewOutput && currentContent ? "\n\n" : "";
-  const delta = typeof event.data.text === "string" ? event.data.text : "";
-  const nextContent = event.event === "assistant.reply.delta" && isTopLevelEvent
-    ? `${currentContent}${separator}${delta}`
-    : `${currentContent}${separator}`;
-  const nextTrace = applyRenderEvent(trace, event);
-  return {
-    ...message,
-    content: stripExitPlanContent(nextContent, nextTrace),
-    finalOutputKey: isOutputEvent && isTopLevelEvent
-      ? outputKey
-      : currentOutputKey,
-    loading: true,
-    trace: nextTrace,
-  };
-}
-
-function eventTime(event: ChatRenderEvent): number {
-  const value = Date.parse(event.created_at);
-  return Number.isFinite(value) ? value : Date.now();
-}
-
-function turnAssistantKey(turnId: string): string {
-  return `turn-${turnId}-assistant`;
-}
-
-function turnUserKey(turnId: string): string {
-  return `turn-${turnId}-user`;
-}
-
-function isStoppedUsage(usage: ChatUsage | undefined): boolean {
-  return usage?.terminal_reason?.startsWith("aborted") === true
-    || usage?.stop_reason === "interrupted";
-}
-
-function contextCompactionText(event: ChatRenderEvent): string | null {
-  if (event.event === "context.compaction.started") {
-    return "正在压缩上下文…";
-  }
-  if (event.event !== "context.compacted") {
-    return null;
-  }
-  const trigger = event.data.trigger === "manual" ? "手动" : "自动";
-  const preTokens = event.data.pre_tokens;
-  const tokenText = typeof preTokens === "number"
-    ? `（压缩前约 ${formatTokenCount(preTokens)} Token）`
-    : "";
-  return `上下文已${trigger}压缩${tokenText}`;
-}
-
-function conversationFromEvents(events: ChatRenderEvent[]): ConversationMessage[] {
-  const messages: ConversationMessage[] = [];
-  for (const event of events) {
-    const compactionText = contextCompactionText(event);
-    if (compactionText) {
-      continue;
-    }
-    const userKey = turnUserKey(event.turn_id);
-    const assistantKey = turnAssistantKey(event.turn_id);
-    if (event.event === "user.message") {
-      const content = typeof event.data.content === "string" ? event.data.content : "";
-      if (!messages.some((item) => item.key === userKey)) {
-        messages.push({ content, key: userKey, role: "user", status: "success" });
-      }
-      continue;
-    }
-    if (
-      event.event === "turn.started"
-      || event.event === "permission.requested"
-      || event.event === "permission.resolved"
-      || event.event === "permission.mode.changed"
-    ) {
-      continue;
-    }
-
-    let assistantIndex = messages.findIndex((item) => item.key === assistantKey);
-    if (assistantIndex === -1) {
-      messages.push({
-        content: "",
-        expandedTraceItemKeys: [],
-        key: assistantKey,
-        loading: true,
-        role: "ai",
-        trace: [],
-        traceExpanded: false,
-      });
-      assistantIndex = messages.length - 1;
-    }
-    let assistant = messages[assistantIndex];
-    if (event.event === "turn.completed") {
-      const usage = event.data.usage as ChatUsage | undefined;
-      const content = typeof event.data.content === "string"
-        ? event.data.content
-        : assistant.content;
-      assistant = {
-        ...assistant,
-        content: content || assistant.content,
-        loading: false,
-        status: isStoppedUsage(usage) ? "abort" : event.data.is_error === true ? "error" : "success",
-        trace: finishAgentTrace(
-          assistant.trace ?? [],
-          event.data.is_error === true ? "error" : "success",
-          eventTime(event),
-        ),
-        usage,
-      };
-    } else if (event.event === "turn.failed") {
-      assistant = {
-        ...assistant,
-        content: typeof event.data.message === "string"
-          ? event.data.message
-          : assistant.content,
-        loading: false,
-        status: "error",
-        trace: finishAgentTrace(assistant.trace ?? [], "error", eventTime(event)),
-      };
-    } else {
-      assistant = applyEventToAssistant(assistant, event);
-    }
-    messages[assistantIndex] = assistant;
-  }
-  return messages;
-}
-
 type WorkspaceProps = {
   effort: number;
   focusMessageKey?: string | null;
@@ -405,6 +244,8 @@ export function Workspace({
   const [greeting] = useState(() => getGreeting(new Date().getHours()));
   const sessionIdRef = useRef(initialSessionId ?? crypto.randomUUID());
   const activeAssistantKeyRef = useRef<string | null>(null);
+  const activeSubmissionRef = useRef<string | null>(null);
+  const closedTurnsRef = useRef(new Set<string>());
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const processedEventIdsRef = useRef(new Set<string>());
   const historyLoadingRef = useRef(Boolean(initialSessionId));
@@ -417,6 +258,7 @@ export function Workspace({
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null);
   // 搜索跳转目标：后端消息 key 对应前端气泡 key（history- 前缀），命中一次后清空
   const focusBubbleKeyRef = useRef(focusMessageKey);
+  useEffect(() => { focusBubbleKeyRef.current = focusMessageKey; }, [focusMessageKey]);
   const conversationStarted = Boolean(initialSessionId) || messages.length > 0;
   const tokenUsage = useMemo<TokenUsageSummary>(() => {
     const summary = messages.reduce<TokenUsageSummary>((current, message) => {
@@ -446,161 +288,51 @@ export function Workspace({
   }, [messages]);
 
   const applyLiveEvent = useCallback((event: ChatRenderEvent) => {
-    if (processedEventIdsRef.current.has(event.id)) {
-      return;
-    }
+    if (processedEventIdsRef.current.has(event.id)) return;
     processedEventIdsRef.current.add(event.id);
-    if (event.session_id) {
-      sessionIdRef.current = event.session_id;
-    }
+    if (event.session_id) sessionIdRef.current = event.session_id;
     const compactionText = contextCompactionText(event);
     if (compactionText) {
-      void messageApi.info({
-        content: compactionText,
-        duration: 3,
-        key: "context-compaction",
-      });
+      void messageApi.info({ content: compactionText, duration: 3, key: "context-compaction" });
       return;
     }
     if (isPermissionRequestEvent(event)) {
-      setPermissionRequests((current) => (
-        current.some((item) => item.data.request_id === event.data.request_id)
-          ? current
-          : [...current, event]
-      ));
+      if (closedTurnsRef.current.has(event.turn_id)) return;
+      setPermissionRequests((current) => current.some((item) => item.data.request_id === event.data.request_id)
+        ? current : [...current, event]);
       return;
     }
     if (event.event === "permission.resolved") {
-      const requestId = event.data.request_id;
-      setPermissionRequests((current) => current.filter(
-        (item) => item.data.request_id !== requestId,
-      ));
+      setPermissionRequests((current) => current.filter((item) => item.data.request_id !== event.data.request_id));
       return;
     }
     if (event.event === "permission.mode.changed") {
       const mode = event.data.mode;
-      if (
-        mode === "default"
-        || mode === "acceptEdits"
-        || mode === "plan"
-        || mode === "auto"
-        || mode === "bypassPermissions"
-      ) {
+      if (mode === "default" || mode === "acceptEdits" || mode === "plan" || mode === "auto" || mode === "bypassPermissions") {
         onPermissionModeObserved(mode);
       }
       return;
     }
-    if (event.event === "turn.started") {
-      const assistantKey = turnAssistantKey(event.turn_id);
-      const previousKey = activeAssistantKeyRef.current;
-      activeAssistantKeyRef.current = assistantKey;
-      startedAtRef.current = eventTime(event);
-      setMessages((current) => current.map((item) => (
-        item.key === previousKey ? { ...item, key: assistantKey } : item
-      )));
-      onSessionsChanged?.();
-      return;
-    }
-    if (event.event === "user.message") {
-      const content = typeof event.data.content === "string" ? event.data.content : "";
-      const userKey = turnUserKey(event.turn_id);
-      setMessages((current) => {
-        if (current.some((item) => item.key === userKey)) {
-          return current;
-        }
-        let candidateIndex = -1;
-        for (let index = current.length - 1; index >= 0; index -= 1) {
-          if (current[index].role === "user" && current[index].key.startsWith("user-")) {
-            candidateIndex = index;
-            break;
-          }
-        }
-        if (candidateIndex === -1) {
-          return [...current, { content, key: userKey, role: "user", status: "success" }];
-        }
-        return current.map((item, index) => (
-          index === candidateIndex ? { ...item, key: userKey, content } : item
-        ));
-      });
-      return;
-    }
-    if (event.event === "turn.completed") {
-      const usage = event.data.usage as ChatUsage | undefined;
-      const stopped = isStoppedUsage(usage) || stopRequestedRef.current;
-      const workingSeconds = startedAtRef.current === null
-        ? undefined
-        : Math.max(
-            1,
-            Math.round((eventTime(event) - startedAtRef.current) / 1000),
-          );
-      setMessages((current) => current.map((item) => (
-        item.key === activeAssistantKeyRef.current
-          ? {
-              ...item,
-              content: typeof event.data.content === "string"
-                ? (event.data.content || item.content)
-                : item.content,
-              loading: false,
-              status: stopped ? "abort" : event.data.is_error === true ? "error" : "success",
-              trace: finishAgentTrace(
-                item.trace ?? [],
-                event.data.is_error === true ? "error" : "success",
-                eventTime(event),
-              ),
-              usage,
-              workingSeconds,
-            }
-          : item
-      )));
-      setBusy(false);
-      setStopping(false);
-      setPermissionRequests([]);
-      onSessionsChanged?.();
-      return;
-    }
-    if (event.event === "turn.failed") {
-      setMessages((current) => current.map((item) => (
-        item.key === activeAssistantKeyRef.current
-          ? {
-              ...item,
-              content: typeof event.data.message === "string"
-                ? event.data.message
-                : item.content,
-              loading: false,
-              status: "error",
-              trace: finishAgentTrace(item.trace ?? [], "error", eventTime(event)),
-            }
-          : item
-      )));
-      setBusy(false);
-      setStopping(false);
-      setPermissionRequests([]);
-      return;
-    }
-
-    setBusy(true);
-    setMessages((current) => {
-      let assistantKey = turnAssistantKey(event.turn_id);
-      let next = current;
-      if (!current.some((item) => item.key === assistantKey)) {
-        activeAssistantKeyRef.current = assistantKey;
-        next = [
-          ...current,
-          {
-            content: "",
-            expandedTraceItemKeys: [],
-            key: assistantKey,
-            loading: true,
-            role: "ai",
-            trace: [],
-            traceExpanded: false,
-          },
-        ];
+    if (!isConversationEvent(event)) return;
+    const assistantKey = turnAssistantKey(event.turn_id);
+    setMessages((current) => reduceConversationEvent(current, event));
+    if (event.event === "turn.completed" || event.event === "turn.failed") {
+      closedTurnsRef.current.add(event.turn_id);
+      setPermissionRequests((current) => current.filter((item) => item.turn_id !== event.turn_id));
+      if (activeAssistantKeyRef.current === assistantKey) {
+        activeSubmissionRef.current = null;
+        setBusy(false);
+        setStopping(false);
       }
-      return next.map((item) => (
-        item.key === assistantKey ? applyEventToAssistant(item, event) : item
-      ));
-    });
+      onSessionsChanged?.();
+    } else if (!closedTurnsRef.current.has(event.turn_id)) {
+      activeAssistantKeyRef.current = assistantKey;
+      if (event.event === "turn.started") {
+        startedAtRef.current = eventTime(event);
+        onSessionsChanged?.();
+      }
+      setBusy(true);
+    }
   }, [messageApi, onPermissionModeObserved, onSessionsChanged]);
 
   useEffect(() => subscribeChatEvents(sessionIdRef.current, (event) => {
@@ -612,7 +344,8 @@ export function Workspace({
   }, (snapshot) => {
     setBusy(snapshot?.running ?? false);
     setStopping(false);
-    setPermissionRequests(snapshot?.events.filter(isPermissionRequestEvent) ?? []);
+    setPermissionRequests(pendingPermissionsFromEvents(snapshot?.events ?? []));
+    if (!snapshot?.running) activeSubmissionRef.current = null;
     if (snapshot?.running) {
       setMessages((current) => current.map((item) => (
         item.key === activeAssistantKeyRef.current
@@ -656,7 +389,7 @@ export function Workspace({
         effortValues[effort] ?? "high",
         permissionMode,
       ),
-      getActiveChat(initialSessionId),
+      getActiveChat(initialSessionId, true),
     ])
       .then(([history, activeChat]) => {
         if (!active) {
@@ -689,10 +422,12 @@ export function Workspace({
           (message) => message.role === "user",
         ).length;
         setMessages(historyMessages);
-        const permissions = activeEvents.filter(isPermissionRequestEvent);
+        const permissions = pendingPermissionsFromEvents(activeEvents);
+        closedTurnsRef.current = new Set(events.filter((event) => event.event === "turn.completed" || event.event === "turn.failed").map((event) => event.turn_id));
+        for (const id of activeChat?.covered_event_ids ?? []) processedEventIdsRef.current.add(id);
         setPermissionRequests(permissions);
-        setBusy(Boolean(activeChat));
-        if (activeChat) {
+        setBusy(activeChat?.running ?? false);
+        if (activeChat?.running) {
           const lastEvent = activeEvents.at(-1);
           if (lastEvent) {
             activeAssistantKeyRef.current = turnAssistantKey(lastEvent.turn_id);
@@ -788,7 +523,7 @@ export function Workspace({
       window.setTimeout(() => target.classList.remove("search-jump-target"), 2600);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [historyLoading, messages]);
+  }, [focusMessageKey, historyLoading, messages]);
 
   useEffect(() => () => {
     if (copyFeedbackTimerRef.current !== null) {
@@ -847,6 +582,7 @@ export function Workspace({
     const assistantKey = `assistant-${turnId}`;
     const startedAt = Date.now();
     activeAssistantKeyRef.current = assistantKey;
+    activeSubmissionRef.current = assistantKey;
     startedAtRef.current = startedAt;
     stopRequestedRef.current = false;
     const startingNewConversation = !conversationStarted;
@@ -870,6 +606,8 @@ export function Workspace({
           loading: true,
           trace: [],
           traceExpanded: false,
+          submissionKey: assistantKey,
+          startedAt,
         },
       ]);
       setBusy(true);
@@ -891,66 +629,31 @@ export function Workspace({
       conversationReady = Promise.resolve();
     }
 
-    let connectionLost = false;
     void conversationReady
       .then(() => uploadAttachments(draft.attachments))
       .then((attachmentPaths) => sendChatMessage(
-        buildPrompt(draft.text, attachmentPaths),
-        draft.project?.path ?? null,
-        sessionIdRef.current,
-        draft.effort,
-        draft.permissionMode,
-        draft.model,
+        buildPrompt(draft.text, attachmentPaths), draft.project?.path ?? null,
+        sessionIdRef.current, draft.effort, draft.permissionMode, draft.model,
       ))
-      .then((reply) => {
-        if (reply.session_id) {
-          sessionIdRef.current = reply.session_id;
-        }
-        const stopped = isStoppedUsage(reply.usage) || stopRequestedRef.current;
-        const resolvedAssistantKey = activeAssistantKeyRef.current ?? assistantKey;
-        setMessages((current) => current.map((item) => (
-          item.key === resolvedAssistantKey
-            ? {
-                ...item,
-                content: stopped ? (reply.content || item.content) : reply.content,
-                loading: false,
-                status: stopped ? "abort" : reply.is_error ? "error" : "success",
-                trace: finishAgentTrace(
-                  item.trace ?? [],
-                  reply.is_error ? "error" : "success",
-                ),
-                usage: reply.usage,
-                workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
-              }
-            : item
-        )));
-        onSessionsChanged?.();
+      .then(async () => {
+        // WebSocket owns completion. If HTTP arrives first, recover its exact
+        // events instead of writing a second response or changing a later turn.
+        if (activeSubmissionRef.current !== assistantKey) return;
+        const snapshot = await getActiveChat(sessionIdRef.current, true);
+        if (activeSubmissionRef.current !== assistantKey) return;
+        snapshot?.events.forEach(applyLiveEvent);
       })
       .catch((error: unknown) => {
-        if (error instanceof TransportDisconnectedError) {
-          connectionLost = true;
-          return;
-        }
+        if (error instanceof TransportDisconnectedError || activeSubmissionRef.current !== assistantKey) return;
+        activeSubmissionRef.current = null;
         const stopped = stopRequestedRef.current;
-        const resolvedAssistantKey = activeAssistantKeyRef.current ?? assistantKey;
-        setMessages((current) => current.map((item) => (
-          item.key === resolvedAssistantKey
-            ? {
-                ...item,
-                content: stopped ? item.content : errorText(error),
-                loading: false,
-                status: stopped ? "abort" : "error",
-                trace: finishAgentTrace(item.trace ?? [], stopped ? "success" : "error"),
-                workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
-              }
-            : item
-        )));
-      })
-      .finally(() => {
-        if (!connectionLost) setBusy(false);
+        setMessages((current) => current.map((item) => item.submissionKey === assistantKey
+          ? { ...item, content: stopped ? item.content : errorText(error), loading: false,
+            status: stopped ? "abort" : "error",
+            trace: finishAgentTrace(item.trace ?? [], stopped ? "success" : "error"),
+            workingSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)) } : item));
+        setBusy(false);
         setStopping(false);
-        setPermissionRequests([]);
-        onSessionsChanged?.();
       });
   };
 
@@ -1005,7 +708,7 @@ export function Workspace({
       ? lastTraceItem
       : undefined;
     const externalOutputKey = item.loading ? streamingOutput?.key : item.finalOutputKey;
-    const responseContent = item.loading ? streamingOutput?.content : item.content;
+    const responseContent = item.loading && !streamingOutput ? undefined : item.content;
 
     return {
       key: item.key,
@@ -1087,6 +790,7 @@ export function Workspace({
             expanded={Boolean(item.traceExpanded)}
             expandedItemKeys={item.expandedTraceItemKeys ?? []}
             externalOutputKey={externalOutputKey}
+            externalOutputKeys={externalOutputKey ? item.finalOutputKeys : undefined}
             failed={item.status === "error"}
             items={traceItems}
             loading={Boolean(item.loading)}

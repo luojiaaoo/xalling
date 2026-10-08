@@ -109,7 +109,7 @@ Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK �
 | `backend/router/chat.py` | 声明会话 HTTP 接口，通过 Pydantic 与依赖注入校验参数、获取共享服务 |
 | `backend/service/chat.py` | 管理会话级客户端与回合，将事件交给 `service/events.py` 通过 WebSocket 推送 |
 | `frontend/src/api/client.ts` | 封装 HTTP API 契约，订阅 `xalling:chat-event` |
-| `Workspace.tsx` / `AgentTrace.tsx` | 用同一个事件归并流程渲染实时对话与历史对话 |
+| `frontend/src/chat/conversation.ts` / `trace.ts` | 实时、历史和断线恢复共用的纯事件归并；组件只负责展示与交互 |
 
 `ClaudeChatClient` 对外提供 `send()`、`stream()`、中断、权限响应、模型/权限模式切换、MCP 状态和后台任务控制等能力。`ClaudeChatHistory` 负责会话列表、历史加载、全文搜索以及将持久化 transcript 恢复成同一套事件。
 
@@ -147,6 +147,8 @@ type ChatStreamEvent = {
 - 其他 SDK 状态：`server_tool.*`、`hook.*`、`rate_limit.updated`、`conversation.reset`、`system.*`、`stream.*`、`sdk.unhandled`
 
 未知或暂未专门展示的 SDK 消息不会被静默丢弃，而是降级为 `sdk.unhandled`，便于后续补充适配。
+
+界面消费后端 `render_event()` 的 JSON 投影。流式增量和完整消息按同一个 `block_id` 对应：增量追加，完整块覆盖该块的规范内容，不按文本相同与否去重。SDK 同一次模型消息可能分成多个包，块编号按模型消息累计，重复包按 UUID 复用原编号。历史仅使用 SDK 公共接口及返回字段，直接适配完整内容块，不读取原生 transcript 或补充 SDK 未公开的元数据，也不制造流式事件。SDK 未提供历史消息时间，历史事件时间为加载时刻，不代表原始发生时间或真实回合时长。归并边界和测试见 [对话事件实现说明](docs/chat-events.md)。
 
 ### 正常回合与动态工作流
 
@@ -226,7 +228,7 @@ FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天�
 
 ### Python 推送界面
 
-服务器通过 `{ type: "event", event: "chat", data: ChatEvent }` 推送 JSON 事件，前端再按 `session_id` 订阅与归并。事件保留统一的实时/历史协议。连接断开后，前端会拒绝待处理的调用并自动重连，通过 `get_active_chat(session_id, true)` 恢复保留客户端的事件快照，包括断线期间已完成的回合及 `running` 状态；写操作不会自动重发。快照恢复期间的新事件先缓冲，快照与缓冲事件仍按事件 ID 去重。最后一个界面连接断开时，后端拒绝尚未完成的权限交互，避免 SDK 永久等待。
+服务器通过 `{ type: "event", event: "chat", data: { ...ChatEvent, render } }` 推送 JSON 事件，前端只消费 `render` 投影，按 `session_id` 订阅与归并。事件保留统一的实时/历史协议。连接断开后，前端会拒绝待处理的调用并自动重连，通过 `get_active_chat(session_id, true)` 恢复保留客户端的事件快照，包括断线期间已完成的回合及 `running` 状态；写操作不会自动重发。快照恢复期间的新事件先缓冲，`covered_event_ids` 包含快照覆盖的全部事件（含已移除的权限请求），用于避免旧权限重新出现。最后一个界面连接断开时，后端拒绝尚未完成的权限交互，避免 SDK 永久等待。
 
 ### 连接与安全
 
@@ -255,6 +257,7 @@ frontend/
   src/api/client.ts             # 前端 API 契约与事件归并
   src/api/http.ts               # HTTP 调用、鉴权与异常处理
   src/api/websocket.ts          # 事件连接与重连
+  src/chat/                        # 原生 ChatRenderEvent 的对话与轨迹归并器
   src/components/                  # 对话工作区、执行轨迹、权限对话框、设置等
   dist/                            # 构建后的本地静态资源
 plugins/
@@ -370,7 +373,7 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 
 ## 继续开发时的检查清单
 
-1. 新增 Claude SDK 消息类型时，同时更新 `models.py`、`message_adapter.py`、历史装配测试和前端事件归并。
+1. 新增 Claude SDK 消息类型时，同时更新 `models.py`、`message_adapter.py`、历史装配测试和 `frontend/src/chat/` 归并；不在展示组件中增加另一套消息处理。
 2. 改动逻辑回合结束条件时，覆盖普通回复、异步子 Agent、多个连续后台任务、用户停止和异常中断。
 3. 改动 HTTP / WebSocket API 时，同步更新 Python 路由、`frontend/src/api/client.ts` 类型以及非法参数/异常回传测试。
 4. 发布前运行 Python 静态检查和完整测试，并执行前端类型检查与生产构建。

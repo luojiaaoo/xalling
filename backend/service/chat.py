@@ -536,8 +536,9 @@ class ChatService:
             return None
         try:
             return dict(await active_chat.client.get_context_usage())
-        except Exception: # 第一次获取的时候，软件关闭，导致client挂掉，忽略报错
-            pass
+        except Exception as error:  # noqa: BLE001 - SDK cleanup can race the usage read.
+            claude_sdk_logger.debug("读取会话上下文失败：{}", type(error).__name__)
+            return None
 
     async def _close_active_chat(
         self,
@@ -715,9 +716,13 @@ class ChatService:
         ]
         return {
             "session_id": normalized,
-            "running": active_chat.running,
+            "running": active_chat.running and not any(
+                event.event in {"turn.completed", "turn.failed"}
+                and event.parent_tool_use_id is None for event in active_chat.events
+            ),
             "events": events,
             "render_events": events,
+            "covered_event_ids": [event.id for event in active_chat.events],
         }
 
     async def stop_chat_message(self, session_id: str | None = None) -> bool:

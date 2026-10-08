@@ -61,6 +61,8 @@ flowchart LR
 
 业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。各业务模块使用原生 `APIRouter`，共享服务和聊天任务由 FastAPI `lifespan` 管理。FastAPI / Uvicorn 仅监听 `127.0.0.1` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证与来源校验。详细通信契约与事件协议见 [AGENTS.md](AGENTS.md)。
 
+对话保留 Xalling 的原生事件与界面，实时和历史共用 `frontend/src/chat/` 中的归并器。原实现缺口、补齐内容和测试方式见 [对话事件实现说明](docs/chat-events.md)。
+
 ## 技术栈
 
 | 层级 | 选型 | 用途 |

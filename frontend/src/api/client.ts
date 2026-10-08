@@ -314,6 +314,7 @@ export type ActiveChat = {
   render_events?: unknown;
   session_id: string;
   running: boolean;
+  covered_event_ids?: string[];
 };
 
 const CHAT_STREAM_EVENT = "xalling:chat-event";
@@ -370,9 +371,9 @@ function decodeChatRenderEvent(value: unknown): ChatRenderEvent | null {
   const render = envelope.render as Omit<ChatRenderEvent, "kind"> & { event: string };
   const decoded = { ...render, kind: render.event };
   if (render.session_id === null && typeof envelope.session_id === "string") {
-    return { ...decoded, session_id: envelope.session_id };
+    decoded.session_id = envelope.session_id;
   }
-  return decoded;
+  return isChatRenderEvent(decoded) ? decoded : null;
 }
 
 function decodeEventList(value: unknown): ChatRenderEvent[] {
@@ -702,6 +703,7 @@ export function subscribeChatEvents(
   let recovering = false;
   let buffered: ChatRenderEvent[] = [];
   let recoveryGeneration = 0;
+  let coveredIds = new Set<string>();
   const handleStreamEvent: EventListener = (event) => {
     const detail = (event as CustomEvent<unknown>).detail;
     const renderEvent = decodeChatRenderEvent(detail);
@@ -716,6 +718,7 @@ export function subscribeChatEvents(
     recovering = true;
     void getActiveChat(sessionId, true).then((snapshot) => {
       if (!disposed && generation === recoveryGeneration) {
+        coveredIds = new Set(snapshot?.covered_event_ids ?? snapshot?.events.map((item) => item.id) ?? []);
         snapshot?.events.forEach(onEvent);
         onRecovered?.(snapshot);
       }
@@ -724,7 +727,7 @@ export function subscribeChatEvents(
       recovering = false;
       const queued = buffered;
       buffered = [];
-      if (!disposed) queued.forEach(onEvent);
+      if (!disposed) queued.filter((item) => !coveredIds.has(item.id)).forEach(onEvent);
     });
   };
   window.addEventListener(CHAT_STREAM_EVENT, handleStreamEvent);

@@ -11,7 +11,7 @@ from backend.claude_chat_client import (
 )
 
 
-def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
+def test_history_uses_realtime_envelopes_with_complete_blocks() -> None:
     messages = [
         _user_message("user-1", "请检查项目"),
         _assistant_message(
@@ -57,50 +57,13 @@ def test_history_uses_realtime_envelopes_with_one_complete_delta() -> None:
         if event.event.startswith(("assistant.", "tool."))
     )
 
-    text_deltas = [event for event in events if event.event == "assistant.reply.delta"]
-    assert len(text_deltas) == 1
-    assert text_deltas[0].data == {
-        "stream_uuid": "assistant-1",
-        "message_id": "message-assistant-1",
-        "raw_type": "content_block_delta",
-        "block_id": "message-assistant-1:1",
-        "index": 1,
-        "text": "检查完成",
-    }
-
-    thinking_deltas = [event for event in events if event.event == "assistant.thinking.delta"]
-    assert len(thinking_deltas) == 1
-    assert thinking_deltas[0].data["thinking"] == "先读取配置"
-
-    tool_deltas = [event for event in events if event.event == "tool.input.delta"]
-    assert len(tool_deltas) == 1
-    assert tool_deltas[0].data == {
-        "stream_uuid": "assistant-1",
-        "message_id": "message-assistant-1",
-        "raw_type": "content_block_delta",
-        "block_id": "message-assistant-1:2",
-        "index": 2,
-        "tool_id": "tool-1",
-        "name": "Read",
-        "partial_json": '{"file_path":"配置.json"}',
-    }
-
-    assert [
-        event.event
-        for event in events
-        if event.event
-        in {
-            "assistant.reply.started",
-            "assistant.reply.delta",
-            "assistant.reply.stopped",
-            "assistant.reply.completed",
-        }
-    ] == [
-        "assistant.reply.started",
-        "assistant.reply.delta",
-        "assistant.reply.stopped",
-        "assistant.reply.completed",
-    ]
+    assert not any(event.event.endswith(".delta") for event in events)
+    text = next(event for event in events if event.event == "assistant.reply.completed")
+    thinking = next(event for event in events if event.event == "assistant.thinking.completed")
+    assert text.data["text"] == "检查完成"
+    assert text.data["block_id"] == "message-assistant-1:1"
+    assert thinking.data["thinking"] == "先读取配置"
+    assert thinking.data["block_id"] == "message-assistant-1:0"
     tool_completed = next(event for event in events if event.event == "tool.completed")
     assert tool_completed.data["name"] == "Read"
     turn_completed = events[-1]

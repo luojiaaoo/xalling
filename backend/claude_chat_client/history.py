@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import json
 import re
 from collections.abc import Iterable, Mapping
 from itertools import pairwise
@@ -17,7 +16,6 @@ from claude_agent_sdk import (
     ServerToolResultBlock,
     ServerToolUseBlock,
     SessionMessage,
-    StreamEvent,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
@@ -60,8 +58,8 @@ class ClaudeChatHistory:
     """Load persisted SDK messages as the client's public event protocol.
 
     Historical content uses the same adapter and turn lifecycle as realtime
-    SDK messages. Persisted content deltas are emitted once with their complete
-    values, and the missing ResultMessage is reconstructed as ``turn.completed``.
+    SDK messages. Complete blocks remain complete blocks; the missing
+    ResultMessage is reconstructed as ``turn.completed``.
     """
 
     def list_sessions(
@@ -186,7 +184,9 @@ class ClaudeChatHistory:
             )
         ]
         write_history_messages(session_id, [*messages, *subagent_messages])
-        return assemble_session_messages(messages, subagent_messages=subagent_messages)
+        return assemble_session_messages(
+            messages, subagent_messages=subagent_messages,
+        )
 
     @staticmethod
     def assemble(
@@ -280,26 +280,19 @@ def assemble_session_messages(
     for message in messages:
         if factory is None or _starts_human_turn(message):
             if factory is not None and adapter is not None:
-                events.append(
-                    _history_turn_completed(
-                        factory,
-                        adapter,
-                        events[turn_events_start:],
-                    )
-                )
+                events.append(_history_turn_completed(factory, adapter, events[turn_events_start:]))
             user_turn += 1
             factory = _EventFactory(message.uuid, session_id=message.session_id)
             adapter = _MessageAdapter(factory, {})
             turn_events_start = len(events)
-            events.append(
-                factory.make(
-                    "turn.started",
-                    {
-                        "user_turn": user_turn,
-                        "session_id_requested": message.session_id,
-                    },
-                )
+            started = factory.make(
+                "turn.started",
+                {
+                    "user_turn": user_turn,
+                    "session_id_requested": message.session_id,
+                },
             )
+            events.append(started)
         if adapter is None:  # pragma: no cover - initialized with factory
             continue
         events.extend(
@@ -312,13 +305,7 @@ def assemble_session_messages(
             )
         )
     if factory is not None and adapter is not None:
-        events.append(
-            _history_turn_completed(
-                factory,
-                adapter,
-                events[turn_events_start:],
-            )
-        )
+        events.append(_history_turn_completed(factory, adapter, events[turn_events_start:]))
     return events
 
 
@@ -366,12 +353,13 @@ def _history_turn_completed(
     content = "\n\n".join(part for part in adapter.main_text if part)
     if not content:
         content = _history_command_result(events) or ""
+    failed = any(event.event == "assistant.error" and event.parent_tool_use_id is None for event in events)
     return factory.make(
         "turn.completed",
         {
             "content": content,
-            "is_error": False,
-            "subtype": "success",
+            "is_error": failed,
+            "subtype": "error_during_execution" if failed else "success",
             "errors": (),
             "structured_output": None,
             "permission_denials": (),
@@ -414,10 +402,6 @@ def _adapt_history_message(
         return []
 
     events: list[ChatEvent] = []
-    if isinstance(message, AssistantMessage) and message.parent_tool_use_id is None:
-        for stream_event in _completed_stream_events(message, session_message.uuid):
-            events.extend(adapter.adapt(stream_event))
-
     for event in adapter.adapt(message):
         events.append(event)
         if event.event != "subagent.started":
@@ -559,113 +543,6 @@ def _parse_content_blocks(raw_blocks: list[Any]) -> list[Any]:
                     )
                 )
     return blocks
-
-
-def _completed_stream_events(
-    message: AssistantMessage,
-    stream_uuid: str,
-) -> Iterable[StreamEvent]:
-    session_id = message.session_id or ""
-    yield StreamEvent(
-        uuid=stream_uuid,
-        session_id=session_id,
-        event={
-            "type": "message_start",
-            "message": {
-                "id": message.message_id,
-                "model": message.model,
-                "usage": message.usage,
-            },
-        },
-    )
-    for index, block in enumerate(message.content):
-        raw_block = _stream_block_start(block)
-        if raw_block is None:
-            continue
-        yield StreamEvent(
-            uuid=stream_uuid,
-            session_id=session_id,
-            event={
-                "type": "content_block_start",
-                "index": index,
-                "content_block": raw_block,
-            },
-        )
-        for delta in _complete_block_deltas(block):
-            yield StreamEvent(
-                uuid=stream_uuid,
-                session_id=session_id,
-                event={
-                    "type": "content_block_delta",
-                    "index": index,
-                    "delta": delta,
-                },
-            )
-        yield StreamEvent(
-            uuid=stream_uuid,
-            session_id=session_id,
-            event={"type": "content_block_stop", "index": index},
-        )
-
-    output_tokens = None
-    if message.usage is not None:
-        output_tokens = message.usage.get("output_tokens")
-    yield StreamEvent(
-        uuid=stream_uuid,
-        session_id=session_id,
-        event={
-            "type": "message_delta",
-            "delta": {
-                "stop_reason": message.stop_reason,
-                "stop_sequence": None,
-            },
-            "usage": (
-                {"output_tokens": output_tokens}
-                if isinstance(output_tokens, int)
-                else None
-            ),
-        },
-    )
-    yield StreamEvent(
-        uuid=stream_uuid,
-        session_id=session_id,
-        event={"type": "message_stop"},
-    )
-
-
-def _stream_block_start(block: Any) -> dict[str, Any] | None:
-    if isinstance(block, TextBlock):
-        return {"type": "text", "text": ""}
-    if isinstance(block, ThinkingBlock):
-        return {"type": "thinking", "thinking": "", "signature": ""}
-    if isinstance(block, ToolUseBlock | ServerToolUseBlock):
-        return {
-            "type": "tool_use",
-            "id": block.id,
-            "name": block.name,
-            "input": {},
-        }
-    return None
-
-
-def _complete_block_deltas(block: Any) -> Iterable[dict[str, Any]]:
-    if isinstance(block, TextBlock):
-        if block.text:
-            yield {"type": "text_delta", "text": block.text}
-    elif isinstance(block, ThinkingBlock):
-        if block.thinking:
-            yield {"type": "thinking_delta", "thinking": block.thinking}
-        if block.signature:
-            yield {"type": "signature_delta", "signature": block.signature}
-    elif isinstance(block, ToolUseBlock | ServerToolUseBlock):
-        yield {
-            "type": "input_json_delta",
-            "partial_json": json.dumps(
-                block.input,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-        }
 
 
 def _starts_human_turn(message: SessionMessage) -> bool:

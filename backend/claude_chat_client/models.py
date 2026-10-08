@@ -286,12 +286,12 @@ def render_event(event: ChatEvent) -> dict[str, Any]:
     elif event.event in {"assistant.reply.completed", "subagent.reply.completed"}:
         render_data = {
             "text": data.get("text", ""),
-            "trace_id": data.get("message_id") or data.get("message_uuid") or event.id,
+            "trace_id": data.get("block_id") or data.get("message_id") or data.get("message_uuid") or event.id,
         }
     elif event.event in {"assistant.thinking.completed", "subagent.thinking.completed"}:
         render_data = {
             "text": data.get("thinking", ""),
-            "trace_id": data.get("message_id") or data.get("message_uuid") or event.id,
+            "trace_id": data.get("block_id") or data.get("message_id") or data.get("message_uuid") or event.id,
         }
     elif event.event in {
         "tool.requested",
@@ -325,14 +325,16 @@ def render_event(event: ChatEvent) -> dict[str, Any]:
         render_data = {
             "tool_id": data.get("tool_id") or event.id,
             "is_error": data.get("is_error") is True,
+            "output": data.get("content", data.get("message", data.get("answers"))),
         }
     elif event.event in {"task.started", "task.progress", "task.updated", "task.completed"}:
         patch = data.get("patch") if isinstance(data.get("patch"), dict) else {}
         status = data.get("status") or patch.get("status")
         render_data = {
             "task_id": data.get("task_id"),
-            "tool_id": data.get("tool_use_id"),
+            "tool_use_id": data.get("tool_use_id"),
             "status": status,
+            "summary": data.get("summary", patch.get("summary")),
         }
     elif event.event == "permission.requested":
         render_data = {

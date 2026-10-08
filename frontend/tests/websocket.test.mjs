@@ -171,8 +171,10 @@ test("recovery requests completed turns and buffers live events behind the snaps
   assert.equal(calls[0].path, "/api/chat/sessions/session-1/active");
   assert.equal(calls[0].options.query.include_completed, true);
   window.dispatchEvent(new CustomEvent("xalling:chat-event", { detail: envelope("live", "assistant.reply.delta") }));
+  window.dispatchEvent(new CustomEvent("xalling:chat-event", { detail: envelope("resolved-request", "permission.requested") }));
   assert.equal(seen.length, 0);
-  completeSnapshot({ session_id: "session-1", running: false, events: [envelope("snapshot", "turn.completed")] });
+  completeSnapshot({ session_id: "session-1", running: false,
+    covered_event_ids: ["snapshot", "resolved-request"], events: [envelope("snapshot", "turn.completed")] });
   await tick();
   assert.deepEqual(seen, ["snapshot", "live"]);
   assert.deepEqual(recovered, [false]);

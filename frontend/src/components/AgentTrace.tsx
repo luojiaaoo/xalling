@@ -8,46 +8,15 @@ import {
 } from "@ant-design/icons";
 import { Think, ThoughtChain } from "@ant-design/x";
 
-import type { ChatRenderEvent } from "../api/client";
+import { isAgentTool, type AgentTraceItem, type TraceStatus } from "../chat/trace";
 import { ChatMarkdown } from "./ChatMarkdown";
-
-type TraceStatus = "error" | "running" | "success";
-
-type ContentTraceItem = {
-  content: string;
-  finishedAt?: number;
-  key: string;
-  kind: "output" | "thinking";
-  startedAt: number;
-  status: TraceStatus;
-};
-
-type ToolCall = {
-  key: string;
-  name: string;
-  plan?: string;
-  status: TraceStatus;
-  summary: string;
-  taskIds?: string[];
-  trace: AgentTraceItem[];
-};
-
-type ToolTraceItem = {
-  calls: ToolCall[];
-  finishedAt?: number;
-  key: string;
-  kind: "tools";
-  startedAt: number;
-  status: TraceStatus;
-};
-
-export type AgentTraceItem = ContentTraceItem | ToolTraceItem;
 
 type AgentTraceProps = {
   elapsedSeconds: number;
   expanded: boolean;
   expandedItemKeys: string[];
   externalOutputKey?: string;
+  externalOutputKeys?: string[];
   failed: boolean;
   items: AgentTraceItem[];
   loading: boolean;
@@ -55,375 +24,6 @@ type AgentTraceProps = {
   onItemExpandedChange: (key: string, expanded: boolean) => void;
   workingSeconds?: number;
 };
-
-function completeStatus(
-  item: AgentTraceItem,
-  status: "error" | "success",
-  finishedAt: number,
-): AgentTraceItem {
-  if (item.kind === "tools") {
-    const calls = item.calls.map((call) => {
-      const callStatus = call.status === "running" ? status : call.status;
-      return {
-        ...call,
-        status: callStatus,
-        trace: finishAgentTrace(call.trace, callStatus, finishedAt),
-      };
-    });
-    return {
-      ...item,
-      calls,
-      finishedAt: item.finishedAt ?? finishedAt,
-      status: calls.some((call) => call.status === "error") ? "error" : "success",
-    };
-  }
-  return item.status === "running"
-    ? { ...item, finishedAt, status }
-    : item;
-}
-
-function applyRenderEventAtLevel(
-  items: AgentTraceItem[],
-  event: ChatRenderEvent,
-): AgentTraceItem[] {
-  const parsedTime = Date.parse(event.created_at);
-  const now = Number.isFinite(parsedTime) ? parsedTime : Date.now();
-  const data = event.data;
-  const traceId = typeof data.trace_id === "string" ? data.trace_id : event.id;
-  const isThinking = event.event.startsWith("assistant.thinking")
-    || event.event === "subagent.thinking.completed";
-  const contentKey = event.event.endsWith(".completed")
-    ? `${traceId}:completed:${isThinking ? "thinking" : "reply"}`
-    : `${traceId}:${isThinking ? "thinking" : "reply"}`;
-
-  if (event.event === "assistant.thinking.started" || event.event === "assistant.reply.started") {
-    const kind = isThinking ? "thinking" : "output";
-    const existingIndex = items.findIndex((item) => item.key === contentKey);
-    if (existingIndex === -1) {
-      return [
-        ...items,
-        {
-          content: "",
-          key: contentKey,
-          kind,
-          startedAt: now,
-          status: "running",
-        },
-      ];
-    }
-    return items;
-  }
-
-  if (event.event === "assistant.thinking.delta" || event.event === "assistant.reply.delta") {
-    const kind = isThinking ? "thinking" : "output";
-    const text = typeof data.text === "string" ? data.text : "";
-    const existingIndex = items.findIndex((item) => item.key === contentKey);
-    if (existingIndex === -1) {
-      return [
-        ...items,
-        {
-          content: text,
-          key: contentKey,
-          kind,
-          startedAt: now,
-          status: "running",
-        },
-      ];
-    }
-    return items.map((item, index) => (
-      index === existingIndex && item.kind !== "tools"
-        ? { ...item, content: `${item.content}${text}` }
-        : item
-    ));
-  }
-
-  if (event.event === "assistant.thinking.stopped" || event.event === "assistant.reply.stopped") {
-    return items.map((item) => (
-      item.key === contentKey ? completeStatus(item, "success", now) : item
-    ));
-  }
-
-  if (event.event.endsWith(".reply.completed") || event.event.endsWith(".thinking.completed")) {
-    const content = typeof data.text === "string" ? data.text : "";
-    const kind = isThinking ? "thinking" : "output";
-    if (
-      !content
-      || items.some((item) => item.kind === kind && item.key.startsWith(`${traceId}:`))
-    ) {
-      return items;
-    }
-    return [
-      ...items,
-      {
-        content,
-        finishedAt: now,
-        key: contentKey,
-        kind,
-        startedAt: now,
-        status: "success",
-      },
-    ];
-  }
-
-  const requestedEvents = new Set([
-    "tool.requested",
-    "subagent.tool.requested",
-    "subagent.started",
-    "ask_user.requested",
-    "plan.approval.requested",
-    "server_tool.requested",
-  ]);
-  if (requestedEvents.has(event.event)) {
-    const toolId = typeof data.tool_id === "string" ? data.tool_id : event.id;
-    const name = typeof data.name === "string"
-      ? data.name
-      : typeof data.tool_name === "string"
-        ? data.tool_name
-        : event.event;
-    const summary = typeof data.summary === "string" ? data.summary : "";
-    const plan = typeof data.plan === "string" && data.plan.trim()
-      ? data.plan.trim()
-      : undefined;
-    const toolCall: ToolCall = {
-      key: toolId,
-      name,
-      plan,
-      status: "running",
-      summary,
-      trace: [],
-    };
-    const modelTurnId = event.model_turn_id ?? event.id;
-    const groupKey = `tools:${event.turn_id}:${modelTurnId}:${event.parent_tool_use_id ?? "main"}`;
-    const groupIndex = items.findIndex((item) => item.key === groupKey);
-    if (groupIndex === -1) {
-      return [
-        ...items,
-        {
-          calls: [toolCall],
-          key: groupKey,
-          kind: "tools",
-          startedAt: now,
-          status: "running",
-        },
-      ];
-    }
-    return items.map((item, itemIndex) => {
-      if (itemIndex !== groupIndex || item.kind !== "tools") {
-        return item;
-      }
-      if (item.calls.some((call) => call.key === toolId)) {
-        return item;
-      }
-      return {
-        ...item,
-        calls: [...item.calls, toolCall],
-        finishedAt: undefined,
-        status: "running",
-      };
-    });
-  }
-
-  if (
-    event.event === "task.started"
-    || event.event === "task.progress"
-    || event.event === "task.completed"
-    || event.event === "task.updated"
-  ) {
-    const taskId = typeof data.task_id === "string" ? data.task_id : undefined;
-    if (!taskId) {
-      return items;
-    }
-    const toolId = typeof data.tool_use_id === "string" ? data.tool_use_id : undefined;
-    const patchData = typeof data.patch === "object" && data.patch !== null
-      ? data.patch as Record<string, unknown>
-      : undefined;
-    const rawStatus = typeof data.status === "string"
-      ? data.status
-      : typeof patchData?.status === "string" ? patchData.status : undefined;
-    const terminal: "error" | "success" | undefined = event.event === "task.completed"
-      ? rawStatus !== "failed" && rawStatus !== "stopped"
-        ? "success"
-        : "error"
-      : rawStatus === "completed" || rawStatus === "failed"
-        || rawStatus === "stopped" || rawStatus === "killed"
-        ? rawStatus === "completed" ? "success" : "error"
-        : undefined;
-    const running = terminal === undefined;
-    let changed = false;
-    const nextItems = items.map((item) => {
-      if (item.kind !== "tools") {
-        return item;
-      }
-      const calls = item.calls.map((call) => {
-        const matches = (toolId !== undefined && call.key === toolId)
-          || call.taskIds?.includes(taskId) === true;
-        if (!matches) {
-          return call;
-        }
-        changed = true;
-        const taskIds = running
-          ? [...new Set([...(call.taskIds ?? []), taskId])]
-          : (call.taskIds ?? []).filter((id) => id !== taskId);
-        const status: TraceStatus = running ? "running" : terminal;
-        const completedStatus: "error" | "success" = terminal === "error" ? "error" : "success";
-        return {
-          ...call,
-          status,
-          taskIds: taskIds.length ? taskIds : undefined,
-          trace: running ? call.trace : finishAgentTrace(call.trace, completedStatus, now),
-        };
-      });
-      if (calls === item.calls || !calls.some((call, index) => call !== item.calls[index])) {
-        return item;
-      }
-      const groupStatus: TraceStatus = calls.some((call) => call.status === "error")
-        ? "error"
-        : calls.some((call) => call.status === "running") ? "running" : "success";
-      return {
-        ...item,
-        calls,
-        finishedAt: calls.some((call) => call.status === "running") ? undefined : now,
-        status: groupStatus,
-      };
-    });
-    return changed ? nextItems : items;
-  }
-
-  const completedEvents = new Set([
-    "tool.completed",
-    "subagent.tool.completed",
-    "subagent.completed",
-    "ask_user.completed",
-    "plan.approval.completed",
-    "server_tool.completed",
-  ]);
-  if (completedEvents.has(event.event)) {
-    const toolId = typeof data.tool_id === "string" ? data.tool_id : "";
-    const status: "error" | "success" = data.is_error === true ? "error" : "success";
-    return items.map((item) => {
-      if (item.kind !== "tools") {
-        return item;
-      }
-      const callIndex = item.calls.findIndex((call) => call.key === toolId);
-      if (callIndex === -1) {
-        return item;
-      }
-      const calls = item.calls.map((call) => {
-        if (call.key !== toolId) {
-          return call;
-        }
-
-        // For Agent/Task, ``subagent.completed`` is the tool-result/launch
-        // acknowledgement.  Background tasks can continue after that result,
-        // and the SDK does not always include tool_use_id on their lifecycle
-        // messages, so this event cannot safely be treated as final completion.
-        // Keep the call running until a terminal task.* event arrives, or until
-        // turn.completed finishes any still-running trace as a final fallback.
-        const deferredAgentCompletion = (
-          event.event === "subagent.completed"
-          && isAgentTool(call.name)
-          && data.is_error !== true
-        );
-        const nextStatus: TraceStatus = deferredAgentCompletion ? "running" : status;
-        return {
-          ...call,
-          status: nextStatus,
-          trace: deferredAgentCompletion
-            ? call.trace
-            : finishAgentTrace(call.trace, status, now),
-        };
-      });
-      if (calls.every((call) => call.status !== "running")) {
-        return {
-          ...item,
-          calls,
-          finishedAt: now,
-          status: calls.some((call) => call.status === "error") ? "error" : "success",
-        };
-      }
-      return { ...item, calls };
-    });
-  }
-
-  return items;
-}
-
-function applyNestedRenderEvent(
-  items: AgentTraceItem[],
-  parentToolId: string,
-  event: ChatRenderEvent,
-): { applied: boolean; items: AgentTraceItem[] } {
-  let applied = false;
-  const nextItems = items.map((item) => {
-    if (item.kind !== "tools") {
-      return item;
-    }
-    const calls = item.calls.map((call) => {
-      if (call.key === parentToolId) {
-        applied = true;
-        return {
-          ...call,
-          trace: applyRenderEventAtLevel(call.trace, event),
-        };
-      }
-      if (!call.trace.length) {
-        return call;
-      }
-      const nested = applyNestedRenderEvent(call.trace, parentToolId, event);
-      if (!nested.applied) {
-        return call;
-      }
-      applied = true;
-      return { ...call, trace: nested.items };
-    });
-    return applied ? { ...item, calls } : item;
-  });
-  return { applied, items: applied ? nextItems : items };
-}
-
-export function applyRenderEvent(
-  items: AgentTraceItem[],
-  event: ChatRenderEvent,
-): AgentTraceItem[] {
-  if (event.parent_tool_use_id !== null) {
-    return applyNestedRenderEvent(
-      items,
-      event.parent_tool_use_id,
-      event,
-    ).items;
-  }
-  return applyRenderEventAtLevel(items, event);
-}
-
-export function stripExitPlanContent(
-  content: string,
-  items: AgentTraceItem[],
-): string {
-  let result = content;
-  for (const item of items) {
-    if (item.kind !== "tools") {
-      continue;
-    }
-    for (const call of item.calls) {
-      if (call.name !== "ExitPlanMode" || !call.plan) {
-        continue;
-      }
-      const planIndex = result.indexOf(call.plan);
-      if (planIndex !== -1) {
-        result = `${result.slice(0, planIndex)}${result.slice(planIndex + call.plan.length)}`;
-      }
-    }
-  }
-  return result.trim();
-}
-
-export function finishAgentTrace(
-  items: AgentTraceItem[],
-  status: "error" | "success",
-  finishedAt = Date.now(),
-): AgentTraceItem[] {
-  return items.map((item) => completeStatus(item, status, finishedAt));
-}
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) {
@@ -462,10 +62,6 @@ function toolStatus(status: TraceStatus): string {
     return "执行中";
   }
   return status === "error" ? "执行失败" : "已完成";
-}
-
-function isAgentTool(name: string): boolean {
-  return name === "Agent" || name === "Task";
 }
 
 type TraceTimelineProps = {
@@ -565,6 +161,7 @@ function TraceTimeline({
                   isAgentTool(call.name)
                   || call.trace.length > 0
                   || Boolean(call.plan)
+                  || Boolean(call.output)
                 );
                 return {
                   blink: call.status === "running",
@@ -589,7 +186,7 @@ function TraceTimeline({
                           onItemExpandedChange={onItemExpandedChange}
                           showDurations={showDurations}
                         />
-                      ) : !call.plan ? (
+                      ) : !call.plan && !call.output ? (
                         <div className="agent-subtrace-empty">
                           {call.status === "running" && <LoadingOutlined spin />}
                           <span>
@@ -599,6 +196,7 @@ function TraceTimeline({
                           </span>
                         </div>
                       ) : null}
+                      {call.output && <ChatMarkdown content={call.output} streaming={false} />}
                     </div>
                   ) : undefined,
                   description: (
@@ -618,7 +216,7 @@ function TraceTimeline({
               line="solid"
               onExpand={(nextExpandedKeys) => {
                 for (const call of item.calls) {
-                  if (!isAgentTool(call.name) && !call.trace.length && !call.plan) {
+                  if (!isAgentTool(call.name) && !call.trace.length && !call.plan && !call.output) {
                     continue;
                   }
                   const wasExpanded = expandedCallKeys.includes(call.key);
@@ -641,6 +239,7 @@ export function AgentTrace({
   expanded,
   expandedItemKeys,
   externalOutputKey,
+  externalOutputKeys,
   failed,
   items,
   loading,
@@ -648,8 +247,9 @@ export function AgentTrace({
   onItemExpandedChange,
   workingSeconds,
 }: AgentTraceProps) {
-  const visibleItems = externalOutputKey
-    ? items.filter((item) => item.key !== externalOutputKey)
+  const outputKeys = externalOutputKeys ?? (externalOutputKey ? [externalOutputKey] : []);
+  const visibleItems = outputKeys.length
+    ? items.filter((item) => !outputKeys.includes(item.key))
     : items;
   const completedTitle = failed ? "执行失败" : "已工作";
   const showDurations = loading || workingSeconds !== undefined;
