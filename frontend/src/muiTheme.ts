@@ -816,6 +816,12 @@ const useMuiTheme = () => {
           Message: {
             zIndexPopup: 1400,
             contentBg: "#212121",
+            colorText: "#fff",
+            colorTextHeading: "#fff",
+            colorSuccess: "#81c784",
+            colorError: "#ef9a9a",
+            colorInfo: "#90caf9",
+            colorWarning: "#ffb74d",
             contentPadding: "6px 16px",
             borderRadiusLG: 4,
             boxShadow:
