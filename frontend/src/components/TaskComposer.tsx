@@ -1008,6 +1008,23 @@ export function TaskComposer({
                   {conversationStarted ? <LockOutlined /> : <DownOutlined />}
                 </button>
               </Tooltip>
+              <div className="composer-status">
+                <Tooltip title="刷新配置">
+                  <Button
+                    aria-label="刷新配置"
+                    disabled={busy || refreshingConfig}
+                    icon={refreshingConfig ? <LoadingOutlined spin /> : <ReloadOutlined />}
+                    onClick={() => void handleRefreshConfig()}
+                    type="text"
+                  />
+                </Tooltip>
+                {conversationStarted && tokenUsage && (
+                  <TokenUsageIndicator usage={tokenUsage} />
+                )}
+                {conversationStarted && (
+                  <ContextUsageIndicator sessionId={sessionId} busy={busy} />
+                )}
+              </div>
             </div>
             <Sender.Header
               closable={false}
@@ -1071,21 +1088,6 @@ export function TaskComposer({
               </Dropdown>
             </Space>
             <Space className="composer-options" size={6} wrap>
-              <Tooltip title="刷新配置">
-                <Button
-                  aria-label="刷新配置"
-                  disabled={busy || refreshingConfig}
-                  icon={refreshingConfig ? <LoadingOutlined spin /> : <ReloadOutlined />}
-                  onClick={() => void handleRefreshConfig()}
-                  type="text"
-                />
-              </Tooltip>
-              {conversationStarted && tokenUsage && (
-                <TokenUsageIndicator usage={tokenUsage} />
-              )}
-              {conversationStarted && (
-                <ContextUsageIndicator sessionId={sessionId} busy={busy} />
-              )}
               <Cascader<ModelOption>
                 aria-label="选择模型"
                 className="model-select"
