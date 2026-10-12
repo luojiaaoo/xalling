@@ -2,11 +2,9 @@
 
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import webview
-from webview import FileDialog
 from webview.window import FixPoint
 
 from backend.config.setting import default_project_folder
@@ -163,17 +161,6 @@ class WindowService:
     def close(self) -> None:
         """Close the native application window."""
         self._get_window().destroy()
-
-    def select_project_folder(self) -> dict[str, str] | None:
-        """Open the system folder picker and return the selected project folder."""
-        selected_paths = self._get_window().create_file_dialog(FileDialog.FOLDER)
-        if not selected_paths:
-            return None
-
-        folder = Path(selected_paths[0]).resolve()
-        if not folder.is_dir():
-            raise ValueError("选择的项目文件夹不存在")
-        return {"name": folder.name or str(folder), "path": str(folder)}
 
     @staticmethod
     def get_home_folder() -> dict[str, str]:

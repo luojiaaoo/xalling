@@ -7,7 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from backend.config.setting import ATTACHMENTS_DIRECTORY
+from backend.config.setting import ATTACHMENTS_DIRECTORY, default_project_folder
+from backend.helper import normalize_project_path
 
 IGNORED_DIR_NAMES = frozenset(
     {
@@ -31,6 +32,50 @@ MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 class FileService:
     """Search files inside the project and persist UI attachments."""
+
+    @staticmethod
+    def list_root_directories() -> list[dict[str, str]]:
+        """Return drive roots on Windows, or / and its directories on Linux."""
+        if os.name == "nt":
+            try:
+                return [FileService._describe_folder(Path(root)) for root in os.listdrives()]
+            except OSError as error:
+                raise ValueError("无法读取一级目录") from error
+        listing = FileService.list_directories("/")
+        return [listing["current"], *listing["directories"]]
+
+    @staticmethod
+    def list_directories(path: str | None = None) -> dict[str, object]:
+        """Browse directories on the backend host without a native window."""
+        try:
+            folder = Path(path).expanduser() if path is not None else default_project_folder()
+            if not folder.is_absolute():
+                raise ValueError("请输入绝对文件夹路径")
+            folder = folder.resolve(strict=True)
+            if not folder.is_dir():
+                raise ValueError("项目路径必须是文件夹")
+            directories = []
+            for entry in folder.iterdir():
+                try:
+                    if entry.is_dir():
+                        directories.append(FileService._describe_folder(entry))
+                except OSError:
+                    # An inaccessible child must not prevent browsing its siblings.
+                    continue
+        except (FileNotFoundError, NotADirectoryError) as error:
+            raise ValueError("文件夹不存在") from error
+        except OSError as error:
+            raise ValueError("无法读取文件夹，请检查路径和访问权限") from error
+        directories.sort(key=lambda entry: (entry["name"].casefold(), entry["name"]))
+        return {
+            "current": FileService._describe_folder(folder),
+            "parent_path": normalize_project_path(str(folder.parent)) if folder.parent != folder else None,
+            "directories": directories,
+        }
+
+    @staticmethod
+    def _describe_folder(folder: Path) -> dict[str, str]:
+        return {"name": folder.name or str(folder), "path": normalize_project_path(str(folder))}
 
     @staticmethod
     def save_attachment(filename: str, data: str) -> dict[str, str]:

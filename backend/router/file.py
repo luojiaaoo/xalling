@@ -5,11 +5,25 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from backend.router.dependencies import authenticate
-from backend.router.schemas import AttachmentRequest
+from backend.router.schemas import AttachmentRequest, DirectoryListingResponse, ProjectFolderResponse
 from backend.service.file import FileService
 from backend.service.log import capture_api_errors
 
 router = APIRouter(prefix="/api/files", tags=["files"], dependencies=[Depends(authenticate)])
+
+
+@router.get("/roots")
+@capture_api_errors
+def list_root_directories() -> list[ProjectFolderResponse]:
+    return [ProjectFolderResponse.model_validate(folder) for folder in FileService.list_root_directories()]
+
+
+@router.get("/directories")
+@capture_api_errors
+def list_directories(
+    path: Annotated[str | None, Query(min_length=1, max_length=32768)] = None,
+) -> DirectoryListingResponse:
+    return DirectoryListingResponse.model_validate(FileService.list_directories(path))
 
 
 @router.get("/search")

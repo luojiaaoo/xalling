@@ -34,12 +34,6 @@ def resize_window(body: ResizeRequest, window: WindowDep) -> None:
     window.resize(body.width, body.height, body.edge)
 
 
-@router.post("/project-folder")
-@capture_api_errors
-def select_project_folder(window: WindowDep) -> dict[str, str] | None:
-    return window.select_project_folder()
-
-
 @router.get("/home-folder")
 @capture_api_errors
 def get_home_folder() -> dict[str, str]:

@@ -44,6 +44,17 @@ class AttachmentRequest(RequestModel):
     data: str = Field(min_length=1, max_length=70 * 1024 * 1024)
 
 
+class ProjectFolderResponse(BaseModel):
+    name: str
+    path: str
+
+
+class DirectoryListingResponse(BaseModel):
+    current: ProjectFolderResponse
+    parent_path: str | None
+    directories: list[ProjectFolderResponse]
+
+
 class ResizeRequest(RequestModel):
     width: int
     height: int

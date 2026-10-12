@@ -4,7 +4,6 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import APIRouter
-from webview import FileDialog
 from webview.window import FixPoint
 
 from backend.config.current import CurrentConfig
@@ -248,30 +247,6 @@ async def test_window_router_rejects_invalid_resize(
     router = WindowService()
     with pytest.raises(error):
         router.resize(width, height, edge)
-
-
-async def test_window_router_selects_project_folder(tmp_path: Path) -> None:
-
-    class WindowStub:
-        def create_file_dialog(self, dialog_type: FileDialog) -> tuple[str]:
-            assert dialog_type == FileDialog.FOLDER
-            return (str(tmp_path),)
-
-    router = WindowService()
-    router.bind_window(WindowStub())
-    assert router.select_project_folder() == {"name": tmp_path.name, "path": str(tmp_path.resolve())}
-
-
-async def test_window_router_keeps_project_when_folder_picker_is_cancelled() -> None:
-
-    class WindowStub:
-        @staticmethod
-        def create_file_dialog(_dialog_type: FileDialog) -> None:
-            return None
-
-    router = WindowService()
-    router.bind_window(WindowStub())
-    assert router.select_project_folder() is None
 
 
 async def test_window_router_returns_home_as_default_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

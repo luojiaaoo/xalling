@@ -10,7 +10,8 @@ type ApplicationApi = {
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
   close_window: () => Promise<void>;
   resize_window: (width: number, height: number, edge: string) => Promise<void>;
-  select_project_folder: () => Promise<ProjectFolder | null>;
+  list_directories: (path: string | null) => Promise<DirectoryListing>;
+  list_root_directories: () => Promise<ProjectFolder[]>;
   get_home_folder: () => Promise<ProjectFolder>;
   search_project_files: (
     projectPath: string,
@@ -135,6 +136,12 @@ export type ModelSelection = {
 export type ProjectFolder = {
   name: string;
   path: string;
+};
+
+export type DirectoryListing = {
+  current: ProjectFolder;
+  parent_path: string | null;
+  directories: ProjectFolder[];
 };
 
 export type ProjectFileMatch = {
@@ -452,9 +459,12 @@ export async function resizeWindow(width: number, height: number, edge: string):
   await api.resize_window(width, height, edge);
 }
 
-export async function selectProjectFolder(): Promise<ProjectFolder | null> {
-  const api = applicationApi;
-  return (await api.select_project_folder()) ?? null;
+export async function listDirectories(path: string | null = null): Promise<DirectoryListing> {
+  return applicationApi.list_directories(path);
+}
+
+export async function listRootDirectories(): Promise<ProjectFolder[]> {
+  return applicationApi.list_root_directories();
 }
 
 export async function getHomeFolder(): Promise<ProjectFolder | null> {
@@ -514,7 +524,8 @@ const applicationApi: ApplicationApi = {
   toggle_maximize_window: () => request("POST", "/api/window/maximize"),
   close_window: () => request("POST", "/api/window/close"),
   resize_window: (width, height, edge) => request("POST", "/api/window/resize", { body: { width, height, edge } }),
-  select_project_folder: () => request("POST", "/api/window/project-folder"),
+  list_directories: (path) => request("GET", "/api/files/directories", { query: { path }, silent: true }),
+  list_root_directories: () => request("GET", "/api/files/roots", { silent: true }),
   get_home_folder: () => request("GET", "/api/window/home-folder"),
   search_project_files: (project_path, query, limit = 30) => request("GET", "/api/files/search", { query: { project_path, query, limit } }),
   save_attachment: (filename, data) => request("POST", "/api/files/attachments", { body: { filename, data } }),

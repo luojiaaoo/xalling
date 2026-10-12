@@ -71,6 +71,57 @@ def transport(tmp_path, monkeypatch):
         yield client, app
 
 
+def test_directory_api_browses_backend_without_native_window(transport, tmp_path, monkeypatch):
+    client, _ = transport
+    folder = tmp_path / "远程项目 #&"
+    folder.mkdir()
+    (folder / "child").mkdir()
+    monkeypatch.setattr("backend.service.file.default_project_folder", lambda: folder)
+    assert client.get("/api/files/directories").status_code == 401
+    assert client.get("/api/files/directories", headers={**AUTH, "origin": "https://evil.example"}).status_code == 403
+    response = client.get("/api/files/directories", params={"path": str(folder)}, headers=AUTH)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current"] == {"name": folder.name, "path": str(folder.resolve())}
+    assert data["directories"] == [{"name": "child", "path": str(folder / "child")}]
+    assert data["parent_path"] == str(tmp_path)
+    assert client.get("/api/files/directories", headers=AUTH).json() == data
+    assert client.post("/api/window/project-folder", headers=AUTH).status_code == 404
+
+
+def test_root_directory_api_requires_auth_and_returns_backend_paths(transport, monkeypatch):
+    client, _ = transport
+    folders = [{"name": "/", "path": "/"}, {"name": "etc", "path": "/etc"}]
+    monkeypatch.setattr("backend.service.file.FileService.list_root_directories", lambda: folders)
+    assert client.get("/api/files/roots").status_code == 401
+    assert client.get("/api/files/roots", headers={**AUTH, "origin": "https://evil.example"}).status_code == 403
+    assert client.get("/api/files/roots", headers=AUTH).json() == folders
+
+    def fail():
+        raise RuntimeError("private internal details")
+
+    monkeypatch.setattr("backend.service.file.FileService.list_root_directories", fail)
+    response = client.get("/api/files/roots", headers=AUTH)
+    assert response.status_code == 500
+    assert "private" not in response.text
+
+
+def test_directory_api_rejects_invalid_paths_and_sanitizes_errors(transport, tmp_path, monkeypatch):
+    client, _ = transport
+    for path in ["", "x" * 32769]:
+        assert client.get("/api/files/directories", params={"path": path}, headers=AUTH).status_code == 422
+    for path in ["relative", str(tmp_path / "missing"), str(tmp_path / "index.html")]:
+        assert client.get("/api/files/directories", params={"path": path}, headers=AUTH).status_code == 400
+
+    def fail(_path):
+        raise RuntimeError("private internal details")
+
+    monkeypatch.setattr("backend.service.file.FileService.list_directories", fail)
+    response = client.get("/api/files/directories", headers=AUTH)
+    assert response.status_code == 500
+    assert "private" not in response.text
+
+
 @pytest.mark.parametrize(
     ("protocols", "origin"),
     [([], ORIGIN), (["xalling", "auth.wrong"], ORIGIN), (PROTOCOLS, "https://evil.example"), (PROTOCOLS, "null")],

@@ -45,7 +45,6 @@ import {
   getSkills,
   isAskUserQuestionRequest,
   searchProjectFiles,
-  selectProjectFolder,
   setCurrentModel,
   type ChatPermissionAnswers,
   type ChatPlanExecutionMode,
@@ -60,6 +59,7 @@ import {
 import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 import { ExitPlanModeDialog } from "./ExitPlanModeDialog";
+import { ProjectFolderDialog } from "./ProjectFolderDialog";
 import {
   TokenUsageIndicator,
   type TokenUsageSummary,
@@ -228,6 +228,7 @@ export function TaskComposer({
   const [attachmentItems, setAttachmentItems] = useState<UploadFile[]>([]);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [selectingProject, setSelectingProject] = useState(false);
+  useEffect(() => { setSelectingProject(false); }, [conversationStarted, sessionId]);
   const [mention, setMention] = useState<MentionState | null>(null);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [slashItems, setSlashItems] = useState<SlashItem[]>([]);
@@ -698,23 +699,6 @@ export function TaskComposer({
     }
   };
 
-  const chooseProjectFolder = async () => {
-    if (conversationStarted || selectingProject) {
-      return;
-    }
-    setSelectingProject(true);
-    try {
-      const project = await selectProjectFolder();
-      if (project && !conversationStartedRef.current) {
-        onProjectChange(project);
-      }
-    } catch {
-      messageApi.error("项目文件夹选择失败。");
-    } finally {
-      setSelectingProject(false);
-    }
-  };
-
   return (
     <section
       className={`composer${conversationStarted ? " composer-chat" : ""}${
@@ -723,6 +707,16 @@ export function TaskComposer({
       aria-label="发送消息"
     >
       {contextHolder}
+      {selectingProject && !conversationStarted && (
+        <ProjectFolderDialog
+          initialPath={selectedProject?.path ?? null}
+          onCancel={() => setSelectingProject(false)}
+          onSelect={(project) => {
+            if (!conversationStartedRef.current) onProjectChange(project);
+            setSelectingProject(false);
+          }}
+        />
+      )}
       {permissionRequest && isAskUserQuestionRequest(permissionRequest) ? (
         <AskUserQuestionDialog
           key={permissionRequest.data.request_id}
@@ -1001,9 +995,9 @@ export function TaskComposer({
                   className={`composer-project${conversationStarted ? " composer-project-locked" : ""}`}
                   disabled={conversationStarted || selectingProject}
                   type="button"
-                  onClick={() => void chooseProjectFolder()}
+                  onClick={() => setSelectingProject(true)}
                 >
-                  {selectingProject ? <LoadingOutlined spin /> : <FolderOpenOutlined />}
+                  <FolderOpenOutlined />
                   <span>{selectedProject?.name ?? "选择项目"}</span>
                   {conversationStarted ? <LockOutlined /> : <DownOutlined />}
                 </button>
