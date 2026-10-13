@@ -1,24 +1,72 @@
 import asyncio
+import logging
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from loguru import logger
 
 from backend.router import routers
 from backend.service import log
 from backend.service.log import LogService, capture_api_errors
+from backend.websocket_server import create_app
+
+
+@pytest.fixture(autouse=True)
+def close_test_log_sinks():
+    yield
+    # Do not retain console sinks pointing at a completed test's captured stream.
+    logger.complete()
+    logger.remove()
 
 
 def configure_test_logging(
     log_directory: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    console: bool = True,
 ) -> None:
     """Point every application log path at one isolated test directory."""
     monkeypatch.setattr(log, "LOG_DIRECTORY", log_directory)
     monkeypatch.setattr(log, "ACCESS_LOG_FILEPATH", log_directory / "access.log")
     monkeypatch.setattr(log, "BROWSER_LOG_FILEPATH", log_directory / "browser.log")
     monkeypatch.setattr(log, "ERROR_LOG_FILEPATH", log_directory / "error.log")
-    log.configure_logging()
+    monkeypatch.setattr(log, "CLAUDE_SDK_FILEPATH", log_directory / "claude-sdk.log")
+    monkeypatch.setattr(log, "OTHER_LOG_FILEPATH", log_directory / "other.log")
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])
+    monkeypatch.setattr(root, "level", logging.INFO)
+    for name in ("uvicorn", "pywebview"):
+        library_logger = logging.getLogger(name)
+        monkeypatch.setattr(library_logger, "handlers", list(library_logger.handlers))
+        monkeypatch.setattr(library_logger, "propagate", library_logger.propagate)
+    log.configure_logging(console=console)
+
+
+@pytest.mark.parametrize("console", [False, True])
+def test_application_and_library_logs_share_loguru_in_both_modes(tmp_path, monkeypatch, capsys, console):
+    configure_test_logging(tmp_path, monkeypatch, console=console)
+    log.access_logger.info("application API call")
+    log.error_logger.error("application error")
+    logging.getLogger("uvicorn.error").info("server started")
+    logging.getLogger("uvicorn.error").error("server error")
+    logging.getLogger("pywebview").info("native window message")
+    logger.complete()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    if console:
+        assert captured.err.count("server started") == 1
+        assert captured.err.count("native window message") == 1
+        assert "| INFO | server started" in captured.err
+        assert "| ERROR | server error" in captured.err
+    else:
+        assert captured.err == ""
+    access = (tmp_path / "access.log").read_text(encoding="utf-8")
+    errors = (tmp_path / "error.log").read_text(encoding="utf-8")
+    other = (tmp_path / "other.log").read_text(encoding="utf-8")
+    assert "application API call" in access and "server started" not in access
+    assert "application error" in errors and "server error" not in errors
+    assert "native window message" in other and "server started" in other and "server error" in other
 
 
 def test_capture_api_errors_logs_to_console_and_file(
@@ -117,3 +165,22 @@ def test_every_http_endpoint_captures_errors() -> None:
     endpoints = [route.endpoint for router in routers for route in router.routes]
     assert endpoints
     assert all(getattr(endpoint, "__api_error_captured__", False) for endpoint in endpoints)
+
+
+def test_launch_token_does_not_enter_business_log_files(tmp_path, monkeypatch):
+    configure_test_logging(tmp_path, monkeypatch)
+    origin = "http://127.0.0.1:8765"
+    launch = "private-single-use-token"
+    (tmp_path / "index.html").write_text("Xalling", encoding="utf-8")
+    app = create_app(directory=tmp_path, token=launch)
+    with TestClient(app, base_url=origin) as client:
+        assert client.get("/", params={"token": launch}).status_code == 200
+        assert client.get(
+            "/api/window/home-folder",
+            headers={"Authorization": f"Bearer {launch}", "origin": origin},
+        ).status_code == 200
+        assert client.get("/", params={"token": launch}).status_code == 401
+    logger.complete()
+    for filename in ("access.log", "error.log", "browser.log", "claude-sdk.log"):
+        content = (tmp_path / filename).read_text(encoding="utf-8")
+        assert launch not in content

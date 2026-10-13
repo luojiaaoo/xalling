@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies for local authentication and services."""
+"""Shared FastAPI dependencies for token authentication and services."""
 
 import secrets
 from typing import Annotated
@@ -11,24 +11,26 @@ from backend.service.window import WindowService
 
 
 async def authenticate(request: Request) -> None:
-    authorization = request.headers.get("authorization", "")
-    expected = f"Bearer {request.app.state.token}"
-    if not secrets.compare_digest(authorization.encode(), expected.encode()):
-        raise HTTPException(status_code=401, detail="本机连接凭证无效")
-    origin = request.headers.get("origin")
-    if origin is not None and origin != request.app.state.origin:
-        raise HTTPException(status_code=403, detail="请求来源无效")
+    supplied = request.headers.get("authorization", "")
+    token = request.app.state.token
+    if (
+        request.app.state.first_access
+        or not token
+        or not secrets.compare_digest(supplied.encode(), f"Bearer {token}".encode())
+    ):
+        raise HTTPException(status_code=401, detail="连接凭证无效")
 
 
 async def authenticate_websocket(websocket: WebSocket) -> None:
     protocols = websocket.scope.get("subprotocols", [])
-    expected = f"auth.{websocket.app.state.token}".encode()
+    token = websocket.app.state.token
     if (
         "xalling" not in protocols
-        or not any(secrets.compare_digest(protocol.encode(), expected) for protocol in protocols)
-        or websocket.headers.get("origin") != websocket.app.state.origin
+        or websocket.app.state.first_access
+        or not token
+        or not any(secrets.compare_digest(protocol.encode(), f"auth.{token}".encode()) for protocol in protocols)
     ):
-        raise WebSocketException(code=1008, reason="连接凭证或来源无效")
+        raise WebSocketException(code=1008, reason="连接凭证无效")
 
 
 async def get_services(request: Request) -> ApplicationServices:

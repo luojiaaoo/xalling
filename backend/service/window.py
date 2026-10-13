@@ -1,6 +1,7 @@
 """Native window behavior behind the local API."""
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -96,6 +97,11 @@ class WindowService:
         self._is_maximized = False
         self._restore_bounds: WindowBounds | None = None
         self._native_maximize_active = False
+        self._shutdown: Callable[[], None] | None = None
+
+    def bind_shutdown(self, shutdown: Callable[[], None]) -> None:
+        """Allow the close button to stop the backend, including headless mode."""
+        self._shutdown = shutdown
 
     def bind_window(self, window: Any) -> None:
         """Attach the native pywebview window after it has been created."""
@@ -159,8 +165,13 @@ class WindowService:
         self._native_maximize_active = False
 
     def close(self) -> None:
-        """Close the native application window."""
-        self._get_window().destroy()
+        """Close the native window immediately and request backend shutdown."""
+        if self._window is not None:
+            self._window.destroy()
+        elif self._shutdown is None:
+            self._get_window().destroy()
+        if self._shutdown is not None:
+            self._shutdown()
 
     @staticmethod
     def get_home_folder() -> dict[str, str]:

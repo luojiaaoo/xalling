@@ -2,7 +2,7 @@
 
 > Your Desktop, Reimagined with AI.
 
-Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与智能体，以 pywebview 承载 React 界面，并通过仅监听本机的 FastAPI HTTP 接口与 WebSocket 完成业务调用和实时事件通信。
+Xalling 是一个本地优先的 AI 桌面工作台：以 Python 管理业务与智能体，以 pywebview 承载 React 界面，并通过 token 认证的 FastAPI HTTP 接口与 WebSocket 完成业务调用和实时事件通信，支持远程浏览器访问。
 
 ## 功能特性
 
@@ -35,7 +35,7 @@ flowchart LR
   Chat <--> Agent
 ```
 
-业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。FastAPI / Uvicorn 仅监听 `127.0.0.1` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证与来源校验。
+业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。FastAPI / Uvicorn 监听 `0.0.0.0` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证校验，不限制 Host 或 Origin。
 
 ## 技术栈
 
@@ -73,7 +73,7 @@ name = "Qwen3.6-35B-A3B"
 - `api_protocol = "anthropic"`：供应商原生支持 Anthropic Messages 协议，直接连接。
 - `api_protocol = "chat"` / `"responses"`：为每个 Claude 会话启动一个仅监听 `127.0.0.1` 的本地代理（`plugins/bin/claude-proxy-rust.exe`，源码见 Git 子模块 [`plugins/claude-proxy-rust`](https://github.com/luojiaaoo/claude-proxy-rust)），把 Anthropic Messages 请求转换为 OpenAI Chat Completions / Responses 接口。连接关闭后自动回收，API Key 不会写入项目文件。
 
-`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。对话界面通过 HTTP API 获取分组名、模型名和上下文设置，并保存当前选择；模型设置页通过已认证的本机连接编辑站点配置。推理强度是对话界面的临时状态，不写入配置文件。
+`backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。对话界面通过 HTTP API 获取分组名、模型名和上下文设置，并保存当前选择；模型设置页通过已认证的连接编辑站点配置。推理强度是对话界面的临时状态，不写入配置文件。
 
 真实配置位于 `~/.xalling/xalling-setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
 
@@ -223,7 +223,7 @@ HTTP API 当前提供：发送消息、列出会话、搜索会话、读取会�
 await sendChatMessage(prompt, projectPath, sessionId, effort, permissionMode);
 ```
 
-窗口控制、文件、模型、命令、历史、停止生成和权限响应使用 `/api/*` HTTP 接口；请求使用 JSON body 或 query/path 参数，响应直接返回 JSON 数据。共享请求模型采用 Pydantic 严格校验，禁止未知字段。非法参数返回 400/422，未认证请求返回 401，来源不符返回 403，内部异常返回 500 与通用提示，不泄露 Python 内部对象或敏感参数。
+窗口控制、文件、模型、命令、历史、停止生成和权限响应使用 `/api/*` HTTP 接口；请求使用 JSON body 或 query/path 参数，响应直接返回 JSON 数据。共享请求模型采用 Pydantic 严格校验，禁止未知字段。非法参数返回 400/422，未认证请求返回 401，内部异常返回 500 与通用提示，不泄露 Python 内部对象或敏感参数。
 
 FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天任务、权限响应与事件推送都运行在 Uvicorn 的同一个事件循环中。聊天任务由应用持有，HTTP 请求取消不会取消正在生成的回合；应用关闭时拒绝权限请求、停止调度器、取消聊天任务并关闭客户端。同步文件操作和原生窗口调用使用普通 `def` 路由，由 FastAPI 线程池执行。`main.py` 只负责桌面窗口和服务启停，无需额外的 `AsyncRuntime`。
 
@@ -233,13 +233,15 @@ FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天�
 
 ### 连接与安全
 
-- Uvicorn 仅监听 `127.0.0.1` 的随机端口，FastAPI 同时提供 `frontend/dist` 静态资源。
-- 每次启动生成随机连接凭证，通过窗口 URL 的 fragment 传给前端。前端将其保存在当前 origin 的 sessionStorage，并清除地址栏 fragment；刷新可恢复凭证。
-- WebSocket 用 `xalling` 与 `auth.<凭证>` 子协议完成握手，后端还必须校验同源 Origin 与 Host。凭证不得进入访问日志。
-- HTTP API 使用 `Authorization: Bearer <凭证>`，校验 Host 和存在的 Origin；前端先建立事件连接，再提交业务请求，以便接收权限事件。
+- Uvicorn 监听 `0.0.0.0` 的随机端口，FastAPI 同时提供 `frontend/dist` 静态资源。桌面窗口和控制台 URL 使用 `127.0.0.1`；远程访问时替换为服务器 IP 或域名，保留端口和 token。
+- 每次启动生成一个随机 token，通过窗口/控制台 URL 的 `?token=...` 授权首次页面访问。HTTP 中间件校验成功后立即禁用 query 认证，重复使用原链接返回 401。前端将同一个 token 保存到当前 origin 的 sessionStorage，并清除地址栏参数，支持连接中断后的重连；不使用 Cookie 或额外的兑换接口。
+- WebSocket 用 `xalling` 与 `auth.<token>` 子协议握手，不限制 Origin 或 Host。凭证不得进入访问日志。
+- HTTP API 使用 `Authorization: Bearer <token>`，不限制 Host 或 Origin，CORS 允许任意来源、方法及请求头；前端先建立事件连接，再提交业务请求，以便接收权限事件。静态页面及跨域预检可以加载，业务调用必须认证。
+- UI 关闭按钮让后端创建关闭后台任务并返回 `{"closing": true}`。无头模式收到成功响应后卸载业务界面，直接显示“已关闭”，保留浏览器页面并停止业务轮询和 WebSocket 重连；有头模式直接销毁原生窗口。后端在退出时完成任务与 SDK 清理。前端不轮询关闭状态，不调用 `window.close()`。
+- 页面 `pagehide` / `unload` 事件复用带认证及 `keepalive` 的关闭请求，关闭标签页时同时关闭后端，关闭按钮与页面退出不会重复创建关闭请求。刷新或离开页面也会关闭后端；切换标签页不关闭。浏览器崩溃或进程被强制结束时，页面事件可能无法触发。
 - 前端业务组件必须集中调用 `client.ts`，不得直接创建连接或访问 `window.pywebview.api`。
 - pywebview 只承担原生窗口能力，不配置 `js_api`，业务事件不使用 `evaluate_js`。
-- 返回值只使用 JSON 可序列化数据；密钥等敏感配置不得进入 bundle 或日志。模型设置只能通过已认证的本机连接访问。
+- 返回值只使用 JSON 可序列化数据；密钥等敏感配置不得进入 bundle 或日志。模型设置只能通过已认证的连接访问。
 
 ## 项目结构
 

@@ -1,6 +1,7 @@
 """Application logging channels, file sinks, and API-call capture."""
 
 import inspect
+import logging
 import sys
 from collections.abc import Callable
 from functools import wraps
@@ -15,6 +16,7 @@ from backend.config.setting import (
     CLAUDE_SDK_FILEPATH,
     ERROR_LOG_FILEPATH,
     LOG_DIRECTORY,
+    OTHER_LOG_FILEPATH,
 )
 
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
@@ -31,28 +33,38 @@ SILENT_ACCESS_LOG_CALLS = frozenset(
     }
 )
 
-_logging_configured = False
 access_logger = logger.bind(channel="access")
 browser_logger = logger.bind(channel="browser")
 error_logger = logger.bind(channel="error")
 session_debug_logger = logger.bind(channel="session_debug")
 claude_sdk_logger = logger.bind(channel="claude_sdk")
+other_logger = logger.bind(channel="other")
+
+# 把标准 logging 的日志统一转发给 Loguru。
+class _LoguruHandler(logging.Handler):
+    """Route library/server messages through the application's Loguru sinks."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        other_logger.opt(exception=record.exc_info).log(level, record.getMessage())
 
 
-def configure_logging() -> None:
-    """Clear Loguru's defaults and add console and file log channels."""
-    global _logging_configured
-
+def configure_logging(*, console: bool = True) -> None:
+    """Configure file log channels and an optional console sink."""
     LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
     logger.remove()
-    logger.add(
-        sys.stderr,
-        level="INFO",
-        format=LOG_FORMAT,
-        backtrace=True,
-        diagnose=False,
-        enqueue=True,
-    )
+    if console:
+        logger.add(
+            sys.stderr,
+            level="INFO",
+            format=LOG_FORMAT,
+            backtrace=True,
+            diagnose=False,
+            enqueue=True,
+        )
     logger.add(
         ACCESS_LOG_FILEPATH,
         level="INFO",
@@ -101,12 +113,23 @@ def configure_logging() -> None:
         enqueue=True,
         filter=lambda record: record["extra"].get("channel") == "browser",
     )
-    _logging_configured = True
-
-
-def _ensure_logging_configured() -> None:
-    if not _logging_configured:
-        configure_logging()
+    logger.add(
+        OTHER_LOG_FILEPATH,
+        level="INFO",
+        format=LOG_FORMAT,
+        encoding="utf-8",
+        rotation="10 MB",
+        retention="14 days",
+        backtrace=True,
+        diagnose=False,
+        enqueue=True,
+        filter=lambda record: record["extra"].get("channel") == "other",
+    )
+    logging.basicConfig(handlers=[_LoguruHandler()], level=logging.INFO, force=True)
+    for name in ("uvicorn", "pywebview"):
+        library_logger = logging.getLogger(name)
+        library_logger.handlers.clear()
+        library_logger.propagate = True
 
 
 def _is_sensitive_key(key: object) -> bool:
@@ -161,7 +184,6 @@ def capture_api_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
 
         @wraps(func)
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
-            _ensure_logging_configured()
             if log_access:
                 access_logger.info(f"FastAPI call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
             try:
@@ -179,7 +201,6 @@ def capture_api_errors[**P, R](func: Callable[P, R]) -> Callable[P, R]:
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        _ensure_logging_configured()
         if log_access:
             access_logger.info(f"FastAPI call: {func.__qualname__} | input={_call_input(func, args, kwargs)!r}")
         try:
@@ -211,7 +232,6 @@ class LogService:
         if stack is not None and not isinstance(stack, str):
             raise TypeError("错误堆栈必须是字符串或 null")
 
-        _ensure_logging_configured()
         text = f"Frontend {kind}: {message}"
         if stack:
             text += f"\n{stack}"

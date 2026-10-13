@@ -12,7 +12,6 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> None:
-    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
     server_info = {
         "commands": [
             {
@@ -101,7 +100,6 @@ async def test_command_router_exposes_live_commands_and_skills(monkeypatch) -> N
 
 
 async def test_command_router_handles_missing_command_list(monkeypatch) -> None:
-    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
     chat = ChatService()
 
     async def get_server_info(

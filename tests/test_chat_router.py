@@ -35,11 +35,8 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-async def chat_service_factory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[Callable[[], ChatService]]:
+async def chat_service_factory() -> AsyncIterator[Callable[[], ChatService]]:
     services: list[ChatService] = []
-    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
 
     def create() -> ChatService:
         service = ChatService()

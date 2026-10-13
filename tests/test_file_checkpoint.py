@@ -223,7 +223,8 @@ def test_rewind_http_auth_validation_and_safe_errors(tmp_path):
                 raise RuntimeError("secret internal error")
             return {"restored": True}
 
-    app = create_app(directory=tmp_path, token="test", origin="http://127.0.0.1:1234")
+    app = create_app(directory=tmp_path, token="test")
+    app.state.first_access = False
     app.state.services = Services()
     client = TestClient(app, base_url="http://127.0.0.1:1234", raise_server_exceptions=False)
     path = "/api/chat/files/rewind"

@@ -63,12 +63,122 @@ class ChatStub(ChatService):
 
 
 @pytest.fixture
-def transport(tmp_path, monkeypatch):
-    monkeypatch.setattr("backend.service.log._ensure_logging_configured", lambda: None)
+def transport(tmp_path):
     (tmp_path / "index.html").write_text("<html>Xalling</html>", encoding="utf-8")
-    app = create_app(directory=tmp_path, token=TOKEN, origin=ORIGIN, chat_factory=ChatStub)
+    app = create_app(directory=tmp_path, token=TOKEN, chat_factory=ChatStub)
+    app.state.first_access = False  # Simulate an already-authorized connection for API tests.
     with TestClient(app, base_url=ORIGIN, raise_server_exceptions=False) as client:
         yield client, app
+
+
+def test_launch_token_is_one_time_and_session_survives_reconnect(transport):
+    client, app = transport
+    app.state.first_access = True
+    headers = AUTH
+    assert client.get("/api/window/home-folder", headers=headers).status_code == 401
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("ws://127.0.0.1:8765/ws", subprotocols=PROTOCOLS, headers={"origin": ORIGIN}),
+    ):
+        pass
+    first = client.get("/", params={"token": TOKEN, "view": "chat"})
+    assert first.status_code == 200 and "Xalling" in first.text
+    assert not first.history
+    assert "set-cookie" not in first.headers
+    assert first.headers["referrer-policy"] == "no-referrer"
+    assert first.headers["cache-control"] == "no-store"
+    assert app.state.first_access is False
+    assert app.state.token == TOKEN
+    assert client.get("/", params={"token": TOKEN}).status_code == 401
+    assert client.get("/").status_code == 200
+    assert client.get("/api/window/home-folder", headers=headers).status_code == 200
+    for _ in range(2):
+        with client.websocket_connect("ws://127.0.0.1:8765/ws", subprotocols=PROTOCOLS,
+                                      headers={"origin": ORIGIN}):
+            pass
+    # The public HTML shell cannot access business APIs without the saved header.
+    assert client.get("/").status_code == 200
+    assert client.get("/", params={"token": TOKEN}).status_code == 401
+    assert client.get("/api/window/home-folder").status_code == 401
+
+
+def test_launch_authorization_rejects_invalid_parameters(transport):
+    client, app = transport
+    app.state.first_access = True
+    for token in ["", "wrong", "中文", "x" * 129]:
+        response = client.get("/", params={"token": token})
+        assert response.status_code == 401
+        assert TOKEN not in response.text
+    assert client.post("/", params={"token": TOKEN}).status_code == 401
+    assert client.get("/api/window/home-folder", params={"token": TOKEN}, headers=AUTH).status_code == 401
+    for values in [[TOKEN, "wrong"], ["wrong", TOKEN], [TOKEN, TOKEN]]:
+        assert client.get("/", params=[("token", value) for value in values]).status_code == 401
+    assert app.state.first_access is True
+    assert client.get("/", params={"token": TOKEN}).status_code == 200
+
+
+def test_concurrent_launch_token_redemptions_have_one_winner(transport):
+    client, app = transport
+    app.state.first_access = True
+
+    def redeem(_):
+        return client.get("/", params={"token": TOKEN}, follow_redirects=False).status_code
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert sorted(pool.map(redeem, range(4))) == [200, 401, 401, 401]
+
+
+@pytest.mark.parametrize(
+    ("host", "origin"),
+    [("192.168.1.10:8765", "http://192.168.1.10:8765"), ("remote.example", "https://client.example"),
+     ("localhost:9999", "null"), ("remote.example:8765", None)],
+)
+def test_remote_launch_http_and_websocket_require_only_token(transport, host, origin):
+    client, app = transport
+    app.state.first_access = True
+    headers = {"host": host}
+    if origin is not None:
+        headers["origin"] = origin
+    authorized = {**headers, "authorization": f"Bearer {TOKEN}"}
+    assert client.get("/api/window/home-folder", headers=authorized).status_code == 401
+    assert client.get("/", params={"token": "wrong"}, headers=headers).status_code == 401
+    assert app.state.first_access
+    assert client.get("/", params={"token": TOKEN}, headers=headers).status_code == 200
+    assert client.get("/", params={"token": TOKEN}, headers=headers).status_code == 401
+    assert client.get("/api/window/home-folder", headers=headers).status_code == 401
+    assert client.get("/api/window/home-folder", headers={**headers, "authorization": "Bearer wrong"}).status_code == 401
+    assert client.get("/api/window/home-folder", headers=authorized).status_code == 200
+    with client.websocket_connect(f"ws://{host}/ws", subprotocols=PROTOCOLS, headers=headers.copy()) as websocket:
+        assert websocket.accepted_subprotocol == "xalling"
+    with (
+        pytest.raises(WebSocketDisconnect) as error,
+        client.websocket_connect(f"ws://{host}/ws", subprotocols=["xalling", "auth.wrong"], headers=headers.copy()),
+    ):
+        pass
+    assert error.value.code == 1008
+
+
+def test_cors_preflight_allows_bearer_header_without_bypassing_token_auth(transport):
+    client, app = transport
+    app.state.first_access = True
+    headers = {"host": "remote.example", "origin": "https://client.example"}
+    response = client.options("/api/window/home-folder", headers={
+        **headers,
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "authorization,content-type",
+    })
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "authorization" in response.headers["access-control-allow-headers"]
+    assert app.state.first_access
+    assert client.get("/api/window/home-folder", headers={**headers, **AUTH}).status_code == 401
+    assert client.get("/", params={"token": TOKEN}, headers=headers).status_code == 200
+    response = client.get("/api/window/home-folder", headers=headers)
+    assert response.status_code == 401
+    assert response.headers["access-control-allow-origin"] == "*"
+    response = client.get("/api/window/home-folder", headers={**headers, "authorization": f"Bearer {TOKEN}"})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
 
 
 def test_directory_api_browses_backend_without_native_window(transport, tmp_path, monkeypatch):
@@ -78,7 +188,7 @@ def test_directory_api_browses_backend_without_native_window(transport, tmp_path
     (folder / "child").mkdir()
     monkeypatch.setattr("backend.service.file.default_project_folder", lambda: folder)
     assert client.get("/api/files/directories").status_code == 401
-    assert client.get("/api/files/directories", headers={**AUTH, "origin": "https://evil.example"}).status_code == 403
+    assert client.get("/api/files/directories", headers={**AUTH, "origin": "https://remote.example"}).status_code == 200
     response = client.get("/api/files/directories", params={"path": str(folder)}, headers=AUTH)
     assert response.status_code == 200
     data = response.json()
@@ -94,7 +204,7 @@ def test_root_directory_api_requires_auth_and_returns_backend_paths(transport, m
     folders = [{"name": "/", "path": "/"}, {"name": "etc", "path": "/etc"}]
     monkeypatch.setattr("backend.service.file.FileService.list_root_directories", lambda: folders)
     assert client.get("/api/files/roots").status_code == 401
-    assert client.get("/api/files/roots", headers={**AUTH, "origin": "https://evil.example"}).status_code == 403
+    assert client.get("/api/files/roots", headers={**AUTH, "origin": "https://remote.example"}).status_code == 200
     assert client.get("/api/files/roots", headers=AUTH).json() == folders
 
     def fail():
@@ -124,7 +234,8 @@ def test_directory_api_rejects_invalid_paths_and_sanitizes_errors(transport, tmp
 
 @pytest.mark.parametrize(
     ("protocols", "origin"),
-    [([], ORIGIN), (["xalling", "auth.wrong"], ORIGIN), (PROTOCOLS, "https://evil.example"), (PROTOCOLS, "null")],
+    [([], ORIGIN), (["xalling", "auth.wrong"], ORIGIN), (["xalling", "auth.wrong"], "https://remote.example"),
+     (["xalling"], "null"), ([f"auth.{TOKEN}"], ORIGIN)],
 )
 def test_event_connection_authentication(transport, protocols, origin):
     client, _ = transport
@@ -138,10 +249,10 @@ def test_event_connection_authentication(transport, protocols, origin):
 
 def test_http_routes_authentication_and_safe_errors(transport, monkeypatch):
     client, _ = transport
-    assert "Xalling" in client.get("/").text
-    assert client.get("/", headers={"host": "evil.example"}).status_code == 400
+    assert "Xalling" in client.get("/", headers=AUTH).text
+    assert client.get("/", headers={"host": "remote.example"}).status_code == 200
     assert client.get("/api/window/home-folder").status_code == 401
-    assert client.get("/api/window/home-folder", headers={**AUTH, "origin": "https://evil.example"}).status_code == 403
+    assert client.get("/api/window/home-folder", headers={**AUTH, "origin": "https://remote.example"}).status_code == 200
     assert client.get("/api/window/home-folder", headers=AUTH).status_code == 200
     for body in [{"width": "10", "height": 20, "edge": "e"}, {"width": 10, "height": 20, "edge": "e", "unexpected": 1}]:
         assert client.post("/api/window/resize", headers=AUTH, json=body).status_code == 422
@@ -168,7 +279,7 @@ def test_long_http_chat_stop_permission_and_events_share_asgi_loop(transport):
     chat = app.state.services.chat
     with (
         client.websocket_connect(
-            "ws://127.0.0.1:8765/ws", subprotocols=PROTOCOLS, headers={"origin": ORIGIN}
+            "ws://127.0.0.1:8765/ws", subprotocols=PROTOCOLS, headers=AUTH
         ) as websocket,
         ThreadPoolExecutor() as workers,
     ):
@@ -207,7 +318,7 @@ def test_model_site_names_are_not_interpreted_as_url_paths(transport, monkeypatc
 def test_websocket_rejects_old_rpc_messages(transport):
     client, _ = transport
     with client.websocket_connect(
-        "ws://127.0.0.1:8765/ws", subprotocols=PROTOCOLS, headers={"origin": ORIGIN}
+        "ws://127.0.0.1:8765/ws", subprotocols=PROTOCOLS, headers=AUTH
     ) as websocket:
         websocket.send_json({"type": "request", "id": "1", "method": "get_current_theme"})
         with pytest.raises(WebSocketDisconnect) as error:
@@ -266,9 +377,17 @@ def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
 
     def start(**options):
         url = URL(captured["url"])
-        token = url.fragment.removeprefix("token=")
+        assert not url.fragment
+        response = httpx.get(
+            str(url),
+            follow_redirects=False,
+            timeout=3,
+            trust_env=False,
+        )
+        assert response.status_code == 200
+        token = url.query["token"]
         with connect(
-            str(url.with_scheme("ws").with_path("/ws").with_fragment("")),
+            str(url.with_scheme("ws").with_path("/ws").with_query(None)),
             origin=str(url.origin()),
             subprotocols=["xalling", f"auth.{token}"],
             proxy=None,
@@ -276,7 +395,7 @@ def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
             close_timeout=3,
         ):
             response = httpx.post(
-                str(url.with_path("/api/window/minimize").with_fragment("")),
+                str(url.with_path("/api/window/minimize").with_query(None)),
                 headers={"authorization": f"Bearer {token}", "origin": str(url.origin())},
                 timeout=3,
                 trust_env=False,
@@ -285,19 +404,91 @@ def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
             assert minimized.is_set()
 
     monkeypatch.setattr(main, "hide_claude_console_windows", lambda: None)
+    monkeypatch.setattr(main, "configure_logging", lambda **kwargs: None)
     monkeypatch.setattr(main.webview, "create_window", create_window)
     monkeypatch.setattr(main.webview, "start", start)
     main.main()
     assert "js_api" not in captured
     assert URL(captured["url"]).host == "127.0.0.1"
     (tmp_path / "index.html").write_text("Xalling", encoding="utf-8")
-    server = LocalWebSocketServer(tmp_path)
+    server = LocalWebSocketServer(tmp_path, WindowService())
+    assert server._socket.getsockname()[0] == "0.0.0.0"
+    assert server._server.config.host == "0.0.0.0"
     server.start()
     services = server.app.state.services
     server.stop()
     assert services.closing
     assert not server._thread.is_alive()
     assert server._socket.fileno() == -1
+
+
+@pytest.mark.parametrize("desktop", [False, True])
+def test_close_api_responds_then_stops_server_in_both_modes(tmp_path, desktop):
+    destroyed = Event()
+
+    class Window:
+        def destroy(self):
+            destroyed.set()
+
+    window = WindowService()
+    if desktop:
+        window.bind_window(Window())
+    (tmp_path / "index.html").write_text("Xalling", encoding="utf-8")
+    server = LocalWebSocketServer(tmp_path, window)
+    try:
+        server.start()
+        url = URL(server.url)
+        with httpx.Client(timeout=3, trust_env=False) as client:
+            assert client.get(str(url)).status_code == 200
+            response = client.post(str(url.with_path("/api/window/close").with_query(None)),
+                                   headers={"authorization": f"Bearer {url.query['token']}", "origin": str(url.origin())})
+        assert response.status_code == 200 and response.json() == {"closing": True}
+        server._thread.join(timeout=3)
+        assert not server._thread.is_alive()
+        assert server.app.state.services.closing
+        assert destroyed.is_set() == desktop
+    finally:
+        server.stop()
+
+
+def test_desktop_closes_window_before_client_cleanup_finishes(tmp_path, monkeypatch):
+    cleanup_started, release, destroyed = Event(), Event(), Event()
+
+    class Window:
+        def destroy(self):
+            destroyed.set()
+
+    window = WindowService()
+    window.bind_window(Window())
+    (tmp_path / "index.html").write_text("Xalling", encoding="utf-8")
+    server = LocalWebSocketServer(tmp_path, window)
+    try:
+        server.start()
+        chat = server.app.state.services.chat
+        original_shutdown = chat.shutdown_clients
+
+        async def delayed_shutdown():
+            assert destroyed.is_set()
+            cleanup_started.set()
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+            await original_shutdown()
+
+        monkeypatch.setattr(chat, "shutdown_clients", delayed_shutdown)
+        url = URL(server.url)
+        headers = {"authorization": f"Bearer {url.query['token']}", "origin": str(url.origin())}
+        with httpx.Client(base_url=str(url.origin()), timeout=3, trust_env=False) as client:
+            assert client.get(str(url)).status_code == 200
+            assert client.post("/api/window/close", headers=headers).json() == {"closing": True}
+            assert cleanup_started.wait(1)
+            assert destroyed.is_set()
+            assert server._thread.is_alive()
+        release.set()
+        server._thread.join(timeout=3)
+        assert not server._thread.is_alive()
+    finally:
+        release.set()
+        server.stop()
 
 
 @pytest.mark.anyio

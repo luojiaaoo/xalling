@@ -1,6 +1,6 @@
 export type ApiProtocol = "anthropic" | "chat" | "responses";
 
-import { TRANSPORT_READY_EVENT } from "./websocket";
+import { disconnectEvents, setClosing, TRANSPORT_READY_EVENT } from "./websocket";
 import { request } from "./http";
 export { TransportDisconnectedError } from "./websocket";
 
@@ -8,7 +8,7 @@ type ApplicationApi = {
   rewind_chat_files: (sessionId: string, checkpointId: string) => Promise<FileRewindResult>;
   minimize_window: () => Promise<void>;
   toggle_maximize_window: () => Promise<{ maximized: boolean }>;
-  close_window: () => Promise<void>;
+  close_window: () => Promise<{ closing: boolean }>;
   resize_window: (width: number, height: number, edge: string) => Promise<void>;
   list_directories: (path: string | null) => Promise<DirectoryListing>;
   list_root_directories: () => Promise<ProjectFolder[]>;
@@ -449,10 +449,44 @@ export async function toggleMaximizeWindow(): Promise<boolean> {
   return (await api.toggle_maximize_window()).maximized;
 }
 
-export async function closeWindow(): Promise<void> {
-  const api = applicationApi;
-  await api.close_window();
+export type ShutdownState = { phase: "idle" | "closing" | "closed" | "failed"; error: string };
+let shutdownState: ShutdownState = { phase: "idle", error: "" };
+const shutdownListeners = new Set<() => void>();
+
+export function getShutdownState(): ShutdownState {
+  return shutdownState;
 }
+
+export function subscribeShutdown(listener: () => void): () => void {
+  shutdownListeners.add(listener);
+  return () => { shutdownListeners.delete(listener); };
+}
+
+function updateShutdown(phase: ShutdownState["phase"], error = ""): void {
+  shutdownState = { phase, error };
+  for (const listener of shutdownListeners) listener();
+}
+
+export async function closeWindow(): Promise<void> {
+  if (shutdownState.phase === "closing" || shutdownState.phase === "closed") return;
+  setClosing(true);
+  updateShutdown("closing");
+  const api = applicationApi;
+  try {
+    await api.close_window();
+  } catch (error) {
+    updateShutdown("failed", error instanceof Error ? error.message : "无法创建关闭任务，请重试");
+    return;
+  }
+  disconnectEvents();
+  updateShutdown("closed");
+}
+
+// pagehide covers browsers that no longer dispatch unload. The close request
+// uses keepalive and the shutdown phase prevents duplicate exit requests.
+const closeOnPageExit = () => { void closeWindow(); };
+window.addEventListener("pagehide", closeOnPageExit);
+window.addEventListener("unload", closeOnPageExit);
 
 export async function resizeWindow(width: number, height: number, edge: string): Promise<void> {
   const api = applicationApi;
@@ -522,7 +556,7 @@ const applicationApi: ApplicationApi = {
   rewind_chat_files: (session_id, checkpoint_id) => request("POST", "/api/chat/files/rewind", { body: { session_id, checkpoint_id }, silent: true }),
   minimize_window: () => request("POST", "/api/window/minimize"),
   toggle_maximize_window: () => request("POST", "/api/window/maximize"),
-  close_window: () => request("POST", "/api/window/close"),
+  close_window: () => request("POST", "/api/window/close", { silent: true }),
   resize_window: (width, height, edge) => request("POST", "/api/window/resize", { body: { width, height, edge } }),
   list_directories: (path) => request("GET", "/api/files/directories", { query: { path }, silent: true }),
   list_root_directories: () => request("GET", "/api/files/roots", { silent: true }),

@@ -1,6 +1,6 @@
 """Native desktop controls exposed through FastAPI."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 
 from backend.router.dependencies import WindowDep, authenticate
 from backend.router.schemas import ResizeRequest
@@ -24,8 +24,9 @@ def toggle_maximize_window(window: WindowDep) -> dict[str, bool]:
 
 @router.post("/close")
 @capture_api_errors
-def close_window(window: WindowDep) -> None:
-    window.close()
+def close_window(window: WindowDep, background_tasks: BackgroundTasks) -> dict[str, bool]:
+    background_tasks.add_task(window.close)
+    return {"closing": True}
 
 
 @router.post("/resize")

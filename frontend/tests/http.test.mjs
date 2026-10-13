@@ -15,18 +15,19 @@ function environment(fetch) {
   const timers = new Map();
   const reports = [];
   let openEvents;
+  let closing = false;
   class TransportDisconnectedError extends Error {}
   const eventsReady = new Promise((resolve) => { openEvents = resolve; });
   const api = {};
   runInNewContext(compiled, {
-    exports: api, window, URL, AbortController, fetch,
+    exports: api, window, URL, AbortController, TypeError, fetch,
     require: (module) => module === "./apiMessage"
       ? { notifyApiError: (...args) => reports.push(args) }
-      : { connectEvents: () => eventsReady, connectionToken: () => "credential", TransportDisconnectedError },
+      : { connectEvents: () => eventsReady, connectionToken: () => "credential", isClosing: () => closing, TransportDisconnectedError },
     setTimeout: (callback) => { const handle = {}; timers.set(handle, callback); return handle; },
     clearTimeout: (handle) => timers.delete(handle),
   });
-  return { api, window, timers, reports, openEvents, TransportDisconnectedError };
+  return { api, window, timers, reports, openEvents, setClosing: (value) => { closing = value; }, TransportDisconnectedError };
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -49,6 +50,7 @@ test("HTTP waits for events, authenticates and encodes typed parameters", async 
   assert.equal(url.searchParams.get("project_path"), "D:/中文目录");
   assert.equal(url.searchParams.get("include_completed"), "false");
   assert.equal(url.searchParams.has("absent"), false);
+  assert.equal(options.credentials, "same-origin");
   assert.equal(options.headers.Authorization, "Bearer credential");
   assert.equal(options.method, "POST");
   assert.deepEqual(JSON.parse(options.body), { prompt: "hello" });
@@ -94,4 +96,41 @@ test("request timeout aborts transport and clears its timer", async () => {
   [...env.timers.values()][0]();
   await rejection;
   assert.equal(env.timers.size, 0);
+});
+
+test("shutdown request survives unload and does not wait for the event connection", async () => {
+  let finish, signal, keepalive;
+  const env = environment((_url, options) => {
+    signal = options.signal;
+    keepalive = options.keepalive;
+    return new Promise((resolve) => { finish = resolve; });
+  });
+  env.setClosing(true);
+  const close = env.api.request("POST", "/api/window/close");
+  assert.equal(keepalive, true);
+  env.window.dispatchEvent(new Event("xalling:transport-disconnected"));
+  env.window.dispatchEvent(new Event("beforeunload"));
+  assert.equal(signal.aborted, false);
+  finish({ ok: true, json: async () => ({ closing: true }) });
+  assert.equal((await close).closing, true);
+  assert.equal(env.timers.size, 0);
+  assert.equal(env.reports.length, 0);
+});
+
+test("closing suppresses notifications for pending and newly requested work", async () => {
+  let calls = 0;
+  const env = environment((_url, { signal }) => {
+    calls++;
+    return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
+  });
+  env.openEvents();
+  const pending = env.api.request("GET", "/api/chat/sessions");
+  const rejection = assert.rejects(pending, /应用正在关闭/);
+  await tick();
+  env.setClosing(true);
+  env.window.dispatchEvent(new Event("beforeunload"));
+  await rejection;
+  await assert.rejects(env.api.request("GET", "/api/chat/sessions/session/context"), /应用正在关闭/);
+  assert.equal(calls, 1);
+  assert.equal(env.reports.length, 0);
 });

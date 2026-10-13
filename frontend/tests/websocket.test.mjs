@@ -9,10 +9,9 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
-function environment(hash = "#token=test-credential") {
+function environment(search = "?token=credential", stored = new Map()) {
   const window = new EventTarget();
-  window.location = new URL(`http://127.0.0.1:12345/${hash}`);
-  const stored = new Map();
+  window.location = new URL(`http://127.0.0.1:12345/${search}`);
   const timers = new Map();
   const sockets = [];
   const api = {};
@@ -53,7 +52,7 @@ function environment(hash = "#token=test-credential") {
     }
   }
   runInNewContext(compiled, {
-    exports: api, window, WebSocket: Socket, URL, URLSearchParams, Event, CustomEvent,
+    exports: api, window, WebSocket: Socket, URL, Event, CustomEvent,
     sessionStorage: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) },
     history: { replaceState: (_state, _title, path) => { window.location = new URL(path, window.location); } },
     setTimeout: (callback, delay) => {
@@ -63,26 +62,27 @@ function environment(hash = "#token=test-credential") {
     },
     clearTimeout: (handle) => timers.delete(handle),
   });
-  return { api, window, sockets, stored, timers };
+  return { api, window, sockets, timers, stored };
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("event subscribers share one authenticated socket and hide launch credentials", async () => {
+test("event subscribers share one authenticated socket and save the launch token", async () => {
   const env = environment();
   const first = env.api.connectEvents();
   const second = env.api.connectEvents();
   assert.equal(env.sockets.length, 1);
   const socket = env.sockets[0];
   assert.equal(String(socket.url), "ws://127.0.0.1:12345/ws");
-  assert.deepEqual(Array.from(socket.protocols), ["xalling", "auth.test-credential"]);
+  assert.deepEqual(Array.from(socket.protocols), ["xalling", "auth.credential"]);
+  assert.equal(env.api.connectionToken(), "credential");
+  assert.equal(env.window.location.search, "");
   assert.equal(env.window.location.hash, "");
   socket.open();
   await tick();
   assert.equal(socket.sent.length, 0);
   assert.equal(await first, socket);
   assert.equal(await second, socket);
-  assert.equal(env.api.connectionToken(), "test-credential");
   env.window.dispatchEvent(new Event("beforeunload"));
   assert.equal(env.timers.size, 0);
 });
@@ -92,6 +92,7 @@ test("event socket dispatches chat envelopes in arrival order", async () => {
   const seen = [];
   env.window.addEventListener("xalling:chat-event", (event) => seen.push(event.detail));
   const call = env.api.connectEvents();
+  await tick();
   env.sockets[0].open();
   await call;
   env.sockets[0].receive({ type: "event", event: "chat", data: { event: "assistant.reply.delta" } });
@@ -108,6 +109,7 @@ test("disconnect signals recovery and reconnects the event channel", async () =>
   env.window.addEventListener("xalling:transport-ready", (event) => ready.push(event.detail.reconnected));
   env.window.addEventListener("xalling:transport-disconnected", () => disconnected++);
   const connection = env.api.connectEvents();
+  await tick();
   env.sockets[0].open();
   await connection;
   env.sockets[0].close();
@@ -115,16 +117,31 @@ test("disconnect signals recovery and reconnects the event channel", async () =>
   const [handle, reconnect] = [...env.timers].find(([, timer]) => timer.delay === 500);
   env.timers.delete(handle);
   reconnect.callback();
+  await tick();
   env.sockets[1].open();
   await tick();
   assert.deepEqual(ready, [false, true]);
   assert.equal(env.sockets[1].sent.length, 0);
-  assert.deepEqual(Array.from(env.sockets[1].protocols), ["xalling", "auth.test-credential"]);
+  assert.deepEqual(Array.from(env.sockets[1].protocols), ["xalling", "auth.credential"]);
   env.window.dispatchEvent(new Event("beforeunload"));
   assert.equal(env.timers.size, 0);
 });
 
-test("missing credentials fail immediately without creating a socket", async () => {
+test("refresh restores the saved token without a query or exchange request", async () => {
+  const original = environment("?token=credential&view=chat#section");
+  assert.equal(original.api.connectionToken(), "credential");
+  assert.equal(original.window.location.search, "?view=chat");
+  assert.equal(original.window.location.hash, "#section");
+  const refreshed = environment("", original.stored);
+  assert.equal(refreshed.api.connectionToken(), "credential");
+  const connected = refreshed.api.connectEvents();
+  refreshed.sockets[0].open();
+  await connected;
+  refreshed.api.disconnectEvents();
+  assert.equal(refreshed.timers.size, 0);
+});
+
+test("missing saved credentials cannot create an event socket", async () => {
   const env = environment("");
   await assert.rejects(env.api.connectEvents(), /连接凭证/);
   assert.equal(env.sockets.length, 0);

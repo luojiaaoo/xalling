@@ -14,7 +14,7 @@
 
 ## 简介
 
-Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领域逻辑与 Claude Agent SDK 智能体，前端用 React + Ant Design 构建界面，两者通过仅监听本机的 FastAPI HTTP 接口和 WebSocket 通信，pywebview 负责桌面窗口。
+Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领域逻辑与 Claude Agent SDK 智能体，前端用 React + Ant Design 构建界面，两者通过 token 认证的 FastAPI HTTP 接口和 WebSocket 通信，支持远程浏览器访问，pywebview 负责桌面窗口。
 
 ## 功能特性
 
@@ -61,7 +61,7 @@ flowchart LR
   Chat <--> Agent
 ```
 
-业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。各业务模块使用原生 `APIRouter`，共享服务和聊天任务由 FastAPI `lifespan` 管理。FastAPI / Uvicorn 仅监听 `127.0.0.1` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证与来源校验。详细通信契约与事件协议见 [AGENTS.md](AGENTS.md)。
+业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。各业务模块使用原生 `APIRouter`，共享服务和聊天任务由 FastAPI `lifespan` 管理。FastAPI / Uvicorn 监听 `0.0.0.0` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证校验，不限制 Host 或 Origin。详细通信契约与事件协议见 [AGENTS.md](AGENTS.md)。
 
 对话保留 Xalling 的原生事件与界面，实时和历史共用 `frontend/src/chat/` 中的归并器。原实现缺口、补齐内容和测试方式见 [对话事件实现说明](docs/chat-events.md)。
 
@@ -97,6 +97,18 @@ cd ..
 # 3. 启动
 uv run python main.py
 ```
+
+无头模式通过浏览器使用，不创建桌面窗口：
+
+```powershell
+uv run python main.py --headless
+```
+
+启动成功后，控制台仅输出 `http://127.0.0.1:<端口>/?token=<随机值>`。HTTP 钩子校验首次访问后禁用 query 认证，重复访问原链接返回 401。前端将同一个 token 保存到 sessionStorage、清除地址栏参数，后续请求使用 `Authorization: Bearer <token>`，支持连接中断后的重连。服务监听 `0.0.0.0` 的随机端口；远程访问时将链接中的 `127.0.0.1` 换成服务器 IP 或域名，保留端口和 token，首次授权链接仍只能使用一次。按 `Ctrl+C` 退出，运行日志保存在 `.xalling/xalling-log/`。
+
+点击 UI 关闭按钮后，后端创建关闭后台任务并返回成功。无头模式卸载业务组件，直接显示“已关闭”并保留浏览器页面；有头模式直接关闭原生窗口。后端在退出时完成任务与 SDK 清理，前端不轮询关闭状态。
+
+关闭标签页时，前端通过 `pagehide` / `unload` 发送带认证的 `keepalive` 关闭请求，让后端一同退出。刷新或离开页面也会触发关闭，因此需要重新启动应用才能再次访问。浏览器崩溃或进程被强制结束时，页面事件可能无法触发，可用 `Ctrl+C` 退出后端。
 
 ## 模型配置
 

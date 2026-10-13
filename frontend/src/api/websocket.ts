@@ -11,17 +11,29 @@ let reconnectDelay = 500;
 let unloading = false;
 let openedOnce = false;
 
+export function isClosing(): boolean {
+  return unloading;
+}
+
+export function setClosing(value: boolean): void {
+  unloading = value;
+  if (value && reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
 export function connectionToken(): string {
   const key = `xalling:ws-token:${window.location.origin}`;
-  const fragment = new URLSearchParams(window.location.hash.slice(1));
-  const supplied = fragment.get("token");
-  if (supplied) {
+  const url = new URL(window.location.href);
+  const supplied = url.searchParams.get("token");
+  if (supplied !== null) {
     sessionStorage.setItem(key, supplied);
-    // Keep the launch credential out of links and subsequent navigation.
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+    url.searchParams.delete("token");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
-  const token = supplied ?? sessionStorage.getItem(key);
-  if (!token) throw new Error("缺少本地服务连接凭证，请从桌面应用启动");
+  const token = sessionStorage.getItem(key);
+  if (!token) throw new Error("缺少服务连接凭证，请打开启动时提供的连接 URL");
   return token;
 }
 
@@ -54,10 +66,9 @@ export async function connectEvents(): Promise<WebSocket> {
   if (unloading) throw new Error("应用正在关闭");
   if (socket?.readyState === WebSocket.OPEN) return socket;
   if (connecting) return connecting;
-  const token = connectionToken();
   const url = new URL("/ws", window.location.href);
   url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const candidate = new WebSocket(url, ["xalling", `auth.${token}`]);
+  const candidate = new WebSocket(url, ["xalling", `auth.${connectionToken()}`]);
   socket = candidate;
   const attempt = new Promise<WebSocket>((resolve, reject) => {
     const timeout = setTimeout(() => candidate.close(), 10000);
@@ -94,8 +105,9 @@ export async function connectEvents(): Promise<WebSocket> {
   }
 }
 
-window.addEventListener("beforeunload", () => {
-  unloading = true;
-  if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+export function disconnectEvents(): void {
+  setClosing(true);
   socket?.close();
-});
+}
+
+window.addEventListener("beforeunload", disconnectEvents);

@@ -1,6 +1,6 @@
 /** Authenticated same-origin calls to typed FastAPI routes. */
 import { notifyApiError } from "./apiMessage";
-import { connectEvents, connectionToken, TransportDisconnectedError } from "./websocket";
+import { connectEvents, connectionToken, isClosing, TransportDisconnectedError } from "./websocket";
 
 type RequestOptions = {
   body?: unknown;
@@ -23,19 +23,26 @@ window.addEventListener("beforeunload", () => {
 
 export async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
+  const closingRequest = path === "/api/window/close";
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // Open the event channel before work can request tool permissions.
-    await connectEvents();
+    if (!closingRequest) {
+      if (isClosing()) throw new Error("应用正在关闭");
+      await connectEvents();
+      if (isClosing()) throw new Error("应用正在关闭");
+    }
     const url = new URL(path, window.location.origin);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
     }
-    inFlight.add(controller);
+    // Closing the server intentionally disconnects events; keep its response readable.
+    if (!closingRequest) inFlight.add(controller);
     timer = setTimeout(() => controller.abort(new Error("后端响应超时，请查看操作状态")), options.timeoutMs ?? 5 * 60 * 1000);
     const response = await fetch(url, {
       method,
       credentials: "same-origin",
+      keepalive: closingRequest,
       headers: { Authorization: `Bearer ${connectionToken()}`, "Content-Type": "application/json" },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
@@ -51,7 +58,7 @@ export async function request<T>(method: string, path: string, options: RequestO
     return result as T;
   } catch (error) {
     const failure: unknown = controller.signal.aborted ? controller.signal.reason : error;
-    if (!options.silent) notifyApiError(path, failure);
+    if (!options.silent && (!isClosing() || closingRequest)) notifyApiError(path, failure);
     throw failure;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
