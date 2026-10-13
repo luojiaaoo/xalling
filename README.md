@@ -101,7 +101,7 @@ uv run python main.py
 无头模式通过浏览器使用，不创建桌面窗口：
 
 ```powershell
-uv run python main.py --headless
+uv run python main_headless.py
 ```
 
 启动成功后，控制台仅输出 `http://127.0.0.1:<端口>/?token=<随机值>`。HTTP 钩子校验首次访问后禁用 query 认证，重复访问原链接返回 401。前端将同一个 token 保存到 sessionStorage、清除地址栏参数，后续请求使用 `Authorization: Bearer <token>`，支持连接中断后的重连。服务监听 `0.0.0.0` 的随机端口；远程访问时将链接中的 `127.0.0.1` 换成服务器 IP 或域名，保留端口和 token，首次授权链接仍只能使用一次。按 `Ctrl+C` 退出，运行日志保存在 `.xalling/xalling-log/`。
@@ -170,8 +170,19 @@ git submodule update --init --recursive
 
 脚本会依次执行：构建 `claude-proxy-rust` → 构建前端 → PyInstaller 打包 → Inno Setup 生成安装程序。产物位于 `dist\`：
 
-- `dist\Xalling\`：绿色目录版，可直接运行 `Xalling.exe`
-- `dist\Xalling-Setup-<版本>.exe`：安装程序（传 `onefile` 参数可跳过安装包步骤）
+- `dist\Xalling\`：绿色目录版，包含桌面入口 `Xalling.exe` 和无头入口 `Xalling-Server.exe`，两者共享 `_internal` 依赖及资源目录
+- `dist\Xalling-Setup-<版本>.exe`：安装程序
+
+安装后或在绿色目录中运行：
+
+```powershell
+.\Xalling.exe         # 桌面窗口，无控制台
+.\Xalling-Server.exe  # 无头服务，终端仅显示连接 URL；Ctrl+C 退出
+```
+
+无头入口不需要 `--headless` 参数；源码启动仍兼容 `uv run python main.py --headless`。安装程序会同时安装两个入口，并创建对应的开始菜单快捷方式。
+
+仅提供双入口共享依赖的目录版及对应安装包。也可以直接运行 `uv run pyinstaller --noconfirm Xalling.spec` 构建目录版。
 
 版本号由 `script\installer_windows.iss` 的 `MyAppVersion` 维护，需与 `pyproject.toml` 保持一致。Linux 构建方式见 [AGENTS.md](AGENTS.md)。
 
@@ -181,6 +192,7 @@ git submodule update --init --recursive
 
 ```text
 main.py                            # 窗口创建和应用生命周期
+main_headless.py                   # 无头服务入口，共用 main.py 生命周期
 backend/
   websocket_server.py             # FastAPI 应用、lifespan 与 Uvicorn 服务
   application.py                  # 应用服务、聊天任务与关闭清理

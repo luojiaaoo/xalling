@@ -247,6 +247,7 @@ FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天�
 
 ```text
 main.py                            # 原生窗口与本机服务启动、关闭
+main_headless.py                   # 无头控制台入口，共用 main.py 生命周期
 backend/
   websocket_server.py             # FastAPI 应用、lifespan 与 Uvicorn 服务
   application.py                  # 应用服务、聊天任务与关闭清理
@@ -327,8 +328,10 @@ git submodule update --init --recursive
 
 脚本会依次执行：构建 `claude-proxy-rust` → 构建前端 → PyInstaller 打包 → Inno Setup 生成安装程序。产物位于 `dist\`：
 
-- `dist\Xalling\`：绿色目录版，可直接运行 `Xalling.exe`
-- `dist\Xalling-Setup-<版本>.exe`：安装程序（仅 `--onedir` 模式生成；可传 `onefile` 参数跳过安装包步骤）
+- `dist\Xalling\`：绿色目录版，包含桌面入口 `Xalling.exe`（无控制台）和无头入口 `Xalling-Server.exe`（终端仅输出连接 URL），共享 `_internal` 依赖与资源
+- `dist\Xalling-Setup-<版本>.exe`：安装程序
+
+`Xalling-Server.exe` 无需 `--headless` 参数，按 `Ctrl+C` 退出；安装程序为两个入口创建开始菜单快捷方式。源码可使用 `uv run python main_headless.py`，也保留 `uv run python main.py --headless`。`Xalling.spec` 统一维护双入口与资源收集，仅提供双入口共享依赖的目录版，可运行 `uv run pyinstaller --noconfirm Xalling.spec` 构建。
 
 版本号由 `script\installer_windows.iss` 的 `MyAppVersion` 维护，需与 `pyproject.toml` 保持一致。
 

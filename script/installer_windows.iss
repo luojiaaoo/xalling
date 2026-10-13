@@ -37,6 +37,7 @@ Source: "..\dist\Xalling\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdi
 
 [Icons]
 Name: "{group}\Xalling"; Filename: "{app}\Xalling.exe"
+Name: "{group}\Xalling Server"; Filename: "{app}\Xalling-Server.exe"
 Name: "{group}\{cm:UninstallProgram,Xalling}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Xalling"; Filename: "{app}\Xalling.exe"; Tasks: desktopicon
 
