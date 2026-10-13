@@ -39,6 +39,7 @@ error_logger = logger.bind(channel="error")
 session_debug_logger = logger.bind(channel="session_debug")
 claude_sdk_logger = logger.bind(channel="claude_sdk")
 other_logger = logger.bind(channel="other")
+console_logger = logger.bind(channel="console")
 
 # 把标准 logging 的日志统一转发给 Loguru。
 class _LoguruHandler(logging.Handler):
@@ -52,18 +53,19 @@ class _LoguruHandler(logging.Handler):
         other_logger.opt(exception=record.exc_info).log(level, record.getMessage())
 
 
-def configure_logging(*, console: bool = True) -> None:
-    """Configure file log channels and an optional console sink."""
+def configure_logging() -> None:
+    """Write application logs to files and explicit console messages to stdout."""
     LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
     logger.remove()
-    if console:
+    if sys.stdout is not None:
         logger.add(
-            sys.stderr,
+            sys.stdout,
             level="INFO",
-            format=LOG_FORMAT,
-            backtrace=True,
+            format="{time:YYYY-MM-DD HH:mm:ss} | {message}",
+            filter=lambda record: record["extra"].get("channel") == "console",
+            colorize=False,
+            backtrace=False,
             diagnose=False,
-            enqueue=True,
         )
     logger.add(
         ACCESS_LOG_FILEPATH,

@@ -233,7 +233,7 @@ FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天�
 
 ### 连接与安全
 
-- Uvicorn 监听 `0.0.0.0` 的随机端口，FastAPI 同时提供 `frontend/dist` 静态资源。桌面窗口和控制台 URL 使用 `127.0.0.1`；远程访问时替换为服务器 IP 或域名，保留端口和 token。
+- Uvicorn 监听 `0.0.0.0` 的随机端口，FastAPI 同时提供 `frontend/dist` 静态资源。桌面窗口使用 `127.0.0.1`；有头与无头模式均通过 `console_logger` 在可用终端中输出带时间的标题、本机各网卡 IPv4 地址和 `127.0.0.1` 的连接链接及一次消费提醒，链接共享同一个一次性 token。终端只显示显式 console 通道消息，其他日志写入对应文件；窗口版 exe 无控制台时仅写文件日志。
 - 每次启动生成一个随机 token，通过窗口/控制台 URL 的 `?token=...` 授权首次页面访问。HTTP 中间件校验成功后立即禁用 query 认证，重复使用原链接返回 401。前端将同一个 token 保存到当前 origin 的 sessionStorage，并清除地址栏参数，支持连接中断后的重连；不使用 Cookie 或额外的兑换接口。
 - WebSocket 用 `xalling` 与 `auth.<token>` 子协议握手，不限制 Origin 或 Host。凭证不得进入访问日志。
 - HTTP API 使用 `Authorization: Bearer <token>`，不限制 Host 或 Origin，CORS 允许任意来源、方法及请求头；前端先建立事件连接，再提交业务请求，以便接收权限事件。静态页面及跨域预检可以加载，业务调用必须认证。

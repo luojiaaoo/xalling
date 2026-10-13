@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -23,8 +24,6 @@ def close_test_log_sinks():
 def configure_test_logging(
     log_directory: Path,
     monkeypatch: pytest.MonkeyPatch,
-    *,
-    console: bool = True,
 ) -> None:
     """Point every application log path at one isolated test directory."""
     monkeypatch.setattr(log, "LOG_DIRECTORY", log_directory)
@@ -40,12 +39,15 @@ def configure_test_logging(
         library_logger = logging.getLogger(name)
         monkeypatch.setattr(library_logger, "handlers", list(library_logger.handlers))
         monkeypatch.setattr(library_logger, "propagate", library_logger.propagate)
-    log.configure_logging(console=console)
+    log.configure_logging()
 
 
-@pytest.mark.parametrize("console", [False, True])
-def test_application_and_library_logs_share_loguru_in_both_modes(tmp_path, monkeypatch, capsys, console):
-    configure_test_logging(tmp_path, monkeypatch, console=console)
+def test_only_console_channel_reaches_terminal_and_other_logs_stay_in_files(tmp_path, monkeypatch, capsys):
+    configure_test_logging(tmp_path, monkeypatch)
+    link = "http://127.0.0.1:8765/?token=private-launch-token"
+    log.console_logger.info(link)
+    logger.debug("debug details")
+    logger.info("ordinary log details")
     log.access_logger.info("application API call")
     log.error_logger.error("application error")
     logging.getLogger("uvicorn.error").info("server started")
@@ -53,23 +55,18 @@ def test_application_and_library_logs_share_loguru_in_both_modes(tmp_path, monke
     logging.getLogger("pywebview").info("native window message")
     logger.complete()
     captured = capsys.readouterr()
-    assert captured.out == ""
-    if console:
-        assert captured.err.count("server started") == 1
-        assert captured.err.count("native window message") == 1
-        assert "| INFO | server started" in captured.err
-        assert "| ERROR | server error" in captured.err
-    else:
-        assert captured.err == ""
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| " + re.escape(link) + r"\n", captured.out)
+    assert captured.err == ""
     access = (tmp_path / "access.log").read_text(encoding="utf-8")
     errors = (tmp_path / "error.log").read_text(encoding="utf-8")
     other = (tmp_path / "other.log").read_text(encoding="utf-8")
     assert "application API call" in access and "server started" not in access
     assert "application error" in errors and "server error" not in errors
     assert "native window message" in other and "server started" in other and "server error" in other
+    assert all("private-launch-token" not in path.read_text(encoding="utf-8") for path in tmp_path.glob("*.log"))
 
 
-def test_capture_api_errors_logs_to_console_and_file(
+def test_capture_api_errors_logs_to_files_without_console_output(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -87,13 +84,24 @@ def test_capture_api_errors_logs_to_console_and_file(
         fail()
 
     logger.complete()  # enqueue=True 时日志异步落盘，先等队列刷完
-    console_output = capsys.readouterr().err
+    assert capsys.readouterr() == ("", "")
     file_output = error_log.read_text(encoding="utf-8")
-    for output in (console_output, file_output):
-        assert "FastAPI call failed" in output
-        assert "ValueError: API failed" in output
-        assert "test_capture_api_errors_logs_to_console_and_file.<locals>.fail" in output
+    assert "FastAPI call failed" in file_output
+    assert "ValueError: API failed" in file_output
+    assert "test_capture_api_errors_logs_to_files_without_console_output.<locals>.fail" in file_output
     assert "error=ValueError: API failed" in access_log.read_text(encoding="utf-8")
+
+
+def test_windowed_build_without_standard_streams_keeps_file_logging(tmp_path, monkeypatch, capsys):
+    with monkeypatch.context() as streams:
+        streams.setattr(log.sys, "stdout", None)
+        streams.setattr(log.sys, "stderr", None)
+        configure_test_logging(tmp_path, monkeypatch)
+        log.console_logger.info("connection link")
+        logging.getLogger("pywebview").info("windowed message")
+        logger.complete()
+    assert capsys.readouterr() == ("", "")
+    assert "windowed message" in (tmp_path / "other.log").read_text(encoding="utf-8")
 
 
 def test_capture_api_errors_supports_async_functions(
@@ -132,12 +140,11 @@ def test_capture_api_errors_logs_redacted_inputs_and_outputs(
     }
 
     logger.complete()
-    console_output = capsys.readouterr().err
+    assert capsys.readouterr() == ("", "")
     file_output = access_log.read_text(encoding="utf-8")
-    for output in (console_output, file_output):
-        assert "input={'prompt': 'hello', 'api_key': '**********'}" in output
-        assert "output={'answer': 'HELLO', 'api_key': '**********'}" in output
-        assert "top-secret" not in output
+    assert "input={'prompt': 'hello', 'api_key': '**********'}" in file_output
+    assert "output={'answer': 'HELLO', 'api_key': '**********'}" in file_output
+    assert "top-secret" not in file_output
 
 
 def test_frontend_errors_log_to_separate_browser_file(

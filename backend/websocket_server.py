@@ -11,6 +11,7 @@ from functools import partial
 from pathlib import Path
 from threading import Thread
 
+import psutil
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -161,6 +162,18 @@ class LocalWebSocketServer:
                 self.stop()
                 raise RuntimeError("无法启动本地 WebSocket 服务")
             time.sleep(0.01)
+
+    def connection_urls(self) -> list[str]:
+        """Return launch links for every configured local IPv4 address."""
+        addresses = {"127.0.0.1"}
+        addresses.update(
+            address.address
+            for interface in psutil.net_if_addrs().values()
+            for address in interface
+            if address.family == socket.AF_INET and address.address != "0.0.0.0"
+        )
+        url = URL(self.url)
+        return [self.url, *(str(url.with_host(host)) for host in sorted(addresses - {url.host}))]
 
     def stop(self) -> None:
         self.request_shutdown()

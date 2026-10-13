@@ -17,6 +17,8 @@ def headless_startup(tmp_path, monkeypatch):
     logging = Mock()
     monkeypatch.setattr(main, "configure_logging", logging)
     server = Mock(url="http://127.0.0.1:8765/?token=test-token")
+    server.connection_urls.return_value = [server.url, "http://192.168.1.10:8765/?token=test-token"]
+    monkeypatch.setattr(main, "console_logger", Mock())
     monkeypatch.setattr(main, "LocalWebSocketServer", Mock(return_value=server))
     create_window, start_window = Mock(), Mock()
     monkeypatch.setattr(main.webview, "create_window", create_window)
@@ -24,22 +26,32 @@ def headless_startup(tmp_path, monkeypatch):
     return server, logging, create_window, start_window
 
 
-def test_headless_prints_only_url_and_stops_on_ctrl_c(headless_startup, capsys):
+def test_headless_logs_all_connection_urls_and_stops_on_ctrl_c(headless_startup, capsys):
     server, logging, create_window, start_window = headless_startup
     server.wait.side_effect = KeyboardInterrupt
     main.main(headless=True)
-    assert capsys.readouterr() == (f"{server.url}\n", "")
-    logging.assert_called_once_with(console=False)
+    assert capsys.readouterr() == ("", "")
+    main.console_logger.info.assert_called_once()
+    message = main.console_logger.info.call_args.args[0]
+    assert message.startswith("Xalling 连接地址\n")
+    assert "首次授权后全部失效" in message
+    assert all(url in message for url in server.connection_urls.return_value)
+    logging.assert_called_once_with()
     server.start.assert_called_once_with()
     server.stop.assert_called_once_with()
     create_window.assert_not_called()
     start_window.assert_not_called()
 
 
-def test_desktop_initializes_loguru_with_console_output(headless_startup):
+def test_desktop_uses_same_console_channel_and_connection_urls(headless_startup):
     server, logging, create_window, start_window = headless_startup
     main.main()
-    logging.assert_called_once_with(console=True)
+    logging.assert_called_once_with()
+    main.console_logger.info.assert_called_once()
+    message = main.console_logger.info.call_args.args[0]
+    assert message.startswith("Xalling 连接地址\n")
+    assert "首次授权后全部失效" in message
+    assert all(url in message for url in server.connection_urls.return_value)
     create_window.assert_called_once()
     start_window.assert_called_once()
     server.wait.assert_not_called()
@@ -52,7 +64,8 @@ def test_headless_cleans_up_after_server_failure(headless_startup, capsys, failu
     getattr(server, failure_at).side_effect = RuntimeError("server failed")
     with pytest.raises(RuntimeError, match="server failed"):
         main.main(headless=True)
-    assert capsys.readouterr() == ("" if failure_at == "start" else f"{server.url}\n", "")
+    assert capsys.readouterr() == ("", "")
+    assert main.console_logger.info.call_count == (0 if failure_at == "start" else 1)
     server.stop.assert_called_once_with()
     create_window.assert_not_called()
     start_window.assert_not_called()

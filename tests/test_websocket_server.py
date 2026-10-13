@@ -1,8 +1,10 @@
 """Native FastAPI contracts, event-loop ownership and desktop lifecycle."""
 
 import asyncio
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, get_ident
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -420,6 +422,30 @@ def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
     assert services.closing
     assert not server._thread.is_alive()
     assert server._socket.fileno() == -1
+
+
+@pytest.mark.parametrize("interface_name", ["Ethernet", "eth0"])
+def test_connection_urls_cover_all_ipv4_interfaces_with_one_shared_token(tmp_path, monkeypatch, interface_name):
+    monkeypatch.setattr("backend.websocket_server.psutil.net_if_addrs", lambda: {
+        interface_name: [
+            SimpleNamespace(family=socket.AF_INET, address="192.168.1.10"),
+            SimpleNamespace(family=socket.AF_INET, address="10.0.0.2"),
+            SimpleNamespace(family=socket.AF_INET6, address="::1"),
+            SimpleNamespace(family=socket.AF_INET, address="0.0.0.0"),
+        ],
+        "loopback": [SimpleNamespace(family=socket.AF_INET, address="127.0.0.1")],
+        "virtual": [SimpleNamespace(family=socket.AF_INET, address="192.168.1.10")],
+    })
+    server = LocalWebSocketServer(tmp_path, WindowService())
+    try:
+        launch = URL(server.url)
+        urls = [URL(url) for url in server.connection_urls()]
+        assert [url.host for url in urls] == ["127.0.0.1", "10.0.0.2", "192.168.1.10"]
+        assert all(url.port == launch.port and url.query == launch.query and url.path == "/" for url in urls)
+        monkeypatch.setattr("backend.websocket_server.psutil.net_if_addrs", dict)
+        assert server.connection_urls() == [server.url]
+    finally:
+        server.stop()
 
 
 @pytest.mark.parametrize("desktop", [False, True])
