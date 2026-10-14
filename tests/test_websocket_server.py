@@ -73,6 +73,38 @@ def transport(tmp_path):
         yield client, app
 
 
+def test_window_capabilities_require_auth_and_report_headless_mode(transport):
+    client, _ = transport
+    assert client.get("/api/window/capabilities").status_code == 401
+    response = client.get("/api/window/capabilities", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json() == {"native_window": False}
+
+
+def test_window_capabilities_enable_native_controls_after_binding(transport):
+    client, app = transport
+    resized = []
+    window = SimpleNamespace(resize=lambda *args: resized.append(args))
+    app.state.services.window.bind_window(window)
+    assert client.get("/api/window/capabilities", headers=AUTH).json() == {"native_window": True}
+    assert client.post(
+        "/api/window/resize", headers=AUTH, json={"width": 1200, "height": 800, "edge": "e"},
+    ).status_code == 200
+    assert resized[0][:2] == (1200, 800)
+
+
+def test_window_capabilities_sanitize_internal_errors(transport, monkeypatch):
+    client, app = transport
+
+    def fail():
+        raise RuntimeError("private-window-details")
+
+    monkeypatch.setattr(app.state.services.window, "get_capabilities", fail)
+    response = client.get("/api/window/capabilities", headers=AUTH)
+    assert response.status_code == 500
+    assert "private-window-details" not in response.text
+
+
 def test_launch_token_is_one_time_and_session_survives_reconnect(transport):
     client, app = transport
     app.state.first_access = True

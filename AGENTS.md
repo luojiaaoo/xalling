@@ -237,7 +237,7 @@ FastAPI `lifespan` 创建共享 `ApplicationServices`，SDK 客户端、聊天�
 - 每次启动生成一个随机 token，通过窗口/控制台 URL 的 `?token=...` 授权首次页面访问。HTTP 中间件校验成功后立即禁用 query 认证，重复使用原链接返回 401。前端将同一个 token 保存到当前 origin 的 sessionStorage，并清除地址栏参数，支持连接中断后的重连；不使用 Cookie 或额外的兑换接口。
 - WebSocket 用 `xalling` 与 `auth.<token>` 子协议握手，不限制 Origin 或 Host。凭证不得进入访问日志。
 - HTTP API 使用 `Authorization: Bearer <token>`，不限制 Host 或 Origin，CORS 允许任意来源、方法及请求头；前端先建立事件连接，再提交业务请求，以便接收权限事件。静态页面及跨域预检可以加载，业务调用必须认证。
-- UI 关闭按钮让后端创建关闭后台任务并返回 `{"closing": true}`。无头模式收到成功响应后卸载业务界面，直接显示“已关闭”，保留浏览器页面并停止业务轮询和 WebSocket 重连；有头模式直接销毁原生窗口。后端在退出时完成任务与 SDK 清理。前端不轮询关闭状态，不调用 `window.close()`。
+- 界面通过已认证的窗口能力接口判断是否存在原生窗口；无头模式不渲染缩放边缘以及最小化、最大化、关闭按钮。有头模式的关闭按钮让后端创建关闭后台任务并返回 `{"closing": true}`，随后销毁原生窗口。后端在退出时完成任务与 SDK 清理。前端不显示关闭状态页、不轮询关闭状态，也不调用 `window.close()`。
 - 页面 `pagehide` / `unload` 事件复用带认证及 `keepalive` 的关闭请求，关闭标签页时同时关闭后端，关闭按钮与页面退出不会重复创建关闭请求。刷新或离开页面也会关闭后端；切换标签页不关闭。浏览器崩溃或进程被强制结束时，页面事件可能无法触发。
 - 前端业务组件必须集中调用 `client.ts`，不得直接创建连接或访问 `window.pywebview.api`。
 - pywebview 只承担原生窗口能力，不配置 `js_api`，业务事件不使用 `evaluate_js`。

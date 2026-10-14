@@ -14,6 +14,7 @@ import { WindowResizeHandles } from "./components/WindowResizeHandles";
 import { Workspace } from "./components/Workspace";
 import {
   getCurrentTheme,
+  getWindowCapabilities,
   listChatSessions,
   setChatPermissionMode,
   setCurrentTheme,
@@ -76,6 +77,7 @@ export default function App() {
   const [chatSessionsLoading, setChatSessionsLoading] = useState(true);
   const chatSessionsRequestIdRef = useRef(0);
   const [windowMaximized, setWindowMaximized] = useState(false);
+  const [nativeWindowAvailable, setNativeWindowAvailable] = useState(false);
   const illustrationTheme = useIllustrationTheme();
   const geekTheme = useGeekTheme();
   const sereneTheme = useSereneTheme();
@@ -128,6 +130,16 @@ export default function App() {
         }
       })
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void getWindowCapabilities()
+      .then(({ native_window }) => {
+        if (active) setNativeWindowAvailable(native_window);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -292,8 +304,12 @@ export default function App() {
       <AntdApp>
         <ApiMessageHost />
         <div className="desktop-app">
-        <TitleBar maximized={windowMaximized} onMaximizedChange={setWindowMaximized} />
-        <WindowResizeHandles disabled={windowMaximized} />
+        <TitleBar
+          maximized={windowMaximized}
+          onMaximizedChange={setWindowMaximized}
+          nativeWindowAvailable={nativeWindowAvailable}
+        />
+        <WindowResizeHandles disabled={!nativeWindowAvailable || windowMaximized} />
         {!sidebarVisible && (
           <div className="sidebar-collapsed-actions">
             <Tooltip title="展开侧栏">

@@ -6,24 +6,6 @@
 
 * { box-sizing: border-box; }
 
-.shutdown-screen {
-  display: flex;
-  font-family: system-ui, "Microsoft YaHei", sans-serif;
-  min-height: 100dvh;
-  padding: 32px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  text-align: center;
-}
-
-.shutdown-screen h1 { margin: 0; font-size: 20px; font-weight: 500; }
-.shutdown-screen p { margin: 0; opacity: .6; }
-.shutdown-screen .anticon { font-size: 40px; }
-.shutdown-success { color: #52c41a; }
-.shutdown-error { color: #d4380d; }
-
 .settings-page {
   position: relative; flex: 1; min-width: 0; overflow: auto; padding: 58px clamp(28px, 5vw, 76px) 42px;
   background: #f8f8fc;

@@ -23,29 +23,35 @@ function environment(request) {
   return { actions, window, isClosing: () => closing, api: load(fileURLToPath(new URL("../src/api/client.ts", import.meta.url))) };
 }
 
-test("close marks the page closed immediately after acknowledgement without closing the tab", async () => {
+test("desktop close requests backend shutdown and disconnects events after acknowledgement", async () => {
   let acknowledge;
-  const env = environment((method, path) => {
+  const env = environment((method, path, options) => {
     assert.equal(method, "POST");
     assert.equal(path, "/api/window/close");
+    assert.equal(options.silent, false);
     return new Promise((resolve) => { acknowledge = resolve; });
   });
   const closed = env.api.closeWindow();
   assert.deepEqual(env.actions, []);
   assert.equal(env.isClosing(), true);
-  assert.equal(env.api.getShutdownState().phase, "closing");
   acknowledge({ closing: true });
   await closed;
   assert.deepEqual(env.actions, ["events.close"]);
-  assert.equal(env.api.getShutdownState().phase, "closed");
+  assert.equal(env.isClosing(), true);
 });
 
-test("failed shutdown leaves the tab open to show the error", async () => {
-  const env = environment(async () => { throw new Error("shutdown failed"); });
+test("failed desktop close allows normal work and another close attempt", async () => {
+  let requests = 0;
+  const env = environment(async () => {
+    if (++requests === 1) throw new Error("shutdown failed");
+    return { closing: true };
+  });
   await env.api.closeWindow();
   assert.deepEqual(env.actions, []);
-  assert.equal(env.api.getShutdownState().phase, "failed");
-  assert.equal(env.api.getShutdownState().error, "shutdown failed");
+  assert.equal(env.isClosing(), false);
+  await env.api.closeWindow();
+  assert.equal(requests, 2);
+  assert.deepEqual(env.actions, ["events.close"]);
 });
 
 test("repeated close clicks create only one shutdown request", async () => {
@@ -55,10 +61,13 @@ test("repeated close clicks create only one shutdown request", async () => {
     return new Promise((resolve) => { acknowledge = resolve; });
   });
   const first = env.api.closeWindow();
-  await env.api.closeWindow();
+  const second = env.api.closeWindow();
+  assert.equal(second, first);
   assert.equal(requests, 1);
   acknowledge({ closing: true });
   await first;
+  await env.api.closeWindow();
+  assert.equal(requests, 1);
 });
 
 for (const event of ["pagehide", "unload"]) {
@@ -79,7 +88,7 @@ for (const event of ["pagehide", "unload"]) {
     assert.equal(requests, 1);
     acknowledge({ closing: true });
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(env.api.getShutdownState().phase, "closed");
+    assert.deepEqual(env.actions, ["events.close"]);
     env.window.dispatchEvent(new Event("unload"));
     assert.equal(requests, 1);
   });

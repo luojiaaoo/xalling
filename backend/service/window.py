@@ -110,6 +110,10 @@ class WindowService:
         self._restore_bounds = None
         self._native_maximize_active = False
 
+    def get_capabilities(self) -> dict[str, bool]:
+        """告诉界面当前是否存在可控制的原生窗口。"""
+        return {"native_window": self._window is not None}
+
     def _get_window(self) -> Any:
         if self._window is None:
             raise RuntimeError("窗口尚未初始化")

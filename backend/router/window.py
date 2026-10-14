@@ -10,6 +10,12 @@ from backend.service.window import WindowService
 router = APIRouter(prefix="/api/window", tags=["window"], dependencies=[Depends(authenticate)])
 
 
+@router.get("/capabilities")
+@capture_api_errors
+def get_window_capabilities(window: WindowDep) -> dict[str, bool]:
+    return window.get_capabilities()
+
+
 @router.post("/minimize")
 @capture_api_errors
 def minimize_window(window: WindowDep) -> None:
