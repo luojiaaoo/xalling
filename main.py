@@ -69,7 +69,9 @@ def _run_instance(instance: SingleInstance, *, headless: bool) -> None:
             background_color="#f7f7fb",
         )
         window_service.bind_window(window)
-        window.events.shown += lambda: instance.start(window_service.activate)
+
+        # 原生窗口已创建，此时可以访问句柄；无需等待窗口显示。
+        window.events.before_show += lambda: instance.start(window_service.activate)
 
         webview.start(debug=DEBUG)
     finally:

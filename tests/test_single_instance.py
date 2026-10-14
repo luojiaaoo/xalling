@@ -64,7 +64,7 @@ def test_repeated_launches_notify_running_owner(instance_name):
         primary.close()
 
 
-def test_close_before_window_shown_does_not_start_listener(instance_name):
+def test_close_before_window_ready_does_not_start_listener(instance_name):
     instance = SingleInstance(instance_name)
     assert instance.acquire()
     instance.close()

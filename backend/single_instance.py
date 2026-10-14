@@ -92,7 +92,7 @@ class SingleInstance:
         if not self._mutex:
             raise ctypes.WinError(ctypes.get_last_error())
         self._owner = ctypes.get_last_error() != ERROR_ALREADY_EXISTS
-        # 自动复位事件会保留启动期间的唤醒请求，窗口显示后再消费。
+        # 自动复位事件会保留启动期间的唤醒请求，原生窗口准备好后再消费。
         self._event = self._api.CreateEventW(None, False, False, self._name + ".Activate")
         if not self._event:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -117,7 +117,7 @@ class SingleInstance:
         return True
 
     def start(self, activate: Callable[[], None]) -> None:
-        """Windows 原生窗口显示后开始监听；Linux 和无头模式只持锁。"""
+        """Windows 原生窗口准备好后开始监听；Linux 和无头模式只持锁。"""
         with self._lifecycle_lock:
             if self._api is None or not self._owner or self._closed or self._thread is not None:
                 return

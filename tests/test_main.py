@@ -25,8 +25,8 @@ def headless_startup(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "LocalWebSocketServer", Mock(return_value=server))
     create_window, start_window = Mock(), Mock()
     create_window.return_value = MagicMock()
-    shown = create_window.return_value.events.shown
-    shown.__iadd__.return_value = shown
+    before_show = create_window.return_value.events.before_show
+    before_show.__iadd__.return_value = before_show
     monkeypatch.setattr(main.webview, "create_window", create_window)
     monkeypatch.setattr(main.webview, "start", start_window)
     return server, logging, create_window, start_window
@@ -63,8 +63,9 @@ def test_desktop_uses_same_console_channel_and_connection_urls(headless_startup)
     server.wait.assert_not_called()
     server.stop.assert_called_once_with()
     instance = main.SingleInstance.return_value
-    shown = create_window.return_value.events.shown.__iadd__.call_args.args[0]
-    shown()
+    before_show = create_window.return_value.events.before_show.__iadd__.call_args.args[0]
+    instance.start.assert_not_called()
+    before_show()
     instance.start.assert_called_once()
     instance.close.assert_called_once_with()
 
