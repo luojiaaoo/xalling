@@ -1,7 +1,9 @@
 """Application logging channels, file sinks, and API-call capture."""
 
 import inspect
+import io
 import logging
+import os
 import sys
 from collections.abc import Callable
 from functools import wraps
@@ -30,6 +32,7 @@ SILENT_ACCESS_LOG_CALLS = frozenset(
         "get_context_usage",  # 高频
         "save_attachment",  # 文件保存
         "get_active_chat",  # 包含大量工具信息
+        "get_chat_session",  # 历史同时包含原始事件与渲染事件，不整段写入日志
     }
 )
 
@@ -57,7 +60,12 @@ def configure_logging() -> None:
     """Write application logs to files and explicit console messages to stdout."""
     LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
     logger.remove()
-    if sys.stdout is not None:
+    # windows控制台是gbk的，如果输出有emoji，会导致标准输出线程异常
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="backslashreplace")
+    # 无控制台时，就不输出标准输出日志了
+    if sys.stdout is not None and getattr(sys.stdout, "name", None) != os.devnull:
         logger.add(
             sys.stdout,
             level="INFO",

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -102,6 +103,48 @@ def test_windowed_build_without_standard_streams_keeps_file_logging(tmp_path, mo
         logger.complete()
     assert capsys.readouterr() == ("", "")
     assert "windowed message" in (tmp_path / "other.log").read_text(encoding="utf-8")
+
+
+def test_windowed_gbk_nul_streams_are_patched_before_console_is_skipped(tmp_path, monkeypatch, capsys):
+    # pywebview creates these streams when Python starts without a console.
+    with (
+        open(os.devnull, "w", encoding="gbk") as stdout,
+        open(os.devnull, "w", encoding="gbk") as stderr,
+        monkeypatch.context() as streams,
+    ):
+        streams.setattr(log.sys, "stdout", stdout)
+        streams.setattr(log.sys, "stderr", stderr)
+        configure_test_logging(tmp_path, monkeypatch)
+        assert stdout.encoding == stderr.encoding == "gbk"
+        assert stdout.errors == stderr.errors == "backslashreplace"
+        # Other libraries and Loguru's own error reporter can still use these streams.
+        stdout.write("Unicode output: 😊")
+        stderr.write("Unicode logging error: ℹ 😊")
+        log.console_logger.info("Xalling 😊")
+        log.access_logger.info("history reply: 你好 😊")
+        logging.getLogger("pywebview").info("Unicode status: ℹ 😊")
+        logger.complete()
+    assert capsys.readouterr() == ("", "")
+    assert "你好 😊" in (tmp_path / "access.log").read_text(encoding="utf-8")
+    assert "ℹ 😊" in (tmp_path / "other.log").read_text(encoding="utf-8")
+
+
+def test_gbk_console_escapes_emoji_and_excludes_history(tmp_path, monkeypatch):
+    with (
+        (tmp_path / "terminal.log").open("w", encoding="gbk") as stdout,
+        open(os.devnull, "w", encoding="gbk") as stderr,
+        monkeypatch.context() as streams,
+    ):
+        streams.setattr(log.sys, "stdout", stdout)
+        streams.setattr(log.sys, "stderr", stderr)
+        configure_test_logging(tmp_path, monkeypatch)
+        log.console_logger.info("Xalling 连接地址 😊")
+        log.access_logger.info("history reply: 你好 😊")
+        logger.complete()
+        assert stdout.encoding == "gbk"
+        assert stdout.errors == stderr.errors == "backslashreplace"
+    assert (tmp_path / "terminal.log").read_text(encoding="gbk").strip().endswith("Xalling 连接地址 \\U0001f60a")
+    assert "你好 😊" in (tmp_path / "access.log").read_text(encoding="utf-8")
 
 
 def test_capture_api_errors_supports_async_functions(
