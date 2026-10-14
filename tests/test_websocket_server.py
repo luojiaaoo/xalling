@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event, get_ident
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock, Mock
 
 import httpx
 import pytest
@@ -402,6 +403,8 @@ def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
     minimized = Event()
 
     class Window:
+        events = MagicMock()
+
         def minimize(self):
             minimized.set()
 
@@ -439,6 +442,7 @@ def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
 
     monkeypatch.setattr(main, "hide_claude_console_windows", lambda: None)
     monkeypatch.setattr(main, "configure_logging", lambda **kwargs: None)
+    monkeypatch.setattr(main, "SingleInstance", lambda: Mock(acquire=Mock(return_value=True)))
     monkeypatch.setattr(main.webview, "create_window", create_window)
     monkeypatch.setattr(main.webview, "start", start)
     main.main()

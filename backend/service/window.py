@@ -10,6 +10,7 @@ from webview.window import FixPoint
 
 from backend.config.setting import default_project_folder
 from backend.helper import normalize_project_path
+from backend.single_instance import activate_window
 
 MIN_WINDOW_WIDTH = 400
 MIN_WINDOW_HEIGHT = 600
@@ -122,6 +123,15 @@ class WindowService:
     def minimize(self) -> None:
         """Minimize the native application window."""
         self._get_window().minimize()
+
+    def activate(self) -> None:
+        """再次启动时唤醒已有窗口，保留原来的最大化状态。"""
+        window = self._get_window()
+        if IS_WINDOWS:
+            activate_window(window.native.Handle.ToInt64())
+        else:
+            window.restore()
+            window.show()
 
     def toggle_maximize(self) -> dict[str, bool]:
         """Toggle maximization without covering the Windows taskbar."""

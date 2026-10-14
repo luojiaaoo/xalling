@@ -1,6 +1,6 @@
 """Headless startup, console output and server cleanup."""
 
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -16,11 +16,17 @@ def headless_startup(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "hide_claude_console_windows", Mock())
     logging = Mock()
     monkeypatch.setattr(main, "configure_logging", logging)
+    instance = Mock()
+    instance.acquire.return_value = True
+    monkeypatch.setattr(main, "SingleInstance", Mock(return_value=instance))
     server = Mock(url="http://127.0.0.1:8765/?token=test-token")
     server.connection_urls.return_value = [server.url, "http://192.168.1.10:8765/?token=test-token"]
     monkeypatch.setattr(main, "console_logger", Mock())
     monkeypatch.setattr(main, "LocalWebSocketServer", Mock(return_value=server))
     create_window, start_window = Mock(), Mock()
+    create_window.return_value = MagicMock()
+    shown = create_window.return_value.events.shown
+    shown.__iadd__.return_value = shown
     monkeypatch.setattr(main.webview, "create_window", create_window)
     monkeypatch.setattr(main.webview, "start", start_window)
     return server, logging, create_window, start_window
@@ -56,6 +62,38 @@ def test_desktop_uses_same_console_channel_and_connection_urls(headless_startup)
     start_window.assert_called_once()
     server.wait.assert_not_called()
     server.stop.assert_called_once_with()
+    instance = main.SingleInstance.return_value
+    shown = create_window.return_value.events.shown.__iadd__.call_args.args[0]
+    shown()
+    instance.start.assert_called_once()
+    instance.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("headless", [False, True])
+def test_duplicate_launch_does_not_initialize_runtime(headless_startup, headless):
+    server, logging, create_window, start_window = headless_startup
+    instance = main.SingleInstance.return_value
+    instance.acquire.return_value = False
+    main.main(headless=headless)
+    logging.assert_not_called()
+    main.hide_claude_console_windows.assert_not_called()
+    main.LocalWebSocketServer.assert_not_called()
+    server.start.assert_not_called()
+    create_window.assert_not_called()
+    start_window.assert_not_called()
+    instance.close.assert_called_once_with()
+
+
+def test_lock_failure_does_not_start_a_second_runtime(headless_startup):
+    _, logging, create_window, _ = headless_startup
+    instance = main.SingleInstance.return_value
+    instance.acquire.side_effect = OSError("系统锁访问失败")
+    with pytest.raises(OSError, match="系统锁访问失败"):
+        main.main()
+    logging.assert_not_called()
+    main.LocalWebSocketServer.assert_not_called()
+    create_window.assert_not_called()
+    instance.close.assert_called_once_with()
 
 
 @pytest.mark.parametrize("failure_at", ["start", "wait"])
@@ -67,5 +105,6 @@ def test_headless_cleans_up_after_server_failure(headless_startup, capsys, failu
     assert capsys.readouterr() == ("", "")
     assert main.console_logger.info.call_count == (0 if failure_at == "start" else 1)
     server.stop.assert_called_once_with()
+    main.SingleInstance.return_value.close.assert_called_once_with()
     create_window.assert_not_called()
     start_window.assert_not_called()
