@@ -59,6 +59,7 @@ import {
 import { AskUserQuestionDialog } from "./AskUserQuestionDialog";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 import { ExitPlanModeDialog } from "./ExitPlanModeDialog";
+import { McpStatusIndicator } from "./McpStatusIndicator";
 import { ProjectFolderDialog } from "./ProjectFolderDialog";
 import {
   TokenUsageIndicator,
@@ -608,6 +609,7 @@ export function TaskComposer({
   };
 
   const [refreshingConfig, setRefreshingConfig] = useState(false);
+  const [configRevision, setConfigRevision] = useState(0);
 
   const handleRefreshConfig = async () => {
     if (busy || refreshingConfig) {
@@ -616,6 +618,7 @@ export function TaskComposer({
     setRefreshingConfig(true);
     try {
       const closed = await closeChatClient(sessionIdRef.current || null);
+      setConfigRevision((revision) => revision + 1);
       messageApi.success(
         closed
           ? "配置已刷新，下次会话将重新加载技能和 MCP"
@@ -1015,6 +1018,11 @@ export function TaskComposer({
                 {conversationStarted && tokenUsage && (
                   <TokenUsageIndicator usage={tokenUsage} />
                 )}
+                <McpStatusIndicator
+                  key={`${sessionId}:${configRevision}`}
+                  sessionId={sessionId}
+                  busy={busy}
+                />
                 {conversationStarted && (
                   <ContextUsageIndicator sessionId={sessionId} busy={busy} />
                 )}

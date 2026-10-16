@@ -554,6 +554,28 @@ class ChatService:
             claude_sdk_logger.debug("读取会话上下文失败：{}", type(error).__name__)
             return None
 
+    async def get_mcp_status(self, session_id: str) -> dict[str, Any] | None:
+        """Read live MCP loading state without starting a client or exposing config."""
+        normalized = self._normalize_optional_session_id(session_id)
+        if normalized is None:
+            raise ValueError("会话标识无效")
+        active_chat = self._active_chats.get(normalized)
+        if active_chat is None:
+            return None
+        status = await active_chat.client.get_mcp_status()
+        if self._active_chats.get(normalized) is not active_chat:
+            return None
+        return {
+            "servers": [
+                {
+                    "name": server["name"],
+                    "status": server["status"],
+                    "tool_count": len(server["tools"]) if "tools" in server else None,
+                }
+                for server in status["mcpServers"]
+            ]
+        }
+
     async def _close_active_chat(
         self,
         session_id: str,

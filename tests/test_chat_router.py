@@ -320,6 +320,84 @@ async def test_chat_router_returns_context_usage(
     assert await router.get_context_usage(session_id) == sample
 
 
+async def test_mcp_status_tracks_live_loading_without_exposing_configuration(
+    tmp_path: Path,
+    chat_service_factory: Callable[[], ChatService],
+) -> None:
+    session_id = str(uuid4())
+    service = chat_service_factory()
+    assert await service.get_mcp_status(session_id) is None
+    with pytest.raises(ValueError, match="会话标识无效"):
+        await service.get_mcp_status("invalid-session")
+
+    sample = {
+        "mcpServers": [
+            {"name": "WebSearch", "status": "pending"},
+            {
+                "name": "Private",
+                "status": "failed",
+                "config": {"env": {"API_KEY": "private-key"}},
+                "error": "failed with private-key",
+            },
+            {"name": "Auth", "status": "needs-auth"},
+            {"name": "Disabled", "status": "disabled"},
+            {"name": "Empty", "status": "connected", "tools": []},
+        ],
+    }
+
+    class StubClient:
+        async def get_mcp_status(self) -> dict[str, Any]:
+            return sample
+
+    service._active_chats[session_id] = _ActiveChat(
+        client=StubClient(),
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[],
+        metadata={},
+        running=True,
+    )
+    expected = {
+        "servers": [
+            {"name": "WebSearch", "status": "pending", "tool_count": None},
+            {"name": "Private", "status": "failed", "tool_count": None},
+            {"name": "Auth", "status": "needs-auth", "tool_count": None},
+            {"name": "Disabled", "status": "disabled", "tool_count": None},
+            {"name": "Empty", "status": "connected", "tool_count": 0},
+        ],
+    }
+    assert await service.get_mcp_status(session_id) == expected
+    sample["mcpServers"][0].update(status="connected", tools=[{"name": "Search"}])
+    expected["servers"][0].update(status="connected", tool_count=1)
+    assert await service.get_mcp_status(session_id) == expected
+
+    service._active_chats[session_id].running = False
+    await service.close_chat_client(session_id)
+    assert await service.get_mcp_status(session_id) is None
+
+
+async def test_mcp_status_discards_result_when_client_closes_during_read(
+    tmp_path: Path,
+    chat_service_factory: Callable[[], ChatService],
+) -> None:
+    session_id = str(uuid4())
+    service = chat_service_factory()
+
+    class StubClient:
+        async def get_mcp_status(self) -> dict[str, Any]:
+            await service.close_chat_client(session_id)
+            return {"mcpServers": [{"name": "Old", "status": "connected"}]}
+
+    service._active_chats[session_id] = _ActiveChat(
+        client=StubClient(),
+        config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(),
+        events=[],
+        metadata={},
+    )
+    assert await service.get_mcp_status(session_id) is None
+
+
 async def test_chat_router_lists_new_history_models_and_merges_running_session(
     tmp_path: Path,
     chat_service_factory: Callable[[], ChatService],

@@ -29,6 +29,7 @@ SILENT_ACCESS_LOG_CALLS = frozenset(
         "resize_window",  # 无意义
         "list_chat_sessions",  # 高频
         "get_context_usage",  # 高频
+        "get_mcp_status",  # 高频
         "save_attachment",  # 文件保存
         "get_active_chat",  # 包含大量工具信息
         "get_chat_session",  # 历史同时包含原始事件与渲染事件，不整段写入日志

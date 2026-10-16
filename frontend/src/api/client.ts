@@ -81,6 +81,7 @@ type ApplicationApi = {
   ) => Promise<ChatSessionHistory>;
   get_active_chat: (sessionId: string, includeCompleted?: boolean) => Promise<ActiveChat | null>;
   get_context_usage: (sessionId: string) => Promise<ContextUsage | null>;
+  get_mcp_status: (sessionId: string) => Promise<McpStatus | null>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
   close_chat_client: (sessionId: string | null) => Promise<boolean>;
   respond_chat_permission: (
@@ -185,6 +186,16 @@ export type ChatUsage = {
   stop_reason: string | null;
   subagent_usage?: SubagentUsage | null;
   terminal_reason: string | null;
+};
+
+export type McpServerStatus = {
+  name: string;
+  status: "connected" | "failed" | "needs-auth" | "pending" | "disabled";
+  tool_count: number | null;
+};
+
+export type McpStatus = {
+  servers: McpServerStatus[];
 };
 
 export type ContextUsageCategory = {
@@ -571,6 +582,7 @@ const applicationApi: ApplicationApi = {
   get_chat_session: (project_path, session_id, effort, permission_mode) => request("POST", "/api/chat/history", { body: { project_path, session_id, effort, permission_mode } }),
   get_active_chat: (session_id, include_completed = false) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/active`, { query: { include_completed } }),
   get_context_usage: (session_id) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/context`),
+  get_mcp_status: (session_id) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/mcp`, { silent: true, timeoutMs: 10_000 }),
   stop_chat_message: (session_id) => request("POST", "/api/chat/stop", { body: { session_id } }),
   close_chat_client: (session_id) => request("POST", "/api/chat/close", { body: { session_id } }),
   respond_chat_permission: (permission_id, allowed, answers, feedback, execution_mode) => request("POST", "/api/chat/permissions", { body: { permission_id, allowed, answers, feedback, execution_mode } }),
@@ -751,6 +763,10 @@ export async function getActiveChat(
 export async function getContextUsage(sessionId: string): Promise<ContextUsage | null> {
   const api = applicationApi;
   return (await api.get_context_usage(sessionId)) ?? null;
+}
+
+export async function getMcpStatus(sessionId: string): Promise<McpStatus | null> {
+  return applicationApi.get_mcp_status(sessionId);
 }
 
 export function subscribeChatEvents(

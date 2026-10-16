@@ -56,6 +56,12 @@ async def get_context_usage(session_id: SessionId, chat: ChatDep) -> dict[str, A
     return await chat.get_context_usage(session_id)
 
 
+@router.get("/sessions/{session_id}/mcp")
+@capture_api_errors
+async def get_mcp_status(session_id: SessionId, chat: ChatDep) -> dict[str, Any] | None:
+    return await chat.get_mcp_status(session_id)
+
+
 @router.post("/stop")
 @capture_api_errors
 async def stop_chat_message(body: SessionRequest, chat: ChatDep) -> bool:

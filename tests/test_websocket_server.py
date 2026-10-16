@@ -74,6 +74,40 @@ def transport(tmp_path):
         yield client, app
 
 
+def test_mcp_status_authentication_validation_and_missing_client(transport):
+    client, _ = transport
+    path = "/api/chat/sessions/00000000-0000-0000-0000-000000000001/mcp"
+    assert client.get(path).status_code == 401
+    response = client.get(path, headers=AUTH)
+    assert response.status_code == 200
+    assert response.json() is None
+    assert client.get("/api/chat/sessions/invalid/mcp", headers=AUTH).status_code == 400
+    assert client.get(f"/api/chat/sessions/{'a' * 129}/mcp", headers=AUTH).status_code == 422
+
+
+def test_mcp_status_returns_live_result_and_sanitizes_errors(transport, monkeypatch):
+    client, app = transport
+    path = "/api/chat/sessions/00000000-0000-0000-0000-000000000001/mcp"
+    status = {"servers": [{"name": "WebSearch", "status": "pending", "tool_count": None}]}
+
+    async def get_status(session_id):
+        assert session_id == "00000000-0000-0000-0000-000000000001"
+        return status
+
+    monkeypatch.setattr(app.state.services.chat, "get_mcp_status", get_status)
+    assert client.get(path, headers=AUTH).json() == status
+    status["servers"][0].update(status="connected", tool_count=3)
+    assert client.get(path, headers=AUTH).json() == status
+
+    async def fail(_session_id):
+        raise RuntimeError("private-mcp-details")
+
+    monkeypatch.setattr(app.state.services.chat, "get_mcp_status", fail)
+    response = client.get(path, headers=AUTH)
+    assert response.status_code == 500
+    assert "private-mcp-details" not in response.text
+
+
 def test_window_capabilities_require_auth_and_report_headless_mode(transport):
     client, _ = transport
     assert client.get("/api/window/capabilities").status_code == 401
