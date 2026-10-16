@@ -108,6 +108,76 @@ def test_mcp_status_returns_live_result_and_sanitizes_errors(transport, monkeypa
     assert "private-mcp-details" not in response.text
 
 
+def test_mcp_reconnect_authentication_validation_and_missing_client(transport):
+    client, _ = transport
+    path = "/api/chat/sessions/00000000-0000-0000-0000-000000000001/mcp/reconnect"
+    body = {"server_name": "Research"}
+    assert client.post(path, json=body).status_code == 401
+    response = client.post(path, headers=AUTH, json=body)
+    assert response.status_code == 400
+    assert client.post("/api/chat/sessions/invalid/mcp/reconnect", headers=AUTH, json=body).status_code == 400
+    for invalid in [{}, {"server_name": ""}, {"server_name": 1},
+                    {"server_name": "a" * 513}, {"server_name": "Research", "extra": True}]:
+        assert client.post(path, headers=AUTH, json=invalid).status_code == 422
+    assert client.post(
+        f"/api/chat/sessions/{'a' * 129}/mcp/reconnect", headers=AUTH, json=body,
+    ).status_code == 422
+
+
+def test_mcp_reconnect_calls_the_session_service_and_sanitizes_errors(transport, monkeypatch):
+    client, app = transport
+    session_id = "00000000-0000-0000-0000-000000000001"
+    path = f"/api/chat/sessions/{session_id}/mcp/reconnect"
+    body = {"server_name": "Research/论文"}
+    calls = []
+
+    async def reconnect(session_id, server_name):
+        calls.append((session_id, server_name))
+        return True
+
+    monkeypatch.setattr(app.state.services.chat, "reconnect_mcp_server", reconnect)
+    response = client.post(path, headers=AUTH, json=body)
+    assert response.status_code == 200
+    assert response.json() is True
+    assert calls == [(session_id, "Research/论文")]
+
+    async def fail(session_id, server_name):
+        raise RuntimeError("private-mcp-details")
+
+    monkeypatch.setattr(app.state.services.chat, "reconnect_mcp_server", fail)
+    response = client.post(path, headers=AUTH, json=body)
+    assert response.status_code == 500
+    assert "private-mcp-details" not in response.text
+
+
+def test_mcp_status_remains_available_while_reconnecting(transport, monkeypatch):
+    client, app = transport
+    path = "/api/chat/sessions/00000000-0000-0000-0000-000000000001/mcp"
+    started = Event()
+    release = asyncio.Event()
+
+    async def reconnect(session_id, server_name):
+        started.set()
+        await release.wait()
+        return True
+
+    async def status(session_id):
+        release.set()
+        return {"servers": [{"name": "Research", "status": "pending", "tool_count": None}]}
+
+    monkeypatch.setattr(app.state.services.chat, "reconnect_mcp_server", reconnect)
+    monkeypatch.setattr(app.state.services.chat, "get_mcp_status", status)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(client.post, f"{path}/reconnect", headers=AUTH, json={"server_name": "Research"})
+        try:
+            assert started.wait(5)
+            response = client.get(path, headers=AUTH)
+            assert response.json()["servers"][0]["status"] == "pending"
+            assert pending.result(timeout=5).json() is True
+        finally:
+            client.portal.call(release.set)
+
+
 def test_window_capabilities_require_auth_and_report_headless_mode(transport):
     client, _ = transport
     assert client.get("/api/window/capabilities").status_code == 401

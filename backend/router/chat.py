@@ -9,6 +9,7 @@ from backend.router.schemas import (
     ChatConnectionRequest,
     ChatMessageRequest,
     FileRewindRequest,
+    McpReconnectRequest,
     PermissionDecisionRequest,
     SessionRequest,
 )
@@ -60,6 +61,12 @@ async def get_context_usage(session_id: SessionId, chat: ChatDep) -> dict[str, A
 @capture_api_errors
 async def get_mcp_status(session_id: SessionId, chat: ChatDep) -> dict[str, Any] | None:
     return await chat.get_mcp_status(session_id)
+
+
+@router.post("/sessions/{session_id}/mcp/reconnect")
+@capture_api_errors
+async def reconnect_mcp_server(session_id: SessionId, body: McpReconnectRequest, chat: ChatDep) -> bool:
+    return await chat.reconnect_mcp_server(session_id, body.server_name)
 
 
 @router.post("/stop")

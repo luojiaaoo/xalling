@@ -82,6 +82,7 @@ type ApplicationApi = {
   get_active_chat: (sessionId: string, includeCompleted?: boolean) => Promise<ActiveChat | null>;
   get_context_usage: (sessionId: string) => Promise<ContextUsage | null>;
   get_mcp_status: (sessionId: string) => Promise<McpStatus | null>;
+  reconnect_mcp_server: (sessionId: string, serverName: string) => Promise<boolean>;
   stop_chat_message: (sessionId: string | null) => Promise<boolean>;
   close_chat_client: (sessionId: string | null) => Promise<boolean>;
   respond_chat_permission: (
@@ -583,6 +584,7 @@ const applicationApi: ApplicationApi = {
   get_active_chat: (session_id, include_completed = false) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/active`, { query: { include_completed } }),
   get_context_usage: (session_id) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/context`),
   get_mcp_status: (session_id) => request("GET", `/api/chat/sessions/${encodeURIComponent(session_id)}/mcp`, { silent: true, timeoutMs: 10_000 }),
+  reconnect_mcp_server: (session_id, server_name) => request("POST", `/api/chat/sessions/${encodeURIComponent(session_id)}/mcp/reconnect`, { body: { server_name }, silent: true }),
   stop_chat_message: (session_id) => request("POST", "/api/chat/stop", { body: { session_id } }),
   close_chat_client: (session_id) => request("POST", "/api/chat/close", { body: { session_id } }),
   respond_chat_permission: (permission_id, allowed, answers, feedback, execution_mode) => request("POST", "/api/chat/permissions", { body: { permission_id, allowed, answers, feedback, execution_mode } }),
@@ -767,6 +769,10 @@ export async function getContextUsage(sessionId: string): Promise<ContextUsage |
 
 export async function getMcpStatus(sessionId: string): Promise<McpStatus | null> {
   return applicationApi.get_mcp_status(sessionId);
+}
+
+export async function reconnectMcpServer(sessionId: string, serverName: string): Promise<boolean> {
+  return applicationApi.reconnect_mcp_server(sessionId, serverName);
 }
 
 export function subscribeChatEvents(

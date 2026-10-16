@@ -1,8 +1,8 @@
-import { ApiOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ApiOutlined, LoadingOutlined } from "@ant-design/icons";
 import { Badge, Button, Popover } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { getMcpStatus, type McpServerStatus, type McpStatus } from "../api/client";
+import { getMcpStatus, reconnectMcpServer, type McpServerStatus, type McpStatus } from "../api/client";
 
 const statusLabels = {
   connected: { badge: "success", label: "已加载" },
@@ -22,6 +22,45 @@ export function McpStatusIndicator({ sessionId, busy }: { sessionId: string; bus
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [reconnecting, setReconnecting] = useState<Set<string>>(new Set());
+  const [reconnectErrors, setReconnectErrors] = useState<Set<string>>(new Set());
+  const reconnectRequests = useRef(new Set<string>());
+
+  useEffect(() => {
+    const requests = new Set<string>();
+    reconnectRequests.current = requests;
+    setReconnecting(new Set());
+    setReconnectErrors(new Set());
+    setStatus(null);
+    return () => {
+      if (reconnectRequests.current === requests) reconnectRequests.current = new Set();
+    };
+  }, [sessionId]);
+
+  const reconnect = async (serverName: string) => {
+    const requests = reconnectRequests.current;
+    if (requests.has(serverName)) return;
+    requests.add(serverName);
+    setReconnecting(new Set(requests));
+    setReconnectErrors((errors) => {
+      const next = new Set(errors);
+      next.delete(serverName);
+      return next;
+    });
+    try {
+      await reconnectMcpServer(sessionId, serverName);
+    } catch {
+      if (reconnectRequests.current === requests) {
+        setReconnectErrors((errors) => new Set(errors).add(serverName));
+      }
+    } finally {
+      requests.delete(serverName);
+      if (reconnectRequests.current === requests) {
+        setReconnecting(new Set(requests));
+        setRevision((value) => value + 1);
+      }
+    }
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -69,17 +108,9 @@ export function McpStatusIndicator({ sessionId, busy }: { sessionId: string; bus
         <div className="mcp-status-card">
           <div className="mcp-status-heading">
             <strong>MCP 加载情况</strong>
-            <Button
-              aria-label="刷新 MCP 状态"
-              icon={<ReloadOutlined />}
-              loading={loading}
-              onClick={() => setRevision((value) => value + 1)}
-              size="small"
-              type="text"
-            />
           </div>
           <div className="mcp-status-summary" role="status">
-            {failed ? "暂时无法获取 MCP 状态，请刷新重试。"
+            {failed ? "暂时无法获取 MCP 状态，正在自动重试。"
               : status ? `已加载 ${connected} / ${servers.length} 个服务`
               : loading || busy ? "正在等待会话初始化…"
               : "当前会话尚未启动，发送消息后将显示实际加载情况。"}
@@ -95,8 +126,24 @@ export function McpStatusIndicator({ sessionId, busy }: { sessionId: string; bus
                   <li key={server.name}>
                     <div className="mcp-status-server">
                       <span className="mcp-status-name">{server.name}</span>
-                      <Badge status={state.badge} text={state.label} />
+                      <div className="mcp-status-actions">
+                        <Badge status={state.badge} text={state.label} />
+                        {(server.status === "failed" || reconnecting.has(server.name)) && (
+                          <Button
+                            aria-label={`重连 MCP 服务 ${server.name}`}
+                            loading={reconnecting.has(server.name)}
+                            onClick={() => void reconnect(server.name)}
+                            size="small"
+                            type="link"
+                          >
+                            {reconnecting.has(server.name) ? "重连中" : "重连"}
+                          </Button>
+                        )}
+                      </div>
                     </div>
+                    {server.status === "failed" && reconnectErrors.has(server.name) && (
+                      <div className="mcp-status-error" role="alert">重连失败，请稍后重试。</div>
+                    )}
                     {server.status === "connected" && (
                       <span className="mcp-status-tools">
                         {server.tool_count === null ? "工具数量暂不可用" : `${server.tool_count} 个工具`}

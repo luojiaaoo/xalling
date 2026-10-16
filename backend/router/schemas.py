@@ -39,6 +39,10 @@ class FileRewindRequest(RequestModel):
     checkpoint_id: str = Field(min_length=1, max_length=128)
 
 
+class McpReconnectRequest(RequestModel):
+    server_name: str = Field(min_length=1, max_length=512)
+
+
 class AttachmentRequest(RequestModel):
     filename: str = Field(min_length=1, max_length=255)
     data: str = Field(min_length=1, max_length=70 * 1024 * 1024)

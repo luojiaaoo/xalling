@@ -398,6 +398,82 @@ async def test_mcp_status_discards_result_when_client_closes_during_read(
     assert await service.get_mcp_status(session_id) is None
 
 
+@pytest.mark.parametrize("server_status", ["failed", "connected", "pending", "disabled", "needs-auth", None])
+async def test_mcp_reconnect_only_retries_the_named_failed_server(
+    tmp_path: Path,
+    chat_service_factory: Callable[[], ChatService],
+    server_status: str | None,
+) -> None:
+    session_id = str(uuid4())
+    service = chat_service_factory()
+    calls = []
+
+    class StubClient:
+        async def get_mcp_status(self) -> dict[str, Any]:
+            servers = [{"name": "Other", "status": "failed"}]
+            if server_status is not None:
+                servers.append({"name": "Research", "status": server_status})
+            return {"mcpServers": servers}
+
+        async def reconnect_mcp_server(self, server_name: str) -> None:
+            calls.append(server_name)
+
+    active = _ActiveChat(
+        client=StubClient(), config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(), events=[], metadata={}, running=True,
+    )
+    service._active_chats[session_id] = active
+    if server_status == "failed":
+        assert await service.reconnect_mcp_server(session_id, "Research") is True
+        assert calls == ["Research"]
+    else:
+        with pytest.raises(ValueError, match="MCP"):
+            await service.reconnect_mcp_server(session_id, "Research")
+        assert calls == []
+    assert service._active_chats[session_id] is active
+    assert active.running is True
+
+
+async def test_mcp_reconnect_requires_an_existing_session(
+    chat_service_factory: Callable[[], ChatService],
+) -> None:
+    service = chat_service_factory()
+    with pytest.raises(ValueError, match="会话标识无效"):
+        await service.reconnect_mcp_server("invalid", "Research")
+    with pytest.raises(ValueError, match="尚未启动或已关闭"):
+        await service.reconnect_mcp_server(str(uuid4()), "Research")
+    assert not service._active_chats
+
+
+@pytest.mark.parametrize("close_during", ["status", "reconnect"])
+async def test_mcp_reconnect_rejects_a_client_closed_during_the_request(
+    tmp_path: Path,
+    chat_service_factory: Callable[[], ChatService],
+    close_during: str,
+) -> None:
+    service = chat_service_factory()
+    session_id = str(uuid4())
+    calls = []
+
+    class StubClient:
+        async def get_mcp_status(self) -> dict[str, Any]:
+            if close_during == "status":
+                await service.close_chat_client(session_id)
+            return {"mcpServers": [{"name": "Research", "status": "failed"}]}
+
+        async def reconnect_mcp_server(self, server_name: str) -> None:
+            calls.append(server_name)
+            await service.close_chat_client(session_id)
+
+    service._active_chats[session_id] = _ActiveChat(
+        client=StubClient(), config=connection_config(tmp_path, session_id),
+        resources=AsyncExitStack(), events=[], metadata={},
+    )
+    with pytest.raises(ValueError, match="当前会话已关闭"):
+        await service.reconnect_mcp_server(session_id, "Research")
+    assert calls == ([] if close_during == "status" else ["Research"])
+
+
 async def test_chat_router_lists_new_history_models_and_merges_running_session(
     tmp_path: Path,
     chat_service_factory: Callable[[], ChatService],

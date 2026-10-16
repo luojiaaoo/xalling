@@ -576,6 +576,27 @@ class ChatService:
             ]
         }
 
+    async def reconnect_mcp_server(self, session_id: str, server_name: str) -> bool:
+        """Retry one failed MCP server on an existing session client."""
+        normalized = self._normalize_optional_session_id(session_id)
+        if normalized is None:
+            raise ValueError("会话标识无效")
+        active_chat = self._active_chats.get(normalized)
+        if active_chat is None:
+            raise ValueError("当前会话尚未启动或已关闭")
+        status = await active_chat.client.get_mcp_status()
+        if self._active_chats.get(normalized) is not active_chat:
+            raise ValueError("当前会话已关闭")
+        server = next((item for item in status["mcpServers"] if item["name"] == server_name), None)
+        if server is None:
+            raise ValueError("MCP 服务不存在")
+        if server["status"] != "failed":
+            raise ValueError("仅支持重连加载失败的 MCP 服务")
+        await active_chat.client.reconnect_mcp_server(server_name)
+        if self._active_chats.get(normalized) is not active_chat:
+            raise ValueError("当前会话已关闭")
+        return True
+
     async def _close_active_chat(
         self,
         session_id: str,
