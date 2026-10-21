@@ -27,3 +27,22 @@ test("knowledge UI only exposes read-only path tree and file queries", async () 
     assert.equal(api[name], undefined);
   }
 });
+
+test("embedding status is read-only and downloading requires an explicit POST", async () => {
+  const requests = [];
+  const load = typescriptLoader({
+    globals: { window: new EventTarget() },
+    overrides: {
+      "./http": { request: async (method, path, options) => { requests.push({ method, path, options }); return {}; } },
+      "./websocket": {},
+    },
+  });
+  const api = load(fileURLToPath(new URL("../src/api/client.ts", import.meta.url)));
+  await api.getKnowledgeEmbeddingStatus();
+  await api.downloadKnowledgeEmbedding();
+  assert.equal(requests[0].method, "GET");
+  assert.equal(requests[0].path, "/api/knowledge/embedding");
+  assert.equal(requests[1].method, "POST");
+  assert.equal(requests[1].path, "/api/knowledge/embedding/download");
+  assert.ok(requests[1].options.timeoutMs >= 30 * 60 * 1000);
+});

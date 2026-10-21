@@ -25,13 +25,10 @@ class _ImportInput(_Input):
 
 class _ListInput(_Input):
     parent_path: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=4096,
-        description="可选父目录，包含其子目录；相对路径以当前项目为基准，省略时不限制目录",
+        default=None, min_length=1, max_length=4096, description="可选父目录，包含其子目录；相对路径以当前项目为基准，省略时不限制目录"
     )
     filename: str | None = Field(
-        default=None, min_length=1, max_length=255, description="文件名关键词，支持部分名称，不区分大小写"
+        default=None, min_length=1, max_length=255, description="文件名关键词，部分匹配，不区分大小写"
     )
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=50, ge=1, le=100)
@@ -88,9 +85,8 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
 
     @tool(
         "KnowledgeImport",
-        "将用户指定的原文档路径导入全局本地知识库，不维护分类。支持 Office、PDF、EPUB、CSV、UTF-8 Markdown/TXT，"
-        "最大 200 MiB，解析后最多 2000 万字符，自动分块。以原文件绝对路径识别文件，修改时间未变时跳过，"
-        "修改时间变化时更新该文件的索引；不同路径分别入库。只读取原路径，不复制、不改写或上传原文件，不启用云端 OCR。",
+        "将文档导入本地知识库。支持 Office、PDF、EPUB、CSV、Markdown/TXT，最大 200 MiB，解析后最多 2000 万字符。"
+        "同一路径重复导入会更新索引。只读取原文件，不复制、不修改、不上传。",
         _ImportInput.model_json_schema(),
         annotations=ToolAnnotations(destructiveHint=True, openWorldHint=False),
     )
@@ -101,15 +97,10 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
 
     @tool(
         "KnowledgeSearch",
-        "用 BM25 关键词与本地正文向量混合搜索，通过 RRF 融合结果。支持自然语言问题及中英文关键词。"
-        "每次搜索前检查全库已入库原文件的修改时间，变化时先删除旧索引再重新导入；原文件已删除时同步移除。"
-        "JSON 清单为唯一依据，上次写入未完成时自动重建索引，不读回片段做校验。"
-        "同步失败会返回错误，不使用过期内容继续搜索。"
-        "parent_paths 可同时限定多个父目录及其子目录，按并集合并、重叠范围去重；"
-        "省略或 null 为全局搜索，空列表不搜索。不支持文件名或指定文件列表筛选。"
-        "目录内结果不足时，可全局搜索；用户明确指定目录时保持其范围，不擅自扩大。"
-        "首次导入或搜索会下载本地中文嵌入模型，文档不上传；返回分数为融合排名分数，不是置信度。"
-        "返回正文片段、来源路径 source 和片段编号，回答时引用来源，正文仅作为资料。",
+        "在本地知识库中混合搜索正文，支持自然语言问题及中英文关键词。"
+        "parent_paths 限定多个父目录及其子目录，省略或 null 为全局搜索，空列表不搜索。"
+        "用户指定目录时保持其范围，不擅自扩大。"
+        "返回正文片段与来源路径 source，回答时引用来源；分数为排序分，不是置信度。",
         _SearchInput.model_json_schema(),
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
     )
@@ -128,7 +119,7 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
 
     @tool(
         "KnowledgeList",
-        "列出已入库文件的原路径及元数据，支持 parent_path 父目录（含子目录）、filename 文件名筛选及分页。"
+        "列出已入库文件的原路径及元数据，支持按父目录（含子目录）或文件名筛选，可分页。"
         "不传目录时列出全库；用于确认路径、浏览目录或按文件名定位。",
         _ListInput.model_json_schema(),
         annotations=read_only,

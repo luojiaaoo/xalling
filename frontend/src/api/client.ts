@@ -12,6 +12,20 @@ export type KnowledgeFilesPage = { total: number; offset: number; files: Knowled
 export type KnowledgeTree = {
   directories: { path: string; files: string[] }[];
 };
+export type KnowledgeEmbeddingStatus = {
+  status: "missing" | "downloading" | "ready" | "error";
+  model: string;
+  directory: string;
+  message: string;
+};
+
+export function getKnowledgeEmbeddingStatus(): Promise<KnowledgeEmbeddingStatus> {
+  return request("GET", "/api/knowledge/embedding", { silent: true });
+}
+
+export function downloadKnowledgeEmbedding(): Promise<KnowledgeEmbeddingStatus> {
+  return request("POST", "/api/knowledge/embedding/download", { timeoutMs: 30 * 60 * 1000, silent: true });
+}
 
 export function getKnowledgeTree(): Promise<KnowledgeTree> {
   return request("GET", "/api/knowledge/tree");

@@ -30,3 +30,4 @@ def knowledge_vectors(monkeypatch):
         return result
 
     monkeypatch.setattr(knowledge, "embed_texts", embed)
+    monkeypatch.setattr(knowledge, "ensure_embedding_model", lambda root: None)

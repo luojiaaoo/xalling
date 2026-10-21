@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import RLock
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Concatenate, Literal
 from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.config.setting import KNOWLEDGE_DIRECTORY
-from backend.service.knowledge_embedding import DIMENSIONS, EmbeddingError, embed_texts
+from backend.service.knowledge_embedding import DIMENSIONS, EmbeddingError, embed_texts, ensure_embedding_model
 
 if TYPE_CHECKING:
     import zvec
@@ -54,6 +55,22 @@ _STORAGE_LOCK = RLock()
 
 class KnowledgeError(Exception):
     """可直接展示给用户的知识库业务异常。"""
+
+
+def requires_embedding_model[**P, R](
+    action: Callable[Concatenate[KnowledgeStore, P], R],
+) -> Callable[Concatenate[KnowledgeStore, P], R]:
+    """所有知识库入口先检查本地模型，缺失时不读写清单、原文或向量索引。"""
+
+    @wraps(action)
+    def checked(store: KnowledgeStore, *args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            ensure_embedding_model(store.root)
+        except EmbeddingError as error:
+            raise KnowledgeError(str(error)) from error
+        return action(store, *args, **kwargs)
+
+    return checked
 
 
 class DocumentRecord(BaseModel):
@@ -158,6 +175,7 @@ class KnowledgeStore:
         finally:
             collection.close()
 
+    @requires_embedding_model
     def import_document(self, raw_path: str) -> dict:
         """文件未更新就直接返回；新增或更新时重新写入。"""
         source = Path(raw_path).expanduser().resolve()
@@ -284,6 +302,7 @@ class KnowledgeStore:
             if parent is None or Path(record.source).parent.is_relative_to(parent)
         }
 
+    @requires_embedding_model
     def list_files(
         self, offset: int, limit: int, *, parent_path: str | None = None, filename: str | None = None
     ) -> dict:
@@ -302,6 +321,7 @@ class KnowledgeStore:
                 "files": [records[source].model_dump() for source in sources[offset : offset + limit]],
             }
 
+    @requires_embedding_model
     def path_tree(self) -> dict:
         """只读展示“父目录 → 原文件路径”关系，不维护分类或文件副本。"""
         with _STORAGE_LOCK:
@@ -311,9 +331,11 @@ class KnowledgeStore:
             return {"directories": [{"path": path, "files": sorted(files)} for path, files in sorted(groups.items())]}
 
     def _sync(self) -> None:
-        """按 JSON 更新文件，并重试上次未完成的索引写入。"""
+        """按 JSON 更新文件，并重试上次未完成或索引丢失的写入。"""
         with _STORAGE_LOCK:
             catalog = self._catalog()
+            # 整个索引丢失时全部重写，先记录状态，避免重建首个文档后误跳过其余文档。
+            index_exists = (self.root / "index").exists()
             for source_key, record in catalog.documents.items():
                 source = Path(record.source)
                 try:
@@ -340,11 +362,12 @@ class KnowledgeStore:
                     continue
 
                 # 时间相同、上次已写完且索引目录存在：直接跳过。
-                if source_key not in catalog.pending:
+                if source_key not in catalog.pending and index_exists:
                     continue
                 # 上次写入未完成，或整个索引目录丢失：重新写入。
                 self._write_document(source)
 
+    @requires_embedding_model
     def search(
         self,
         query: str,

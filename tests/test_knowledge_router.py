@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.router.knowledge import get_store
-from backend.service import knowledge
+from backend.service import knowledge, knowledge_embedding
 from backend.service.knowledge import KnowledgeStore
 from backend.websocket_server import create_app
 
@@ -122,3 +122,76 @@ def test_http_store_is_global_and_does_not_require_a_workspace(tmp_path, monkeyp
     second = get_store()
     assert first.root == second.root == root
     assert second.list_files(0, 10)["files"][0]["source"] == str(source)
+
+
+def test_model_status_and_download_require_authentication_and_never_download_on_read(knowledge_api, monkeypatch):
+    import huggingface_hub
+
+    client, store = knowledge_api
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda **kwargs: pytest.fail("读取状态不得下载"))
+    assert client.get("/api/knowledge/embedding").status_code == 401
+    assert client.post("/api/knowledge/embedding/download").status_code == 401
+    state = client.get("/api/knowledge/embedding", headers=AUTH).json()
+    assert state["status"] == "missing"
+    assert state["directory"] == str(store.root / "embedding")
+    assert "手动点击" in state["message"]
+    assert client.put("/api/knowledge/embedding/download", headers=AUTH).status_code == 405
+    assert not store.root.exists()
+
+
+def test_missing_model_returns_actionable_error_for_tree_and_documents(knowledge_api, monkeypatch):
+    client, store = knowledge_api
+    monkeypatch.setattr(knowledge, "ensure_embedding_model", knowledge_embedding.ensure_embedding_model)
+    for path in ("/api/knowledge/tree", "/api/knowledge/documents"):
+        result = client.get(path, headers=AUTH)
+        assert result.status_code == 400
+        assert "手动点击“下载嵌入模型”" in result.json()["detail"]
+    assert not store.root.exists()
+
+
+def test_manual_download_reports_progress_and_does_not_block_other_requests(knowledge_api, monkeypatch):
+    import huggingface_hub
+
+    client, store = knowledge_api
+    entered, release = Event(), Event()
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        entered.set()
+        assert release.wait(5)
+        for name in knowledge_embedding.MODEL_FILES:
+            (kwargs["local_dir"] / name).write_bytes(b"model-data")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    monkeypatch.setattr(knowledge_embedding, "_load_model", lambda directory: object())
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(client.post, "/api/knowledge/embedding/download", headers=AUTH)
+        try:
+            assert entered.wait(5)
+            assert client.get("/api/knowledge/embedding", headers=AUTH).json()["status"] == "downloading"
+            assert client.post("/api/knowledge/embedding/download", headers=AUTH).json()["status"] == "downloading"
+            assert client.get("/api/window/capabilities", headers=AUTH).status_code == 200
+        finally:
+            release.set()
+        assert pending.result().json()["status"] == "ready"
+    assert len(calls) == 1
+    monkeypatch.setattr(knowledge, "ensure_embedding_model", knowledge_embedding.ensure_embedding_model)
+    assert client.get("/api/knowledge/tree", headers=AUTH).json() == {"directories": []}
+    assert (store.root / "embedding" / ".ready").exists()
+
+
+def test_download_failure_is_sanitized_and_reflected_in_model_status(knowledge_api, monkeypatch):
+    import huggingface_hub
+
+    client, _ = knowledge_api
+
+    def fail(**kwargs):
+        raise RuntimeError("private-download-credentials")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fail)
+    result = client.post("/api/knowledge/embedding/download", headers=AUTH)
+    assert result.status_code == 400
+    assert "private-download-credentials" not in result.text
+    assert "手动点击" in result.json()["detail"]
+    assert client.get("/api/knowledge/embedding", headers=AUTH).json()["status"] == "error"

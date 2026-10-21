@@ -255,3 +255,25 @@ def test_internal_errors_are_sanitized(handlers, store, monkeypatch):
         assert "secret-token" not in str(result)
 
     anyio.run(scenario)
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [
+        ("KnowledgeImport", {"file_path": "manual.txt"}),
+        ("KnowledgeSearch", {"query": "manual"}),
+        ("KnowledgeList", {}),
+    ],
+)
+def test_tools_require_user_to_download_missing_model(handlers, store, monkeypatch, name, args):
+    from backend.service.knowledge_embedding import ensure_embedding_model
+
+    monkeypatch.setattr(knowledge, "ensure_embedding_model", ensure_embedding_model)
+
+    async def scenario():
+        result = await handlers[name].handler(args)
+        assert result["isError"]
+        assert "手动点击“下载嵌入模型”" in json.loads(result["content"][0]["text"])["error"]
+
+    anyio.run(scenario)
+    assert not store.root.exists()
