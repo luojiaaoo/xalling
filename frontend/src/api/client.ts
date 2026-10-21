@@ -2,6 +2,27 @@ export type ApiProtocol = "anthropic" | "chat" | "responses";
 
 import { disconnectEvents, setClosing, TRANSPORT_READY_EVENT } from "./websocket";
 import { request } from "./http";
+
+export type KnowledgeDocument = {
+  source: string;
+  mtime_ns: number;
+  chunk_count: number;
+};
+export type KnowledgeFilesPage = { total: number; offset: number; files: KnowledgeDocument[] };
+export type KnowledgeTree = {
+  directories: { path: string; files: string[] }[];
+};
+
+export function getKnowledgeTree(): Promise<KnowledgeTree> {
+  return request("GET", "/api/knowledge/tree");
+}
+
+export function listKnowledgeDocuments(parentPath?: string, offset = 0, filename?: string): Promise<KnowledgeFilesPage> {
+  return request("GET", "/api/knowledge/documents", {
+    query: { parent_path: parentPath, offset, limit: 20, filename },
+  });
+}
+
 export { TransportDisconnectedError } from "./websocket";
 
 type ApplicationApi = {

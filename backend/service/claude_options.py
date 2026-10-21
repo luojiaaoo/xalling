@@ -25,6 +25,7 @@ from backend.config.setting import (
     ROOT,
     USER_CONF_DIRPATH,
 )
+from backend.service.knowledge_tool import build_knowledge_mcp_server
 from backend.service.log import claude_sdk_logger
 from backend.service.research_tool import build_research_mcp_server
 from backend.service.scheduler_tool import build_scheduler_mcp_server
@@ -230,6 +231,7 @@ def _agent_options(
             "WebSearch": build_web_search_mcp_server(),
             # 科研工具（arXiv 论文检索与 PDF 下载）
             "Research": build_research_mcp_server(),
+            "Knowledge": build_knowledge_mcp_server(config.project),
         },
     )
 

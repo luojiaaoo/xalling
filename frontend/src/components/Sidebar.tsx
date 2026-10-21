@@ -1,6 +1,7 @@
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
+  DatabaseOutlined,
   FolderOpenOutlined,
   HomeOutlined,
   MenuFoldOutlined,
@@ -31,6 +32,7 @@ const navigation: MenuProps["items"] = [
     ),
   },
   { key: "automation", icon: <ThunderboltOutlined />, label: "自动化" },
+  { key: "knowledge", icon: <DatabaseOutlined />, label: "知识库" },
 ];
 
 const settingsNavigation: MenuProps["items"] = [
@@ -109,9 +111,11 @@ function AutoScrollText({ className = "", text }: AutoScrollTextProps) {
 type SidebarProps = {
   activeSessionId?: string | null;
   automationActive?: boolean;
+  knowledgeActive?: boolean;
   projectExpansionRequest?: { path: string; sequence: number } | null;
   onCollapse: () => void;
   onAutomationClick?: () => void;
+  onKnowledgeClick?: () => void;
   onHistorySessionClick?: (sessionId: string) => void;
   onNewTask: () => void;
   onProjectTask?: (project: ProjectFolder) => void;
@@ -129,9 +133,11 @@ type SidebarProps = {
 export function Sidebar({
   activeSessionId = null,
   automationActive = false,
+  knowledgeActive = false,
   projectExpansionRequest = null,
   onCollapse,
   onAutomationClick,
+  onKnowledgeClick,
   onHistorySessionClick,
   onNewTask,
   onProjectTask,
@@ -253,13 +259,15 @@ export function Sidebar({
               className="main-menu"
               mode="inline"
               selectedKeys={
-                searchActive ? ["search"] : automationActive ? ["automation"] : []
+                searchActive ? ["search"] : knowledgeActive ? ["knowledge"] : automationActive ? ["automation"] : []
               }
               onClick={({ key }) => {
                 if (key === "search") {
                   onSearchClick?.();
                 } else if (key === "automation") {
                   onAutomationClick?.();
+                } else if (key === "knowledge") {
+                  onKnowledgeClick?.();
                 }
               }}
               items={navigation}

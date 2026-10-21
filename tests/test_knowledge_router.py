@@ -1,0 +1,124 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.router.knowledge import get_store
+from backend.service import knowledge
+from backend.service.knowledge import KnowledgeStore
+from backend.websocket_server import create_app
+
+AUTH = {"Authorization": "Bearer knowledge-test-token"}
+pytestmark = pytest.mark.usefixtures("knowledge_vectors")
+
+
+@pytest.fixture
+def knowledge_api(tmp_path):
+    (tmp_path / "index.html").write_text("Xalling", encoding="utf-8")
+    store = KnowledgeStore(tmp_path / "storage")
+    app = create_app(directory=tmp_path, token="knowledge-test-token")
+    app.state.first_access = False
+    app.dependency_overrides[get_store] = lambda: store
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client, store
+
+
+def test_authenticated_read_only_tree_and_file_filters(knowledge_api, tmp_path):
+    client, store = knowledge_api
+    assert client.get("/api/knowledge/tree").status_code == 401
+    assert client.get("/api/knowledge/documents").status_code == 401
+    assert client.get("/api/knowledge/tree", headers=AUTH).json() == {"directories": []}
+    assert not store.root.exists()
+    first, second = tmp_path / "esp32手册.txt", tmp_path / "notes.txt"
+    first.write_text("ESP32 串口调试资料", encoding="utf-8")
+    second.write_text("unclassified notes", encoding="utf-8")
+    imported = store.import_document(str(first))
+    store.import_document(str(second))
+    tree = client.get("/api/knowledge/tree", headers=AUTH).json()
+    assert tree["directories"] == [{"path": str(tmp_path), "files": sorted([str(first), str(second)])}]
+    result = client.get(
+        "/api/knowledge/documents", headers=AUTH, params={"parent_path": str(tmp_path), "filename": "ESP32"}
+    )
+    assert result.json()["files"] == [{key: value for key, value in imported.items() if key != "status"}]
+    assert client.get("/api/knowledge/documents", headers=AUTH).json()["total"] == 2
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("post", "/api/knowledge/categories"),
+        ("patch", "/api/knowledge/categories"),
+        ("post", "/api/knowledge/documents/import"),
+        ("delete", "/api/knowledge/documents"),
+        ("patch", "/api/knowledge/documents/categories"),
+    ],
+)
+def test_http_cannot_mutate_knowledge(knowledge_api, method, path):
+    client, store = knowledge_api
+    result = getattr(client, method)(path, headers=AUTH)
+    assert result.status_code in {404, 405}
+    assert not store.root.exists()
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 101},
+        {"offset": -1},
+        {"parent_path": ""},
+        {"filename": ""},
+        {"filename": "x" * 256},
+    ],
+)
+def test_file_query_validation(knowledge_api, params):
+    client, store = knowledge_api
+    assert client.get("/api/knowledge/documents", params=params, headers=AUTH).status_code == 422
+    assert not store.root.exists()
+
+
+def test_internal_errors_are_sanitized(knowledge_api, monkeypatch):
+    client, store = knowledge_api
+
+    def fail():
+        raise RuntimeError("secret-path-and-document-content")
+
+    monkeypatch.setattr(store, "path_tree", fail)
+    response = client.get("/api/knowledge/tree", headers=AUTH)
+    assert response.status_code == 500
+    assert "secret-path" not in response.text
+
+
+def test_tree_loading_runs_off_event_loop(knowledge_api, monkeypatch):
+    client, store = knowledge_api
+    entered, release = Event(), Event()
+
+    def slow_tree():
+        entered.set()
+        assert release.wait(5)
+        return {"directories": []}
+
+    monkeypatch.setattr(store, "path_tree", slow_tree)
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(client.get, "/api/knowledge/tree", headers=AUTH)
+        try:
+            assert entered.wait(5)
+            assert client.get("/api/knowledge/documents", headers=AUTH).status_code == 200
+        finally:
+            release.set()
+        assert pending.result().status_code == 200
+
+
+def test_http_store_is_global_and_does_not_require_a_workspace(tmp_path, monkeypatch):
+    root = tmp_path / ".xalling" / "xalling-knowledge"
+    monkeypatch.setattr(knowledge, "KNOWLEDGE_DIRECTORY", root)
+    first = get_store()
+    source = tmp_path / "shared.txt"
+    source.write_text("shared document", encoding="utf-8")
+    first.import_document(str(source))
+    other_workspace = tmp_path / "other-workspace"
+    other_workspace.mkdir()
+    monkeypatch.chdir(other_workspace)
+    second = get_store()
+    assert first.root == second.root == root
+    assert second.list_files(0, 10)["files"][0]["source"] == str(source)

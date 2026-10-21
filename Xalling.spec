@@ -18,6 +18,11 @@ hiddenimports = [
     "uvicorn.lifespan.on",
 ]
 datas += collect_data_files("claude_agent_sdk")
+for package in ("anydoc", "zvec", "fastembed", "onnxruntime", "tokenizers"):
+    package_datas, package_binaries, package_imports = collect_all(package)
+    datas += package_datas
+    binaries += package_binaries
+    hiddenimports += package_imports
 clr_datas, clr_binaries, clr_imports = collect_all("clr_loader")
 datas += clr_datas
 binaries += clr_binaries

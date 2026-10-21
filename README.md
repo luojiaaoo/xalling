@@ -25,6 +25,7 @@ Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领
 - **文件检查点与恢复**：默认启用 `enable_file_checkpointing`，变更卡片提供“撤销修改”，确认后调用 SDK `rewind_files` 恢复到本轮开始前并保留聊天记录。较早检查点也会撤销之后 SDK 跟踪的文件修改；覆盖主 Agent 的文件编辑工具，命令行及普通子 Agent 修改不在恢复范围内
 - **斜杠命令与 Skill**：输入框 `/` 唤起命令与技能列表，自动发现用户级与项目级 Skill 目录
 - **定时自动化**：基于 APScheduler 的定时任务（interval / date / cron），任务持久化在 SQLite
+- **本地知识库**：使用 [AnyDoc](https://github.com/firecrawl/anydoc) 按原路径解析文档，通过唯一的 [Zvec](https://zvec.org/api-reference/python/) 索引混合搜索 BM25 关键词与正文向量，以 RRF 融合结果，支持多个父目录及子目录或全局搜索；每次搜索前按修改时间同步全库已入库文件，更新变更内容并移除已删除文件，界面只读展示原路径，不复制原文档，详见[使用说明](docs/knowledge.md)
 - **模型站点管理**：多供应商模型配置，支持 `anthropic` / `chat` / `responses` 三种 API 协议
 - **用量统计**：按逻辑回合统计主 Agent Token 与子 Agent 消耗，提供会话内用量弹层
 - **会话历史与搜索**：会话列表、全文搜索、运行中会话恢复

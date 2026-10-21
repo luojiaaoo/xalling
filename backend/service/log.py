@@ -31,6 +31,7 @@ SILENT_ACCESS_LOG_CALLS = frozenset(
         "get_context_usage",  # 高频
         "get_mcp_status",  # 高频
         "save_attachment",  # 文件保存
+        "import_knowledge_document",  # 包含完整文件内容，不写入访问日志
         "get_active_chat",  # 包含大量工具信息
         "get_chat_session",  # 历史同时包含原始事件与渲染事件，不整段写入日志
     }
@@ -187,7 +188,7 @@ def _call_input(
     arguments = dict(inspect.signature(func).bind_partial(*args, **kwargs).arguments)
     arguments.pop("self", None)
     arguments.pop("cls", None)
-    for internal in ("chat", "window", "services"):
+    for internal in ("chat", "window", "services", "store"):
         arguments.pop(internal, None)
     return _redact(arguments)
 

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiMessageHost } from "./api/ApiMessageHost";
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { Automation } from "./components/Automation";
+import { Knowledge } from "./components/Knowledge";
 import { ModelSettings } from "./components/ModelSettings";
 import { SearchPalette } from "./components/SearchPalette";
 import { Sidebar } from "./components/Sidebar";
@@ -51,6 +52,7 @@ function isThemeName(value: string): value is ThemeName {
 export default function App() {
   const [view, setView] = useState<"workspace" | "settings">("workspace");
   const [automationOpen, setAutomationOpen] = useState(false);
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("model");
   const [themeName, setThemeName] = useState<ThemeName>("default");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -236,6 +238,7 @@ export default function App() {
   }
 
   function handleAutomation() {
+    setKnowledgeOpen(false);
     setSearchOpen(false);
     setAutomationOpen(true);
   }
@@ -335,10 +338,12 @@ export default function App() {
             <Sidebar
               activeSessionId={activeSessionId}
               automationActive={automationOpen}
+              knowledgeActive={knowledgeOpen}
               projectExpansionRequest={projectExpansionRequest}
               mode={view}
               onCollapse={() => setSidebarVisible(false)}
               onAutomationClick={handleAutomation}
+              onKnowledgeClick={() => { setSearchOpen(false); setAutomationOpen(false); setKnowledgeOpen(true); }}
               onHistorySessionClick={handleHistorySessionClick}
               onNewTask={handleNewTask}
               onProjectTask={handleProjectTask}
@@ -369,6 +374,10 @@ export default function App() {
             onSessionsChanged={refreshChatSessions}
             permissionMode={permissionMode}
             selectedProject={selectedProject}
+          />
+          <Knowledge
+            open={knowledgeOpen}
+            onClose={() => setKnowledgeOpen(false)}
           />
           <Automation
             onClose={() => setAutomationOpen(false)}

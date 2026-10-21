@@ -14,6 +14,8 @@ dependencies = [
     "claude-agent-sdk>=0.2.157",
     "ddgs>=9.16.0",
     "fastapi>=0.142.2",
+    "fastembed>=0.7,<0.8",
+    "firecrawl-anydoc>=0.2.4,<0.3",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "psutil>=7.2.2",
@@ -24,6 +26,7 @@ dependencies = [
     "uvicorn[standard]>=0.52.4",
     "websockets>=13.0",
     "yarl>=1.24.5",
+    "zvec>=0.7.0,<0.8",
 ]
 
 [tool.pytest.ini_options]

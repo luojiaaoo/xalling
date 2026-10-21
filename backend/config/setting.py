@@ -24,6 +24,7 @@ CONF_FILEPATH = USER_CONF_DIRPATH / "xalling-setting.toml"
 
 # UI 上传的附件落盘目录，路径会注入到提示词中供模型读取。
 ATTACHMENTS_DIRECTORY = USER_CONF_DIRPATH / "xalling-attachments"
+KNOWLEDGE_DIRECTORY = USER_CONF_DIRPATH / "xalling-knowledge"
 
 # Application log output paths.
 LOG_DIRECTORY = USER_CONF_DIRPATH / "xalling-log"

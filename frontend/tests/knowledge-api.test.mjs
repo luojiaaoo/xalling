@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+
+import { typescriptLoader } from "./helpers/load-typescript.mjs";
+
+test("knowledge UI only exposes read-only path tree and file queries", async () => {
+  const requests = [];
+  const load = typescriptLoader({
+    globals: { window: new EventTarget() },
+    overrides: {
+      "./http": { request: async (method, path, options) => { requests.push({ method, path, options }); return {}; } },
+      "./websocket": {},
+    },
+  });
+  const api = load(fileURLToPath(new URL("../src/api/client.ts", import.meta.url)));
+  await api.getKnowledgeTree();
+  await api.listKnowledgeDocuments("D:/资料/嵌入式", 20, "esp32");
+  await api.listKnowledgeDocuments();
+  assert.ok(requests.every(({ method }) => method === "GET"));
+  assert.equal(requests[0].path, "/api/knowledge/tree");
+  assert.equal(requests[1].options.query.parent_path, "D:/资料/嵌入式");
+  assert.equal(requests[1].options.query.filename, "esp32");
+  assert.equal(requests[1].options.query.offset, 20);
+  assert.equal(requests[2].options.query.parent_path, undefined);
+  for (const name of ["createKnowledgeCategory", "listKnowledgeCategories", "updateKnowledgeCategoryDescription", "importKnowledgeFile", "removeKnowledgeDocument"]) {
+    assert.equal(api[name], undefined);
+  }
+});

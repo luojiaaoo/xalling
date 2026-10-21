@@ -144,7 +144,7 @@ async def test_model_router_accepts_more_than_one_hundred_configured_models() ->
 
 
 async def test_application_uses_native_fastapi_routers() -> None:
-    assert len(routers) == 8
+    assert len(routers) == 9
     assert all(isinstance(router, APIRouter) for router in routers)
     assert all(router.prefix.startswith("/api/") for router in routers)
     assert all(router.dependencies for router in routers)

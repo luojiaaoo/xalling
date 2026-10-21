@@ -1571,3 +1571,11 @@ html[data-theme="geek"] .effort-picker-header strong { color: #39ff14; }
   padding: 64px 16px;
   text-align: center;
 }
+.knowledge-panel { display: flex; flex-direction: column; gap: 16px; }
+.knowledge-scope { margin: 0; color: var(--ant-color-text-secondary); }
+.knowledge-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.knowledge-hint { color: var(--ant-color-text-secondary); font-size: 12px; margin: 0; }
+.knowledge-loading { display: grid; min-height: 260px; place-items: center; }
+.knowledge-file-path { white-space: normal; overflow-wrap: anywhere; }
+.knowledge-tree .ant-tree-node-content-wrapper { min-width: 0; }
+.knowledge-tree .ant-tree-treenode { min-width: 0; }

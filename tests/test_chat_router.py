@@ -158,6 +158,8 @@ async def test_xalling_claude_options_preserve_provider_and_session_settings(
     assert options_resume.enable_file_checkpointing is True
     assert "replay-user-messages" in options_new.extra_args
     assert "replay-user-messages" in options_resume.extra_args
+    assert options_new.mcp_servers["Knowledge"]["name"] == "Knowledge"
+    assert options_resume.mcp_servers["Knowledge"]["name"] == "Knowledge"
 
 
 async def test_discover_plugins_includes_existing_user_and_project_roots(
