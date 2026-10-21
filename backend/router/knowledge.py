@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.router.dependencies import authenticate
 from backend.service.knowledge import KnowledgeError, KnowledgeStore
-from backend.service.log import capture_api_errors
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"], dependencies=[Depends(authenticate)])
 
@@ -27,13 +26,11 @@ def checked(action: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
 
 @router.get("/tree")
-@capture_api_errors
 def path_tree(store: StoreDep) -> dict[str, Any]:
     return checked(store.path_tree)
 
 
 @router.get("/documents")
-@capture_api_errors
 def list_documents(
     store: StoreDep,
     parent_path: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,

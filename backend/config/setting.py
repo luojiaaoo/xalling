@@ -28,7 +28,6 @@ KNOWLEDGE_DIRECTORY = USER_CONF_DIRPATH / "xalling-knowledge"
 
 # Application log output paths.
 LOG_DIRECTORY = USER_CONF_DIRPATH / "xalling-log"
-ACCESS_LOG_FILEPATH = LOG_DIRECTORY / "access.log"
 BROWSER_LOG_FILEPATH = LOG_DIRECTORY / "browser.log"
 ERROR_LOG_FILEPATH = LOG_DIRECTORY / "error.log"
 OTHER_LOG_FILEPATH = LOG_DIRECTORY / "other.log"
