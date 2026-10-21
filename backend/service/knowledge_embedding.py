@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from fastembed import TextEmbedding
 
 MODEL_NAME = "BAAI/bge-small-zh-v1.5"
+# 魔搭（ModelScope）仓库，国内网络可直接下载。
 MODEL_REPOSITORY = "Qdrant/bge-small-zh-v1.5"
 MODEL_FILES = (
     "model_optimized.onnx",
@@ -97,23 +98,23 @@ def download_embedding_model(root: Path) -> EmbeddingStatus:
         state = get_embedding_status(root)
         if state.status in {"ready", "downloading"}:
             return state
-        retry = state.status == "error"
         _DOWNLOADING.add(directory)
         _ERRORS.pop(directory, None)
     try:
-        from huggingface_hub import snapshot_download
+        from modelscope.hub import snapshot_download
 
         with _EMBEDDING_LOCK:
             _MODELS.pop(directory, None)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / ".ready").unlink(missing_ok=True)
+        # 先清掉可能残留的不完整文件，确保重试时真正重新下载。
+        for name in MODEL_FILES:
+            (directory / name).unlink(missing_ok=True)
         snapshot_download(
-            repo_id=MODEL_REPOSITORY,
+            model_id=MODEL_REPOSITORY,
             local_dir=directory,
             allow_patterns=list(MODEL_FILES),
             max_workers=2,
-            etag_timeout=15,
-            force_download=retry,
         )
         if not all((directory / name).is_file() and (directory / name).stat().st_size > 0 for name in MODEL_FILES):
             raise ValueError("Incomplete model files")

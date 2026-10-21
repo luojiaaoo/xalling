@@ -125,10 +125,10 @@ def test_http_store_is_global_and_does_not_require_a_workspace(tmp_path, monkeyp
 
 
 def test_model_status_and_download_require_authentication_and_never_download_on_read(knowledge_api, monkeypatch):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
     client, store = knowledge_api
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda **kwargs: pytest.fail("读取状态不得下载"))
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", lambda **kwargs: pytest.fail("读取状态不得下载"))
     assert client.get("/api/knowledge/embedding").status_code == 401
     assert client.post("/api/knowledge/embedding/download").status_code == 401
     state = client.get("/api/knowledge/embedding", headers=AUTH).json()
@@ -150,7 +150,7 @@ def test_missing_model_returns_actionable_error_for_tree_and_documents(knowledge
 
 
 def test_manual_download_reports_progress_and_does_not_block_other_requests(knowledge_api, monkeypatch):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
     client, store = knowledge_api
     entered, release = Event(), Event()
@@ -163,7 +163,7 @@ def test_manual_download_reports_progress_and_does_not_block_other_requests(know
         for name in knowledge_embedding.MODEL_FILES:
             (kwargs["local_dir"] / name).write_bytes(b"model-data")
 
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", download)
     monkeypatch.setattr(knowledge_embedding, "_load_model", lambda directory: object())
     with ThreadPoolExecutor() as pool:
         pending = pool.submit(client.post, "/api/knowledge/embedding/download", headers=AUTH)
@@ -182,14 +182,14 @@ def test_manual_download_reports_progress_and_does_not_block_other_requests(know
 
 
 def test_download_failure_is_sanitized_and_reflected_in_model_status(knowledge_api, monkeypatch):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
     client, _ = knowledge_api
 
     def fail(**kwargs):
         raise RuntimeError("private-download-credentials")
 
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", fail)
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", fail)
     result = client.post("/api/knowledge/embedding/download", headers=AUTH)
     assert result.status_code == 400
     assert "private-download-credentials" not in result.text

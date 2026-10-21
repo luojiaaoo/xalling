@@ -104,9 +104,9 @@ def test_empty_input_skips_model_loading_and_load_failure_requires_manual_downlo
 
 
 def test_missing_model_never_initializes_or_downloads(tmp_path, model, monkeypatch):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda **kwargs: pytest.fail("不得自动下载模型"))
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", lambda **kwargs: pytest.fail("不得自动下载模型"))
     root = tmp_path / "storage"
     assert get_embedding_status(root).status == "missing"
     with pytest.raises(EmbeddingError, match="手动点击“下载嵌入模型”"):
@@ -125,7 +125,7 @@ def test_partial_model_is_unavailable_even_if_already_loaded(tmp_path, model, mi
 
 
 def test_manual_download_validates_files_and_subsequent_loads_are_local(tmp_path, model, monkeypatch):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
     downloads = []
 
@@ -136,7 +136,7 @@ def test_manual_download_validates_files_and_subsequent_loads_are_local(tmp_path
             embed_texts(tmp_path, ["甲"])
         write_model_files(tmp_path, ready=False)
 
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", download)
     state = download_embedding_model(tmp_path)
     assert state.status == "ready"
     assert state.directory == str(tmp_path / "embedding")
@@ -152,7 +152,7 @@ def test_manual_download_validates_files_and_subsequent_loads_are_local(tmp_path
 
 @pytest.mark.parametrize("failure", ["network", "incomplete", "load"])
 def test_download_failure_is_sanitized_and_retryable(tmp_path, model, monkeypatch, failure):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
     def fail(**kwargs):
         if failure == "network":
@@ -163,7 +163,7 @@ def test_download_failure_is_sanitized_and_retryable(tmp_path, model, monkeypatc
             write_model_files(tmp_path, ready=False)
 
     with monkeypatch.context() as patch:
-        patch.setattr(huggingface_hub, "snapshot_download", fail)
+        patch.setattr(modelscope_hub, "snapshot_download", fail)
         if failure == "load":
             patch.setattr(knowledge_embedding, "_load_model", lambda path: (_ for _ in ()).throw(ValueError("invalid")))
         with pytest.raises(EmbeddingError, match="手动点击") as error:
@@ -173,12 +173,12 @@ def test_download_failure_is_sanitized_and_retryable(tmp_path, model, monkeypatc
     assert not (tmp_path / "embedding" / ".ready").exists()
     with pytest.raises(EmbeddingError, match="手动点击"):
         embed_texts(tmp_path, ["甲"])
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda **kwargs: write_model_files(tmp_path, ready=False))
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", lambda **kwargs: write_model_files(tmp_path, ready=False))
     assert download_embedding_model(tmp_path).status == "ready"
 
 
 def test_concurrent_downloads_share_one_transfer_and_status_stays_responsive(tmp_path, model, monkeypatch):
-    import huggingface_hub
+    import modelscope.hub as modelscope_hub
 
     entered, release = Event(), Event()
     calls = []
@@ -189,7 +189,7 @@ def test_concurrent_downloads_share_one_transfer_and_status_stays_responsive(tmp
         assert release.wait(5)
         write_model_files(tmp_path, ready=False)
 
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", download)
     with ThreadPoolExecutor() as pool:
         pending = pool.submit(download_embedding_model, tmp_path)
         try:
