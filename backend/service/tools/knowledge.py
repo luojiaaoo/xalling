@@ -95,7 +95,8 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
 
     @tool(
         "KnowledgeImport",
-        "将文档导入本地知识库。支持 Office、PDF、EPUB、CSV、Markdown/TXT，最大 200 MiB，解析后最多 2000 万字符。"
+        "将文档导入本地知识库。支持 Office、PDF、EPUB，以及文本（源码、配置、CSV、Markdown、"
+        "无后缀或未知后缀文本）；二进制文档仅解析 AnyDoc 支持的格式。最大 200 MiB，解析后最多 2000 万字符。"
         "同一路径重复导入会更新索引。只读取原文件，不复制、不修改、不上传。",
         _ImportInput.model_json_schema(),
         annotations=ToolAnnotations(destructiveHint=True, openWorldHint=False),

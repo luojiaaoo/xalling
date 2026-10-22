@@ -25,7 +25,7 @@ Xalling 是一个运行在桌面上的 AI 工作台：后端用 Python 管理领
 - **文件检查点与恢复**：默认启用 `enable_file_checkpointing`，变更卡片提供“撤销修改”，确认后调用 SDK `rewind_files` 恢复到本轮开始前并保留聊天记录。较早检查点也会撤销之后 SDK 跟踪的文件修改；覆盖主 Agent 的文件编辑工具，命令行及普通子 Agent 修改不在恢复范围内
 - **斜杠命令与 Skill**：输入框 `/` 唤起命令与技能列表，自动发现用户级与项目级 Skill 目录
 - **定时自动化**：基于 APScheduler 的定时任务（interval / date / cron），任务持久化在 SQLite
-- **本地知识库**：使用 [AnyDoc](https://github.com/firecrawl/anydoc) 按原路径解析文档，通过唯一的 [Zvec](https://zvec.org/api-reference/python/) 索引混合搜索 BM25 关键词与正文向量，以 RRF 融合结果，支持多个父目录及子目录或全局搜索；每次搜索前按修改时间同步全库已入库文件，更新变更内容并移除已删除文件。界面按目录树展示原路径，可确认删除单个文档或文件夹下的全部已入库文档及索引，保留磁盘原文件，不复制原文档；[KnowledgeRead 大模型工具](docs/knowledge-preview.md)支持按文档路径和切片序号读取及查看上一块/下一块和首尾预览，不重复存储正文。
+- **本地知识库**：使用 [AnyDoc](https://github.com/firecrawl/anydoc) 按原路径解析文档，纯文本的类型识别、内容嗅探及切片逻辑移植自 zvec-grep，按模型上限和文本密度估算字符预算，支持源码、配置和未知后缀文本。通过唯一的 [Zvec](https://zvec.org/api-reference/python/) 索引混合搜索 BM25 关键词与正文向量，以 RRF 融合结果，支持多个父目录及子目录或全局搜索；每次搜索前按修改时间同步全库已入库文件，更新变更内容并移除已删除文件。界面按目录树展示原路径，可确认删除单个文档或文件夹下的全部已入库文档及索引，保留磁盘原文件，不复制原文档；KnowledgeRead 大模型工具支持按文档路径和切片序号读取及查看上一块/下一块和首尾预览，不重复存储正文。
 - **模型站点管理**：多供应商模型配置，支持 `anthropic` / `chat` / `responses` 三种 API 协议
 - **用量统计**：按逻辑回合统计主 Agent Token 与子 Agent 消耗，提供会话内用量弹层
 - **会话历史与搜索**：会话列表、全文搜索、运行中会话恢复
@@ -64,7 +64,7 @@ flowchart LR
 
 业务调用使用 `/api/*` HTTP 接口，流式事件通过 `/ws` WebSocket 推送。各业务模块使用原生 `APIRouter`，共享服务和聊天任务由 FastAPI `lifespan` 管理。FastAPI / Uvicorn 监听 `0.0.0.0` 的随机端口，并提供构建后的前端静态资源；API 与事件连接必须通过启动凭证校验，不限制 Host 或 Origin。详细通信契约与事件协议见 [AGENTS.md](AGENTS.md)。
 
-对话保留 Xalling 的原生事件与界面，实时和历史共用 `frontend/src/chat/` 中的归并器。原实现缺口、补齐内容和测试方式见 [对话事件实现说明](docs/chat-events.md)。
+对话保留 Xalling 的原生事件与界面，实时和历史共用 `frontend/src/chat/` 中的归并器。
 
 ## 技术栈
 

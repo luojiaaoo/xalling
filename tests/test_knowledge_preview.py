@@ -26,11 +26,15 @@ def test_preview_returns_full_short_text_or_bounded_head_and_tail(library, lengt
     assert preview.source == str(source)
     assert preview.mtime_ns == imported["mtime_ns"]
     assert preview.chunk_count == imported["chunk_count"]
-    assert preview.truncated == (length > 1000)
-    assert preview.head == (text[:500] if length > 1000 else text)
-    # 1401 字符刚跨过分块边界，末片段只有 201 字符（含 200 字符重叠）。
-    tail_length = 201 if length == 1401 else 500
-    assert preview.tail == (text[-tail_length:] if length > 1000 else "")
+    if length == 12:
+        assert preview.truncated is False
+        assert preview.head == text
+        assert preview.tail == ""
+    else:
+        # 与上游一致，长中文文本按模型上限估算为 512 字符预算。
+        assert preview.truncated is True
+        assert preview.head == text[:500]
+        assert preview.tail == text[-min(500, length % 512 or 512) :]
 
 
 def test_preview_fetches_only_edge_ids_without_vectors_and_never_updates_storage(library, monkeypatch):

@@ -13,6 +13,7 @@ from backend.service.knowledge.embedding import (
     download_embedding_model,
     embed_texts,
     get_embedding_status,
+    split_document,
 )
 from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
@@ -60,20 +61,63 @@ def model(monkeypatch):
     return instance, initialized
 
 
-def test_long_passages_include_tail_and_query_uses_distinct_embedding(tmp_path, model):
+def test_each_passage_is_embedded_whole_and_query_uses_distinct_embedding(tmp_path, model):
     instance, initialized = model
     root = tmp_path / "storage"
     directory = write_model_files(root)
-    vectors = embed_texts(root, ["甲" * 400 + "乙" * 400, "乙"])
+    texts = ["甲" * 200 + "乙" * 200, "乙"]
+    vectors = embed_texts(root, texts)
     assert len(vectors) == 2
     assert vectors[0][:2] == pytest.approx([1 / math.sqrt(2), 1 / math.sqrt(2)])
     assert vectors[1][:2] == [0.0, 1.0]
     assert embed_texts(root, ["问题"], is_query=True)[0][0] == 1.0
     assert [kind for kind, _ in instance.calls] == ["passage", "query"]
+    assert instance.calls[0][1] == texts
     assert len(initialized) == 1
     assert initialized[0]["cache_dir"] == str(directory)
     assert initialized[0]["specific_model_path"] == str(directory)
     assert initialized[0]["local_files_only"] is True
+
+
+def test_long_document_is_split_before_embedding_without_vector_pooling(tmp_path, model):
+    instance, _ = model
+    write_model_files(tmp_path)
+    text = "甲" * 400 + "乙" * 400
+    chunks = split_document(tmp_path, text)
+    assert "".join(chunks) == text
+    assert len(chunks) == 2
+    assert [len(chunk) for chunk in chunks] == [512, 288]
+    vectors = embed_texts(tmp_path, chunks)
+    assert len(vectors) == len(chunks)
+    assert instance.calls == [("passage", chunks)]
+    assert vectors[-1][:2] == [0.0, 1.0]
+
+
+@pytest.mark.parametrize("is_query", [False, True])
+@pytest.mark.parametrize("text", ["", "  ", "\ufeff"])
+def test_invalid_input_does_not_invalidate_model_or_invoke_inference(tmp_path, model, text, is_query):
+    instance, initialized = model
+    write_model_files(tmp_path)
+    with pytest.raises(EmbeddingError, match="不能为空"):
+        embed_texts(tmp_path, [text], is_query=is_query)
+    assert get_embedding_status(tmp_path).status == "ready"
+    assert not instance.calls
+    assert not initialized
+
+
+def test_long_query_is_passed_to_backend_for_model_truncation(tmp_path, model):
+    instance, _ = model
+    write_model_files(tmp_path)
+    text = "甲" * 1000
+    assert len(embed_texts(tmp_path, [text], is_query=True)) == 1
+    assert instance.calls == [("query", [text])]
+
+
+def test_chunking_uses_character_budget_without_loading_tokenizer(tmp_path):
+    write_model_files(tmp_path)
+    chunks = split_document(tmp_path, "甲" * 1000)
+    assert "".join(chunks) == "甲" * 1000
+    assert [len(chunk) for chunk in chunks] == [512, 488]
 
 
 @pytest.mark.parametrize("invalid", [[], [[1.0]], [[0.0] * DIMENSIONS], [[float("nan")] * DIMENSIONS]])

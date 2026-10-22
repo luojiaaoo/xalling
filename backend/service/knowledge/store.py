@@ -15,41 +15,21 @@ from uuid import NAMESPACE_URL, uuid5
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.config.setting import KNOWLEDGE_DIRECTORY
-from backend.service.knowledge.embedding import DIMENSIONS, EmbeddingError, embed_texts, ensure_embedding_model
+from backend.service.knowledge.embedding import (
+    DIMENSIONS,
+    EmbeddingError,
+    embed_texts,
+    ensure_embedding_model,
+    split_document,
+)
+from backend.service.knowledge.text_files import TEXT_WHITESPACE, decode_text, detect_file_type, utf8_text
 
 if TYPE_CHECKING:
     import zvec
 
 MAX_FILE_BYTES = 200 * 1024 * 1024
 MAX_TEXT_CHARACTERS = 20_000_000
-# 按字符分块，重叠部分保留跨块上下文。
-CHUNK_SIZE = 1400
-CHUNK_OVERLAP = 200
 PREVIEW_EDGE_CHARACTERS = 500
-_TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
-_DOCUMENT_EXTENSIONS = {
-    ".doc",
-    ".docx",
-    ".docm",
-    ".ppt",
-    ".pps",
-    ".pot",
-    ".pptx",
-    ".pptm",
-    ".ppsx",
-    ".ppsm",
-    ".xls",
-    ".xlsx",
-    ".xlsm",
-    ".xlsb",
-    ".odt",
-    ".ods",
-    ".odp",
-    ".rtf",
-    ".epub",
-    ".csv",
-    ".pdf",
-}
 # 所有会话共用集合；持锁直到句柄关闭，避免原生文件锁竞争。
 _STORAGE_LOCK = RLock()
 
@@ -195,13 +175,15 @@ class KnowledgeStore:
         """文件未更新就直接返回；新增或更新时重新写入。"""
         source = Path(raw_path).expanduser().resolve()
         with _STORAGE_LOCK:
-            record = self._catalog().documents.get(os.path.normcase(str(source)))
+            catalog = self._catalog()
+            source_key = os.path.normcase(str(source))
+            record = catalog.documents.get(source_key)
             try:
                 mtime_ns = source.stat().st_mtime_ns
             except OSError as error:
                 raise KnowledgeError("无法读取文件，请检查文件路径和访问权限。") from error
             # 已入库且文件修改时间相同：直接返回，不检查向量。
-            if record is not None and record.mtime_ns == mtime_ns:
+            if record is not None and record.mtime_ns == mtime_ns and source_key not in catalog.pending:
                 return {"status": "unchanged", **record.model_dump()}
             return self._write_document(source)
 
@@ -212,8 +194,6 @@ class KnowledgeStore:
 
         if not source.is_file():
             raise KnowledgeError("文件不存在或不是普通文件。")
-        if source.suffix.lower() not in _TEXT_EXTENSIONS | _DOCUMENT_EXTENSIONS:
-            raise KnowledgeError("不支持该文件类型；请导入 Office、PDF、EPUB、CSV、Markdown 或 TXT。")
         source_key = os.path.normcase(str(source))
         with _STORAGE_LOCK:
             catalog = self._catalog()
@@ -231,39 +211,48 @@ class KnowledgeStore:
             if len(data) > MAX_FILE_BYTES:
                 raise KnowledgeError("单个文件不能超过 200 MiB。")
             try:
-                if source.suffix.lower() in _TEXT_EXTENSIONS:
-                    text = data.decode("utf-8-sig")
-                else:
+                # PDF/RTF 等有文本签名的文档也应先由 AnyDoc 识别，不能误作纯文本。
+                document_format = anydoc.format_from_bytes(data)
+                file_type = detect_file_type(source)
+                if (
+                    document_format is None
+                    and (file_type is None or file_type["kind"] == "image")
+                    and anydoc.format_from_extension(source.suffix.lstrip(".")) is None
+                ):
+                    raise KnowledgeError("不支持该二进制文件类型；仅支持 AnyDoc 文档或文本文件。")
+                if document_format is None:
+                    try:
+                        text = decode_text(data)
+                    except ValueError as error:
+                        document_format = anydoc.format_from_extension(source.suffix.lstrip("."))
+                        if document_format is None:
+                            raise KnowledgeError("不支持该二进制文件；请导入 AnyDoc 支持的文档或文本文件。") from error
+                if document_format is not None:
                     text = anydoc.to_markdown_bytes(
                         data,
-                        format=anydoc.format_from_extension(source.suffix.lstrip(".")),
+                        format=document_format,
                         ocr="reject",
                     )
             except anydoc.NeedsOcrError as error:
                 raise KnowledgeError("该 PDF 含扫描页面，需要先在本地完成 OCR 后再导入。") from error
-            except (anydoc.ConvertError, UnicodeDecodeError) as error:
-                raise KnowledgeError("无法解析文档；请检查格式、加密状态，TXT/Markdown 需使用 UTF-8。") from error
-            if not text.strip():
+            except anydoc.ConvertError as error:
+                raise KnowledgeError("无法解析文档；请检查格式或加密状态。") from error
+            if not text.strip(TEXT_WHITESPACE):
                 raise KnowledgeError("文档没有可检索的文本。")
             if len(text) > MAX_TEXT_CHARACTERS:
                 raise KnowledgeError("文档解析后超过 2000 万字符，请拆分后导入。")
             if source.stat().st_mtime_ns != stat.st_mtime_ns:
                 raise KnowledgeError("文件在导入期间发生修改，请重试。")
-            text = text.replace("\r\n", "\n").strip()
-            chunks = []
-            start = 0
-            while start < len(text):
-                end = min(start + CHUNK_SIZE, len(text))
-                if end < len(text):
-                    # 在后半段寻找换行，兼顾段落完整和最小块长。
-                    boundary = text.rfind("\n", start + CHUNK_SIZE // 2, end)
-                    if boundary != -1:
-                        end = boundary + 1
-                if chunk := text[start:end].strip():
-                    chunks.append(chunk)
-                if end == len(text):
-                    break
-                start = end - CHUNK_OVERLAP
+            try:
+                chunks = split_document(
+                    self.root,
+                    text,
+                    markdown=document_format is not None
+                    or (file_type is not None and file_type["format"] == "markdown"),
+                )
+            except EmbeddingError as error:
+                raise KnowledgeError(str(error)) from error
+            chunks = [utf8_text(chunk) for chunk in chunks]
             record = DocumentRecord(
                 source=str(source),
                 mtime_ns=stat.st_mtime_ns,

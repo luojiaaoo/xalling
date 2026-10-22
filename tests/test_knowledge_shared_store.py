@@ -183,7 +183,7 @@ def test_paths_with_quotes_and_unicode_can_be_searched_and_updated(tmp_path):
 def test_file_modified_during_conversion_is_not_published(tmp_path, monkeypatch):
     store = KnowledgeStore(tmp_path / "storage")
     source = tmp_path / "manual.rtf"
-    write_document(source, "placeholder")
+    write_document(source, r"{\rtf1\ansi Original document}")
 
     def convert(*args, **kwargs):
         write_document(source, "changed", 2_000_000_000)

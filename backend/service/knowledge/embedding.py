@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
+from backend.service.knowledge.chunking import chunk_text, index_chunk_options
+from backend.service.knowledge.text_files import TEXT_WHITESPACE, utf8_text
+
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
 
@@ -24,6 +27,7 @@ MODEL_FILES = (
     "vocab.txt",
 )
 DIMENSIONS = 512
+MAX_INPUT_TOKENS = 512
 _MODELS: dict[Path, TextEmbedding] = {}
 _EMBEDDING_LOCK = RLock()
 _STATE_LOCK = RLock()
@@ -91,6 +95,24 @@ def _load_model(directory: Path) -> TextEmbedding:
     )
 
 
+def _invalidate_model(directory: Path, message: str) -> None:
+    """在持有嵌入锁时撤销就绪状态，使用户能手动重新下载损坏的模型。"""
+    with _STATE_LOCK:
+        _ERRORS[directory] = message
+        try:
+            (directory / ".ready").unlink(missing_ok=True)
+        except OSError:
+            pass  # 目录不可写时仍返回可展示的错误。
+    _MODELS.pop(directory, None)
+
+
+def split_document(root: Path, text: str, *, markdown: bool = False) -> list[str]:
+    """与 zvec-grep 一致，按模型预算和文本密度配置字符切片。"""
+    ensure_embedding_model(root)
+    max_chars, overlap_chars = index_chunk_options(MAX_INPUT_TOKENS, text)
+    return chunk_text(text, markdown=markdown, max_chars=max_chars, overlap_chars=overlap_chars)
+
+
 def download_embedding_model(root: Path) -> EmbeddingStatus:
     """仅供用户点击下载时调用，同一目录的并发请求共用一次下载。"""
     directory = _model_directory(root)
@@ -135,48 +157,36 @@ def download_embedding_model(root: Path) -> EmbeddingStatus:
 
 
 def embed_texts(root: Path, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
-    """分段嵌入并归一化聚合，避免长片段的后半部分被模型截断。"""
+    """每片生成一个归一化向量，超长模型输入由 FastEmbed 分词器截断。"""
     if not texts:
         return []
     ensure_embedding_model(root)
     with _EMBEDDING_LOCK:
         ensure_embedding_model(root)
+        directory = _model_directory(root)
         try:
-            directory = _model_directory(root)
+            if any(not text.strip(TEXT_WHITESPACE) for text in texts):
+                raise EmbeddingError("嵌入文本不能为空。")
+            texts = [utf8_text(text) for text in texts]
             if directory not in _MODELS:
                 _MODELS[directory] = _load_model(directory)
             model = _MODELS[directory]
-            segments = []
-            counts = []
-            for text in texts:
-                parts = [text[start : start + 400] for start in range(0, len(text), 400)]
-                if not parts:
-                    raise ValueError("Empty embedding input")
-                counts.append(len(parts))
-                segments.extend(parts)
-            output = model.query_embed(segments) if is_query else model.passage_embed(segments, batch_size=16)
+            output = model.query_embed(texts) if is_query else model.passage_embed(texts, batch_size=16)
             vectors = [vector.tolist() for vector in output]
-            if len(vectors) != len(segments) or any(
+            if len(vectors) != len(texts) or any(
                 len(vector) != DIMENSIONS or not all(math.isfinite(value) for value in vector) for vector in vectors
             ):
                 raise ValueError("Invalid embedding output")
             result = []
-            offset = 0
-            for count in counts:
-                vector = [math.fsum(item[n] for item in vectors[offset : offset + count]) for n in range(DIMENSIONS)]
+            for vector in vectors:
                 norm = math.sqrt(math.fsum(value * value for value in vector))
                 if norm == 0 or not math.isfinite(norm):
                     raise ValueError("Invalid embedding norm")
                 result.append([value / norm for value in vector])
-                offset += count
             return result
+        except EmbeddingError:
+            raise
         except Exception as error:
             message = "本地嵌入模型加载或计算失败，请打开“本地知识库”，手动点击“下载嵌入模型”重新下载。"
-            with _STATE_LOCK:
-                _ERRORS[directory] = message
-                try:
-                    (directory / ".ready").unlink(missing_ok=True)
-                except OSError:
-                    pass  # 目录不可写时仍返回可展示的错误。
-            _MODELS.pop(directory, None)
+            _invalidate_model(directory, message)
             raise EmbeddingError(message) from error

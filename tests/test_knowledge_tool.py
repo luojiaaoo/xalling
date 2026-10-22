@@ -12,7 +12,8 @@ import pytest
 import zvec
 
 from backend.service.knowledge import store as knowledge
-from backend.service.knowledge.store import CHUNK_OVERLAP, CHUNK_SIZE, DocumentRecord, KnowledgeError, KnowledgeStore
+from backend.service.knowledge.chunking import index_chunk_options
+from backend.service.knowledge.store import DocumentRecord, KnowledgeError, KnowledgeStore
 from backend.service.tools import knowledge as knowledge_tool
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
@@ -86,10 +87,99 @@ def test_chunks_preserve_text_and_bounded_overlap(store):
     with store._collection() as collection:
         docs = collection.fetch(ids, include_vector=False)
         chunks = [docs[doc_id].field("text") for doc_id in ids]
-    assert all(0 < len(chunk) <= CHUNK_SIZE for chunk in chunks)
+    max_chars, overlap_chars = index_chunk_options(512, source.read_bytes().decode("utf-8"))
+    assert all(0 < len(chunk) <= max_chars for chunk in chunks)
     assert chunks[0].startswith("标题")
-    assert chunks[-1].endswith("第 1499 条记录")
-    assert all(previous[-CHUNK_OVERLAP // 2 :] in current[:CHUNK_OVERLAP] for previous, current in pairwise(chunks))
+    assert chunks[-1].rstrip().endswith("第 1499 条记录")
+    for previous, current in pairwise(chunks):
+        previous_lines, current_lines = previous.split("\n"), current.split("\n")
+        overlap = max(
+            count
+            for count in range(1, min(len(previous_lines), len(current_lines)) + 1)
+            if previous_lines[-count:] == current_lines[:count]
+        )
+        overlap_size = sum(len(line) + 1 for line in previous_lines[-overlap:])
+        assert overlap_chars <= overlap_size < overlap_chars + max(map(len, previous_lines)) + 1
+
+
+@pytest.mark.parametrize(
+    "name", ["main.py", "config.toml", "data.json", "data.csv", "Dockerfile", ".env", "note.custom"]
+)
+def test_utf8_text_files_are_detected_by_content(store, monkeypatch, name):
+    source = Path.cwd() / name
+    text = "  installation instructions\n    preserve indentation\n"
+    source.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+    monkeypatch.setattr(anydoc, "to_markdown_bytes", lambda *a, **kw: pytest.fail("文本文件不应经 AnyDoc 解析"))
+    result = store.import_document(str(source))
+    assert result["chunk_count"] == 1
+    assert store.read_document(str(source), chunck_number=1).text == "\ufeff" + text
+
+
+@pytest.mark.parametrize(
+    "data",
+    [b"hello\x00world", b"\x01" * 40 + b"normal text", "hello".encode("utf-16")],
+)
+@pytest.mark.parametrize("name", ["binary.txt", "binary.unknown", "binary"])
+def test_binary_content_is_rejected_even_with_text_or_unknown_extension(store, name, data):
+    source = Path.cwd() / name
+    source.write_bytes(data)
+    with pytest.raises(KnowledgeError, match="二进制|UTF-8"):
+        store.import_document(str(source))
+    assert not store.root.exists()
+
+
+def test_document_signature_is_recognized_without_supported_extension(store):
+    source = Path.cwd() / "document.unknown"
+    source.write_bytes(b"{\\rtf1\\ansi Knowledge document\\par Installation instructions.}")
+    store.import_document(str(source))
+    assert "Installation instructions" in store.read_document(str(source), chunck_number=1).text
+
+
+def test_binary_document_uses_anydoc_extension_fallback(store, monkeypatch):
+    source = Path.cwd() / "report.docx"
+    data = b"\x00container-not-recognized-by-signature"
+    source.write_bytes(data)
+    calls = []
+
+    def convert(content, *, format, ocr):
+        calls.append((content, format, ocr))
+        return "# Document\nParsed body"
+
+    monkeypatch.setattr(anydoc, "to_markdown_bytes", convert)
+    store.import_document(str(source))
+    assert calls == [(data, "docx", "reject")]
+    assert "Parsed body" in store.read_document(str(source), chunck_number=1).text
+
+
+def test_plain_text_does_not_use_anydoc_even_with_document_extension(store, monkeypatch):
+    source = Path.cwd() / "text.docx"
+    source.write_text("plain UTF-8 text", encoding="utf-8")
+    monkeypatch.setattr(anydoc, "to_markdown_bytes", lambda *a, **kw: pytest.fail("纯文本应直接解码"))
+    store.import_document(str(source))
+    assert store.read_document(str(source)).head == "plain UTF-8 text"
+
+
+def test_unsupported_binary_never_calls_document_converter(store, monkeypatch):
+    source = Path.cwd() / "program.exe"
+    source.write_bytes(b"MZ\x00\x00unsupported binary")
+    monkeypatch.setattr(anydoc, "to_markdown_bytes", lambda *a, **kw: pytest.fail("不支持的二进制不应调用解析器"))
+    with pytest.raises(KnowledgeError, match="不支持该二进制"):
+        store.import_document(str(source))
+    assert not store.root.exists()
+
+
+def test_invalid_utf8_is_replaced_as_in_node_buffer_decode(store):
+    source = Path.cwd() / "replacement.txt"
+    source.write_bytes(b"hello\xffworld")
+    store.import_document(str(source))
+    assert store.read_document(str(source)).head == "hello\ufffdworld"
+
+
+def test_known_binary_extension_is_rejected_even_for_ascii_content(store):
+    source = Path.cwd() / "program.exe"
+    source.write_bytes(b"looks like text")
+    with pytest.raises(KnowledgeError, match="不支持该二进制"):
+        store.import_document(str(source))
 
 
 def test_failed_publish_preserves_old_snapshot(store, monkeypatch):
@@ -135,8 +225,7 @@ def test_concurrent_sessions_share_one_collection(store):
     [
         ("empty.txt", b"", "文件为空"),
         ("blank.md", b" \n ", "没有可检索"),
-        ("image.png", b"invalid", "不支持"),
-        ("invalid.txt", b"\xff", "UTF-8"),
+        ("image.png", b"\x89PNG\r\n\x1a\n\x00", "不支持"),
     ],
 )
 def test_bad_documents_are_rejected_before_index_creation(store, name, content, expected):
@@ -217,6 +306,7 @@ def test_read_tool_follows_search_hits_and_reads_preview_snapshot(handlers, stor
     source = Path.cwd() / "manual.txt"
     text = "firmware guide\n" * 400
     source.write_text(text, encoding="utf-8")
+    text = source.read_bytes().decode("utf-8")
     store.import_document(str(source))
 
     async def scenario():
@@ -237,7 +327,7 @@ def test_read_tool_follows_search_hits_and_reads_preview_snapshot(handlers, stor
         assert second["chunk_count"] == hit["chunk_count"]
         preview = payload(await handlers["KnowledgeRead"].handler({"source": source.name}))
         assert preview["head"] == text[:500]
-        assert preview["tail"] == text.strip()[-500:]
+        assert preview["tail"] == text[-500:]
         assert (
             payload(await handlers["KnowledgeRead"].handler({"source": source.name, "chunck_number": None})) == preview
         )

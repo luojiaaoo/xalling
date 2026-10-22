@@ -90,11 +90,11 @@ def test_refresh_failure_blocks_stale_search_and_retries_after_file_is_fixed(tmp
     source = tmp_path / "manual.txt"
     write_document(source, "old manual", 1_000_000_000)
     store.import_document(str(source))
-    source.write_bytes(b"\xff")
+    source.write_bytes(b"broken\x00binary")
     os.utime(source, ns=(2_000_000_000, 2_000_000_000))
     with monkeypatch.context() as patch:
         patch.setattr(zvec.Collection, "query", lambda *a, **kw: pytest.fail("同步失败不应查询旧索引"))
-        with pytest.raises(KnowledgeError, match="UTF-8"):
+        with pytest.raises(KnowledgeError, match="二进制"):
             store.search("manual", 5, parent_paths=[str(tmp_path / "unrelated")])
     assert store.list_files(0, 10)["files"][0]["mtime_ns"] == 1_000_000_000
     write_document(source, "fixed manual", 2_000_000_000)
