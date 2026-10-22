@@ -15,8 +15,8 @@ def knowledge_vectors(monkeypatch):
     import math
     import re
 
-    from backend.service import knowledge
-    from backend.service.knowledge_embedding import DIMENSIONS
+    from backend.service.knowledge import store as knowledge
+    from backend.service.knowledge.embedding import DIMENSIONS
 
     def embed(root, texts, *, is_query=False):
         result = []

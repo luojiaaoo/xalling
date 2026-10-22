@@ -25,11 +25,11 @@ from backend.config.setting import (
     ROOT,
     USER_CONF_DIRPATH,
 )
-from backend.service.knowledge_tool import build_knowledge_mcp_server
-from backend.service.log import claude_sdk_logger
-from backend.service.research_tool import build_research_mcp_server
-from backend.service.scheduler_tool import build_scheduler_mcp_server
-from backend.service.web_search_tool import build_web_search_mcp_server
+from backend.service.desktop.log import claude_sdk_logger
+from backend.service.tools.knowledge import build_knowledge_mcp_server
+from backend.service.tools.research import build_research_mcp_server
+from backend.service.tools.scheduler import build_scheduler_mcp_server
+from backend.service.tools.web_search import build_web_search_mcp_server
 
 type ChatEffort = Literal["low", "medium", "high", "max"]
 type ApiProtocol = Literal["anthropic", "chat", "responses"]

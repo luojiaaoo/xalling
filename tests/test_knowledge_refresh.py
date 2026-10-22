@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 import zvec
 
-from backend.service import knowledge
-from backend.service.knowledge import DocumentRecord, KnowledgeError, KnowledgeStore
+from backend.service.knowledge import store as knowledge
+from backend.service.knowledge.store import DocumentRecord, KnowledgeError, KnowledgeStore
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
 

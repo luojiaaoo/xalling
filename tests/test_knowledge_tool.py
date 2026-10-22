@@ -11,8 +11,9 @@ import anyio
 import pytest
 import zvec
 
-from backend.service import knowledge, knowledge_tool
-from backend.service.knowledge import CHUNK_OVERLAP, CHUNK_SIZE, DocumentRecord, KnowledgeError, KnowledgeStore
+from backend.service.knowledge import store as knowledge
+from backend.service.knowledge.store import CHUNK_OVERLAP, CHUNK_SIZE, DocumentRecord, KnowledgeError, KnowledgeStore
+from backend.service.tools import knowledge as knowledge_tool
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
 
@@ -266,7 +267,7 @@ def test_internal_errors_are_sanitized(handlers, store, monkeypatch):
     ],
 )
 def test_tools_require_user_to_download_missing_model(handlers, store, monkeypatch, name, args):
-    from backend.service.knowledge_embedding import ensure_embedding_model
+    from backend.service.knowledge.embedding import ensure_embedding_model
 
     monkeypatch.setattr(knowledge, "ensure_embedding_model", ensure_embedding_model)
 

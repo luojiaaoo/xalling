@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TypedDict
 
 # 教程目录：项目根目录下的 tutorials/，仅向界面暴露其中的 Markdown 文件
-TUTORIALS_DIR = Path(__file__).resolve().parents[2] / "tutorials"
+TUTORIALS_DIR = Path(__file__).resolve().parents[3] / "tutorials"
 
 _HEADING_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 

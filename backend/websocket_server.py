@@ -23,10 +23,10 @@ from yarl import URL
 from backend.application import ApplicationServices
 from backend.router import routers
 from backend.router.events import router as event_router
-from backend.scheduler import set_scheduled_task_executor, shutdown_scheduler
-from backend.service.chat import ChatService
-from backend.service.events import WebSocketEvents
-from backend.service.window import WindowService
+from backend.service.chat.events import WebSocketEvents
+from backend.service.chat.service import ChatService
+from backend.service.desktop.window import WindowService
+from backend.service.scheduling.service import set_scheduled_task_executor, shutdown_scheduler
 
 MAX_MESSAGE_BYTES = 70 * 1024 * 1024
 

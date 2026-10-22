@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from backend.router.dependencies import authenticate
 from backend.router.schemas import FrontendErrorRequest
-from backend.service.log import LogService
+from backend.service.desktop.log import LogService
 
 router = APIRouter(prefix="/api/logs", tags=["logs"], dependencies=[Depends(authenticate)])
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import anydoc
 import pytest
 
-from backend.service.knowledge import KnowledgeError, KnowledgeStore
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
 

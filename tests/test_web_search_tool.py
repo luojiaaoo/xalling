@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Self
 
 import anyio
 
-from backend.service import web_search_tool
+from backend.service.tools import web_search as web_search_tool
 
 
 def _tool_payload(result: dict[str, Any]) -> tuple[str, bool]:

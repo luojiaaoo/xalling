@@ -10,6 +10,7 @@ binaries = [
     ("plugins/bin/claude.exe", "plugins/bin"),
 ]
 hiddenimports = [
+    "backend.scheduler",  # Restore jobs persisted before the service package move.
     "clr",
     "uvicorn.logging",
     "uvicorn.loops.asyncio",

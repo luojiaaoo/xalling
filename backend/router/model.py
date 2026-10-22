@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from backend.router.dependencies import authenticate
 from backend.router.schemas import ModelSelectionRequest, ModelSiteRequest, RemoteModelsRequest
-from backend.service.model import ModelGroup, ModelSelection, ModelService, ModelSiteView
+from backend.service.settings.model import ModelGroup, ModelSelection, ModelService, ModelSiteView
 
 router = APIRouter(prefix="/api/models", tags=["models"], dependencies=[Depends(authenticate)])
 

@@ -4,8 +4,8 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.service.chat import ChatService
-from backend.service.window import WindowService
+from backend.service.chat.service import ChatService
+from backend.service.desktop.window import WindowService
 
 
 @dataclass(slots=True)

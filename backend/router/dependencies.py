@@ -6,8 +6,8 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, WebSocket, WebSocketException
 
 from backend.application import ApplicationServices
-from backend.service.chat import ChatService
-from backend.service.window import WindowService
+from backend.service.chat.service import ChatService
+from backend.service.desktop.window import WindowService
 
 
 async def authenticate(request: Request) -> None:

@@ -18,17 +18,17 @@ from backend.claude_chat_client import (
 )
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
-from backend.service.chat import (
-    ChatService,
-    _ActiveChat,
-    _ChatMessageRequest,
-    _validate_leading_slash,
-)
-from backend.service.claude_options import (
+from backend.service.chat.options import (
     ClaudeConnectionConfig,
     _agent_options,
     _provider_settings,
     discover_plugins,
+)
+from backend.service.chat.service import (
+    ChatService,
+    _ActiveChat,
+    _ChatMessageRequest,
+    _validate_leading_slash,
 )
 
 pytestmark = pytest.mark.anyio
@@ -118,7 +118,7 @@ async def test_leading_slash_validation_blocks_disallowed_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "backend.service.chat.is_allowed_leading_slash",
+        "backend.service.chat.service.is_allowed_leading_slash",
         lambda name, _server_info: name in {"compact", ".agents:review"},
     )
 
@@ -137,7 +137,7 @@ async def test_xalling_claude_options_preserve_provider_and_session_settings(
     session_id = str(uuid4())
     config = connection_config(tmp_path, session_id)
     config = replace(config, max_context_tokens=0)
-    monkeypatch.setattr("backend.service.claude_options.platform.system", lambda: "Windows")
+    monkeypatch.setattr("backend.service.chat.options.platform.system", lambda: "Windows")
     settings = _provider_settings(config)
     settings_path = tmp_path / "settings.json"
     options_new = _agent_options(config, settings_path, is_new_session=True)
@@ -241,7 +241,7 @@ async def test_chat_router_streams_public_events_and_returns_public_result(
         finally:
             closed.append(True)
 
-    monkeypatch.setattr("backend.service.chat.configured_claude_client", configured)
+    monkeypatch.setattr("backend.service.chat.service.configured_claude_client", configured)
     details: list[dict[str, Any]] = []
     router = chat_service_factory()
 
@@ -556,7 +556,7 @@ async def test_chat_router_returns_history_and_search_in_the_public_event_protoc
         finally:
             pass
 
-    monkeypatch.setattr("backend.service.chat.configured_claude_client", configured)
+    monkeypatch.setattr("backend.service.chat.service.configured_claude_client", configured)
     router = chat_service_factory()
     router._history.get_session = lambda _session_id: ChatSessionSnapshot(
         session=info,

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import backend.service.file as file_service
-from backend.service.file import FileService
+import backend.service.desktop.file as file_service
+from backend.service.desktop.file import FileService
 
 
 def test_directory_browser_lists_only_immediate_folders(tmp_path: Path) -> None:
@@ -59,7 +59,7 @@ def test_directory_browser_lists_windows_drives(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_directory_browser_defaults_to_backend_project_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("backend.service.file.default_project_folder", lambda: tmp_path)
+    monkeypatch.setattr("backend.service.desktop.file.default_project_folder", lambda: tmp_path)
     assert FileService.list_directories()["current"]["path"] == str(tmp_path.resolve())
     assert FileService.list_directories(str(tmp_path))["directories"] == []
 

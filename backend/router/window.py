@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 
 from backend.router.dependencies import WindowDep, authenticate
 from backend.router.schemas import ResizeRequest
-from backend.service.window import WindowService
+from backend.service.desktop.window import WindowService
 
 router = APIRouter(prefix="/api/window", tags=["window"], dependencies=[Depends(authenticate)])
 

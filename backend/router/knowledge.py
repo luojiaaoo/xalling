@@ -6,13 +6,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.router.dependencies import authenticate
-from backend.service.knowledge import KnowledgeError, KnowledgeStore
-from backend.service.knowledge_embedding import (
+from backend.service.knowledge.embedding import (
     EmbeddingError,
     EmbeddingStatus,
     download_embedding_model,
     get_embedding_status,
 )
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"], dependencies=[Depends(authenticate)])
 

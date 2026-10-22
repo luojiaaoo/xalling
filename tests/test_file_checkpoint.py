@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 
 from backend.application import ApplicationServices
 from backend.claude_chat_client import ChatEvent, FileCheckpointStore
-from backend.service.chat import ChatService, _ActiveChat
-from backend.service.claude_options import ClaudeConnectionConfig
-from backend.service.window import WindowService
+from backend.service.chat.options import ClaudeConnectionConfig
+from backend.service.chat.service import ChatService, _ActiveChat
+from backend.service.desktop.window import WindowService
 from backend.websocket_server import create_app
 
 

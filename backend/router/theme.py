@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from backend.router.dependencies import authenticate
 from backend.router.schemas import ThemeRequest
-from backend.service.theme import ThemeService
+from backend.service.settings.theme import ThemeService
 
 router = APIRouter(prefix="/api/theme", tags=["theme"], dependencies=[Depends(authenticate)])
 

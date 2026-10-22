@@ -4,9 +4,8 @@ from threading import Event
 
 import pytest
 
-from backend.service import knowledge_embedding
-from backend.service.knowledge import KnowledgeError, KnowledgeStore
-from backend.service.knowledge_embedding import (
+from backend.service.knowledge import embedding as knowledge_embedding
+from backend.service.knowledge.embedding import (
     DIMENSIONS,
     MODEL_FILES,
     MODEL_NAME,
@@ -15,6 +14,7 @@ from backend.service.knowledge_embedding import (
     embed_texts,
     get_embedding_status,
 )
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 
 def write_model_files(root, *, ready=True):

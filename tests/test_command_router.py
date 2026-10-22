@@ -2,11 +2,11 @@ import pytest
 
 from backend.router.command import get_allowed_command_names, get_commands, get_skills
 from backend.router.schemas import ChatConnectionRequest
-from backend.service.chat import ChatService
-from backend.service.command import (
+from backend.service.chat.command import (
     ALLOWED_COMMAND_NAMES,
     is_allowed_leading_slash,
 )
+from backend.service.chat.service import ChatService
 
 pytestmark = pytest.mark.anyio
 

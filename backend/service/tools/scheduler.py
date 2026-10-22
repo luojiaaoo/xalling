@@ -6,9 +6,9 @@ from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
 
-from backend.scheduler import add_scheduled_task, update_scheduled_task
-from backend.scheduler import delete_scheduled_task as remove_scheduled_task
-from backend.scheduler import list_scheduled_tasks as get_scheduled_tasks
+from backend.service.scheduling.service import add_scheduled_task, update_scheduled_task
+from backend.service.scheduling.service import delete_scheduled_task as remove_scheduled_task
+from backend.service.scheduling.service import list_scheduled_tasks as get_scheduled_tasks
 
 _TOOL_DESCRIPTION = (
     "创建一个定时任务，到点后系统会以给定的用户提示词自动发起一轮对话。"

@@ -105,9 +105,9 @@ Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK �
 | 层级 | 职责 |
 | --- | --- |
 | `backend/claude_chat_client/` | 管理 Claude SDK 连接，将 SDK 消息转换为稳定事件，处理权限交互、动态工作流、历史回放和单回合用量 |
-| `backend/service/claude_options.py` | 将模型、项目、推理强度、权限模式、Skill 目录和本地运行设置转换成 `ClaudeAgentOptions` |
+| `backend/service/chat/options.py` | 将模型、项目、推理强度、权限模式、Skill 目录和本地运行设置转换成 `ClaudeAgentOptions` |
 | `backend/router/chat.py` | 声明会话 HTTP 接口，通过 Pydantic 与依赖注入校验参数、获取共享服务 |
-| `backend/service/chat.py` | 管理会话级客户端与回合，将事件交给 `service/events.py` 通过 WebSocket 推送 |
+| `backend/service/chat/service.py` | 管理会话级客户端与回合，将事件交给 `service/chat/events.py` 通过 WebSocket 推送 |
 | `frontend/src/api/client.ts` | 封装 HTTP API 契约，订阅 `xalling:chat-event` |
 | `frontend/src/chat/conversation.ts` / `trace.ts` | 实时、历史和断线恢复共用的纯事件归并；组件只负责展示与交互 |
 
@@ -254,9 +254,15 @@ backend/
   application.py                  # 应用服务、聊天任务与关闭清理
   claude_chat_client/              # Claude SDK 稳定抽象、事件、历史和用量
   router/                          # FastAPI APIRouter、输入校验（chat/command/file/model/theme/…）
-  service/                         # 领域服务实现
+  service/                         # 按职责组织的领域服务，详见 service/README.md
+    chat/                          # 对话编排、SDK 选项、命令与事件推送
+    knowledge/                     # 知识库存储、检索与向量模型
+    scheduling/                    # 定时任务调度与持久化
+    tools/                         # 知识库、科研、定时任务与联网搜索 MCP 工具
+    desktop/                       # 文件、窗口、日志与教程资源
+    settings/                      # 模型站点与主题设置服务
   config/                          # 模型站点和当前选择
-  scheduler.py                     # APScheduler 定时任务调度
+  scheduler.py                     # 旧持久化定时任务的反序列化兼容入口
   claude_proxy.py                  # 本地协议转换代理管理
 frontend/
   src/api/client.ts             # 前端 API 契约与事件归并

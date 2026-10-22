@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from backend.router.dependencies import authenticate_websocket
-from backend.service.events import WebSocketEvents
+from backend.service.chat.events import WebSocketEvents
 
 router = APIRouter(tags=["events"], dependencies=[Depends(authenticate_websocket)])
 

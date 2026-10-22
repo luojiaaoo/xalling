@@ -12,7 +12,7 @@ from claude_agent_sdk import McpSdkServerConfig, ToolAnnotations, create_sdk_mcp
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from backend.service.knowledge import KnowledgeError, KnowledgeStore
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 
 class _Input(BaseModel):

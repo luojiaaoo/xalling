@@ -16,9 +16,9 @@ from websockets.sync.client import connect
 from yarl import URL
 
 from backend.application import ApplicationServices
-from backend.service.chat import ChatService
-from backend.service.events import WebSocketEvents
-from backend.service.window import WindowService
+from backend.service.chat.events import WebSocketEvents
+from backend.service.chat.service import ChatService
+from backend.service.desktop.window import WindowService
 from backend.websocket_server import LocalWebSocketServer, create_app
 
 ORIGIN = "http://127.0.0.1:8765"
@@ -325,7 +325,7 @@ def test_directory_api_browses_backend_without_native_window(transport, tmp_path
     folder = tmp_path / "远程项目 #&"
     folder.mkdir()
     (folder / "child").mkdir()
-    monkeypatch.setattr("backend.service.file.default_project_folder", lambda: folder)
+    monkeypatch.setattr("backend.service.desktop.file.default_project_folder", lambda: folder)
     assert client.get("/api/files/directories").status_code == 401
     assert client.get("/api/files/directories", headers={**AUTH, "origin": "https://remote.example"}).status_code == 200
     response = client.get("/api/files/directories", params={"path": str(folder)}, headers=AUTH)
@@ -341,7 +341,7 @@ def test_directory_api_browses_backend_without_native_window(transport, tmp_path
 def test_root_directory_api_requires_auth_and_returns_backend_paths(transport, monkeypatch):
     client, _ = transport
     folders = [{"name": "/", "path": "/"}, {"name": "etc", "path": "/etc"}]
-    monkeypatch.setattr("backend.service.file.FileService.list_root_directories", lambda: folders)
+    monkeypatch.setattr("backend.service.desktop.file.FileService.list_root_directories", lambda: folders)
     assert client.get("/api/files/roots").status_code == 401
     assert client.get("/api/files/roots", headers={**AUTH, "origin": "https://remote.example"}).status_code == 200
     assert client.get("/api/files/roots", headers=AUTH).json() == folders
@@ -349,7 +349,7 @@ def test_root_directory_api_requires_auth_and_returns_backend_paths(transport, m
     def fail():
         raise RuntimeError("private internal details")
 
-    monkeypatch.setattr("backend.service.file.FileService.list_root_directories", fail)
+    monkeypatch.setattr("backend.service.desktop.file.FileService.list_root_directories", fail)
     response = client.get("/api/files/roots", headers=AUTH)
     assert response.status_code == 500
     assert "private" not in response.text
@@ -365,7 +365,7 @@ def test_directory_api_rejects_invalid_paths_and_sanitizes_errors(transport, tmp
     def fail(_path):
         raise RuntimeError("private internal details")
 
-    monkeypatch.setattr("backend.service.file.FileService.list_directories", fail)
+    monkeypatch.setattr("backend.service.desktop.file.FileService.list_directories", fail)
     response = client.get("/api/files/directories", headers=AUTH)
     assert response.status_code == 500
     assert "private" not in response.text
@@ -397,7 +397,7 @@ def test_http_routes_authentication_and_safe_errors(transport, monkeypatch):
         assert client.post("/api/window/resize", headers=AUTH, json=body).status_code == 422
     assert client.put("/api/theme", headers=AUTH, json={"name": "invalid-theme"}).status_code == 400
     monkeypatch.setattr(
-        "backend.service.theme.ThemeService.get_current_theme",
+        "backend.service.settings.theme.ThemeService.get_current_theme",
         lambda: (_ for _ in ()).throw(RuntimeError("api_key=secret")),
     )
     response = client.get("/api/theme", headers=AUTH)
@@ -447,7 +447,7 @@ def test_model_site_names_are_not_interpreted_as_url_paths(transport, monkeypatc
     async def delete_site(name):
         received.append(name)
 
-    monkeypatch.setattr("backend.service.model.ModelService.delete_model_site", delete_site)
+    monkeypatch.setattr("backend.service.settings.model.ModelService.delete_model_site", delete_site)
     name = "group/../供应商 ?#"
     response = client.delete("/api/models/sites", params={"name": name}, headers=AUTH)
     assert response.status_code == 200

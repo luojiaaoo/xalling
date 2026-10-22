@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
 
-from backend.service import log
-from backend.service.log import LogService
+from backend.service.desktop import log
+from backend.service.desktop.log import LogService
 from backend.websocket_server import create_app
 
 

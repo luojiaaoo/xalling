@@ -5,8 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.router.knowledge import get_store
-from backend.service import knowledge, knowledge_embedding
-from backend.service.knowledge import KnowledgeStore
+from backend.service.knowledge import embedding as knowledge_embedding
+from backend.service.knowledge import store as knowledge
+from backend.service.knowledge.store import KnowledgeStore
 from backend.websocket_server import create_app
 
 AUTH = {"Authorization": "Bearer knowledge-test-token"}

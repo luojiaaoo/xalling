@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from backend import single_instance
-from backend.service.window import WindowService
+from backend.service.desktop.window import WindowService
 from backend.single_instance import SW_RESTORE, SingleInstance, activate_window
 
 
@@ -172,8 +172,8 @@ def test_activation_restores_only_minimized_windows(monkeypatch, minimized):
 
 def test_window_service_activation_preserves_maximize_state(monkeypatch):
     activate = Mock()
-    monkeypatch.setattr("backend.service.window.IS_WINDOWS", True)
-    monkeypatch.setattr("backend.service.window.activate_window", activate)
+    monkeypatch.setattr("backend.service.desktop.window.IS_WINDOWS", True)
+    monkeypatch.setattr("backend.service.desktop.window.activate_window", activate)
     window = SimpleNamespace(native=SimpleNamespace(Handle=Mock(ToInt64=Mock(return_value=1234))))
     service = WindowService()
     service.bind_window(window)

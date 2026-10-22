@@ -3,9 +3,9 @@ import os
 
 import pytest
 
-from backend.service import knowledge
-from backend.service.knowledge import KnowledgeError, KnowledgeStore
-from backend.service.knowledge_embedding import DIMENSIONS, EmbeddingError
+from backend.service.knowledge import store as knowledge
+from backend.service.knowledge.embedding import DIMENSIONS, EmbeddingError
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
 

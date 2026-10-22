@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from backend.router.dependencies import ChatDep, authenticate
 from backend.router.schemas import ChatConnectionRequest
-from backend.service.command import ClaudeCommand, CommandService
+from backend.service.chat.command import ClaudeCommand, CommandService
 
 router = APIRouter(prefix="/api/commands", tags=["commands"], dependencies=[Depends(authenticate)])
 

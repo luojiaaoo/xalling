@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 
 import anyio
 
-from backend.service import research_tool
+from backend.service.tools import research as research_tool
 
 
 class _FakeAuthor:

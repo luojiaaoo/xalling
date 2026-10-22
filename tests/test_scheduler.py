@@ -4,11 +4,63 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import anyio
+import anyio.lowlevel
 import pytest
 
 
+@pytest.mark.anyio
+async def test_legacy_persisted_tasks_restore(tmp_path, monkeypatch) -> None:
+    from backend.service.scheduling import service as scheduler
+
+    scheduler.shutdown_scheduler()
+    monkeypatch.setattr(scheduler, "SCHEDULER_DATABASE_FILEPATH", tmp_path / "scheduler.sqlite3")
+    run_at = datetime.now(UTC) + timedelta(minutes=1)
+    task = scheduler.ScheduledTask(
+        task_id="legacy-task",
+        session_id="legacy-session",
+        title="legacy task",
+        prompt="run checks",
+        workspace_path=str(tmp_path),
+        permission_mode="default",
+        effort="high",
+        schedule_type="date",
+        schedule_value=run_at.isoformat(),
+    )
+    calls = []
+
+    async def execute(restored_task):
+        calls.append(restored_task)
+
+    try:
+        # Reproduce both module references written by the original implementation.
+        with monkeypatch.context() as legacy:
+            legacy.setattr(scheduler.ScheduledTask, "__module__", "backend.scheduler")
+            scheduler._get_scheduler().add_job(
+                "backend.scheduler:_execute_scheduled_task",
+                trigger="date",
+                run_date=run_at,
+                args=[task],
+                id=task.task_id,
+            )
+        scheduler.shutdown_scheduler()
+        await anyio.lowlevel.checkpoint()
+
+        restored = await scheduler.list_scheduled_tasks(workspace_path=str(tmp_path))
+        assert [item["task_id"] for item in restored] == [task.task_id]
+        job = scheduler._get_scheduler().get_job(task.task_id)
+        assert job is not None
+        assert job.func_ref == "backend.scheduler:_execute_scheduled_task"
+        assert isinstance(job.args[0], scheduler.ScheduledTask)
+        scheduler.set_scheduled_task_executor(execute)
+        await job.func(*job.args, **job.kwargs)
+        assert calls == [task]
+    finally:
+        scheduler.shutdown_scheduler()
+        await anyio.lowlevel.checkpoint()
+
+
 def test_scheduled_task_executor_is_called() -> None:
-    from backend import scheduler
+    from backend.service.scheduling import service as scheduler
 
     async def scenario() -> None:
         calls: list[scheduler.ScheduledTask] = []
@@ -39,7 +91,7 @@ def test_scheduled_task_executor_is_called() -> None:
 
 
 def test_add_scheduled_task_returns_dedicated_session() -> None:
-    from backend import scheduler
+    from backend.service.scheduling import service as scheduler
 
     async def scenario() -> None:
         try:
@@ -81,7 +133,7 @@ def test_add_scheduled_task_returns_dedicated_session() -> None:
 
 
 def test_scheduled_tasks_are_scoped_to_workspace() -> None:
-    from backend import scheduler
+    from backend.service.scheduling import service as scheduler
 
     async def scenario() -> None:
         scheduler.shutdown_scheduler()
@@ -139,7 +191,7 @@ def test_scheduled_tasks_are_scoped_to_workspace() -> None:
 
 
 def test_update_scheduled_task_replaces_schedule_and_prompt() -> None:
-    from backend import scheduler
+    from backend.service.scheduling import service as scheduler
 
     async def scenario() -> None:
         scheduler.shutdown_scheduler()
@@ -180,8 +232,8 @@ def test_update_scheduled_task_replaces_schedule_and_prompt() -> None:
 
 @pytest.mark.anyio
 async def test_chat_service_runs_scheduled_task_as_async() -> None:
-    from backend.scheduler import ScheduledTask
-    from backend.service.chat import ChatService
+    from backend.service.chat.service import ChatService
+    from backend.service.scheduling.service import ScheduledTask
 
     chat = ChatService()
     calls: list[tuple[str, dict[str, object]]] = []

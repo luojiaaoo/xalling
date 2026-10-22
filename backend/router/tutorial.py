@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path
 
 from backend.router.dependencies import authenticate
-from backend.service.tutorial import TutorialDocument, TutorialService, TutorialSummary
+from backend.service.desktop.tutorial import TutorialDocument, TutorialService, TutorialSummary
 
 router = APIRouter(prefix="/api/tutorials", tags=["tutorials"], dependencies=[Depends(authenticate)])
 

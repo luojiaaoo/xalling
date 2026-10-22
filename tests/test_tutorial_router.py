@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.service import tutorial
-from backend.service.tutorial import TutorialService
+from backend.service.desktop import tutorial
+from backend.service.desktop.tutorial import TutorialService
 
 
 @pytest.fixture()

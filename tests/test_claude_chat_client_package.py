@@ -50,7 +50,7 @@ def test_package_exports_are_available() -> None:
 
 def test_services_consume_chat_events_without_defining_or_constructing_them() -> None:
     directory = Path(__file__).resolve().parents[1] / "backend" / "service"
-    for source in directory.glob("*.py"):
+    for source in directory.rglob("*.py"):
         nodes = tuple(ast.walk(ast.parse(source.read_text(encoding="utf-8"))))
         aliases = {"ChatEvent"}
         for node in nodes:

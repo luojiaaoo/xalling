@@ -203,7 +203,13 @@ backend/
   application.py                  # 应用服务、聊天任务与关闭清理
   claude_chat_client/              # Claude SDK 稳定抽象、事件、历史和用量
   router/                          # FastAPI APIRouter 与输入校验
-  service/                         # 领域服务实现
+  service/                         # 按职责组织的领域服务，详见 service/README.md
+    chat/                          # 对话编排、SDK 选项、命令与事件推送
+    knowledge/                     # 知识库存储、检索与向量模型
+    scheduling/                    # 定时任务调度与持久化
+    tools/                         # 知识库、科研、定时任务与联网搜索 MCP 工具
+    desktop/                       # 文件、窗口、日志与教程资源
+    settings/                      # 模型站点与主题设置服务
   config/                          # 模型站点和当前选择
 frontend/
   src/api/client.ts             # 前端 API 契约与事件归并

@@ -9,9 +9,9 @@ from webview.window import FixPoint
 from backend.config.current import CurrentConfig
 from backend.config.setting import Settings
 from backend.router import routers
-from backend.service.model import ModelService
-from backend.service.theme import ThemeService
-from backend.service.window import WindowBounds, WindowService
+from backend.service.desktop.window import WindowBounds, WindowService
+from backend.service.settings.model import ModelService
+from backend.service.settings.theme import ThemeService
 
 pytestmark = pytest.mark.anyio
 
@@ -114,7 +114,7 @@ async def test_model_router_fetches_and_normalizes_remote_model_names(monkeypatc
     transport = httpx.MockTransport(respond)
     original_client = httpx.AsyncClient
     monkeypatch.setattr(
-        "backend.service.model.httpx.AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs)
+        "backend.service.settings.model.httpx.AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs)
     )
     names = await ModelService().fetch_model_names("https://api.example.com/custom/v1/", "secret-token")
     assert names[:2] == ["claude-sonnet-4-5", "claude-opus-4-1"]
@@ -167,9 +167,9 @@ async def test_window_router_maximizes_to_current_windows_work_area(monkeypatch:
         def move(self, x: int, y: int) -> None:
             self.calls.append(("move", x, y))
 
-    monkeypatch.setattr("backend.service.window.IS_WINDOWS", True)
+    monkeypatch.setattr("backend.service.desktop.window.IS_WINDOWS", True)
     monkeypatch.setattr(
-        "backend.service.window._windows_work_areas",
+        "backend.service.desktop.window._windows_work_areas",
         lambda: [WindowBounds(0, 0, 1920, 1040), WindowBounds(1920, 0, 2560, 1400)],
     )
     window = WindowStub()
@@ -195,7 +195,7 @@ async def test_window_router_uses_native_maximize_outside_windows(monkeypatch: p
         def restore(self) -> None:
             self.calls.append("restore")
 
-    monkeypatch.setattr("backend.service.window.IS_WINDOWS", False)
+    monkeypatch.setattr("backend.service.desktop.window.IS_WINDOWS", False)
     window = WindowStub()
     router = WindowService()
     router.bind_window(window)

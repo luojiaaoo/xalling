@@ -5,8 +5,8 @@ from pathlib import Path
 import webview
 
 from backend.patch import hide_claude_console_windows
-from backend.service.log import configure_logging, console_logger
-from backend.service.window import WindowService
+from backend.service.desktop.log import configure_logging, console_logger
+from backend.service.desktop.window import WindowService
 from backend.single_instance import SingleInstance
 from backend.websocket_server import LocalWebSocketServer
 

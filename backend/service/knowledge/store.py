@@ -15,7 +15,7 @@ from uuid import NAMESPACE_URL, uuid5
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.config.setting import KNOWLEDGE_DIRECTORY
-from backend.service.knowledge_embedding import DIMENSIONS, EmbeddingError, embed_texts, ensure_embedding_model
+from backend.service.knowledge.embedding import DIMENSIONS, EmbeddingError, embed_texts, ensure_embedding_model
 
 if TYPE_CHECKING:
     import zvec

@@ -37,18 +37,18 @@ from backend.config.setting import (
     default_project_folder,
     get_settings,
 )
-from backend.scheduler import ScheduledTask, set_scheduled_task_executor
-from backend.scheduler import delete_scheduled_task as delete_scheduler_task
-from backend.scheduler import list_all_scheduled_tasks as list_all_scheduler_tasks
-from backend.scheduler import list_scheduled_tasks as list_scheduler_tasks
-from backend.service.claude_options import (
+from backend.service.chat.command import is_allowed_leading_slash
+from backend.service.chat.options import (
     ChatEffort,
     ClaudeConnectionConfig,
     configured_claude_client,
 )
-from backend.service.command import is_allowed_leading_slash
-from backend.service.log import claude_sdk_logger
-from backend.service.model import ModelService
+from backend.service.desktop.log import claude_sdk_logger
+from backend.service.scheduling.service import ScheduledTask, set_scheduled_task_executor
+from backend.service.scheduling.service import delete_scheduled_task as delete_scheduler_task
+from backend.service.scheduling.service import list_all_scheduled_tasks as list_all_scheduler_tasks
+from backend.service.scheduling.service import list_scheduled_tasks as list_scheduler_tasks
+from backend.service.settings.model import ModelService
 
 _UI_PERMISSION_MODES = frozenset(
     {"default", "acceptEdits", "plan", "auto", "bypassPermissions"}

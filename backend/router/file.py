@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from backend.router.dependencies import authenticate
 from backend.router.schemas import AttachmentRequest, DirectoryListingResponse, ProjectFolderResponse
-from backend.service.file import FileService
+from backend.service.desktop.file import FileService
 
 router = APIRouter(prefix="/api/files", tags=["files"], dependencies=[Depends(authenticate)])
 
