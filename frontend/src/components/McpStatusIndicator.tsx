@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { getMcpStatus, reconnectMcpServer, type McpServerStatus, type McpStatus } from "../api/client";
 
+const POLL_INTERVAL_MS = 2_000;
+
 const statusLabels = {
   connected: { badge: "success", label: "已加载" },
   pending: { badge: "processing", label: "加载中" },
@@ -25,6 +27,7 @@ export function McpStatusIndicator({ sessionId, busy }: { sessionId: string; bus
   const [reconnecting, setReconnecting] = useState<Set<string>>(new Set());
   const [reconnectErrors, setReconnectErrors] = useState<Set<string>>(new Set());
   const reconnectRequests = useRef(new Set<string>());
+  const statusRequestPendingRef = useRef(false);
 
   useEffect(() => {
     const requests = new Set<string>();
@@ -64,33 +67,33 @@ export function McpStatusIndicator({ sessionId, busy }: { sessionId: string; bus
 
   useEffect(() => {
     let disposed = false;
-    let timer: number | undefined;
     const refresh = async () => {
+      if (disposed || statusRequestPendingRef.current) return;
+      statusRequestPendingRef.current = true;
       setLoading(true);
-      let pending = false;
       try {
         const result = await getMcpStatus(sessionId);
         if (disposed) return;
         setStatus(result);
         setFailed(false);
-        pending = result?.servers.some((server) => server.status === "pending") ?? false;
       } catch {
         if (disposed) return;
         setStatus(null);
         setFailed(true);
       } finally {
+        statusRequestPendingRef.current = false;
         if (!disposed) {
           setLoading(false);
-          if (busy || open || pending) timer = window.setTimeout(() => void refresh(), 3_000);
         }
       }
     };
     void refresh();
+    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => {
       disposed = true;
-      window.clearTimeout(timer);
+      window.clearInterval(timer);
     };
-  }, [sessionId, busy, open, revision]);
+  }, [sessionId, revision]);
 
   const servers = status?.servers ?? [];
   const connected = servers.filter((server) => server.status === "connected").length;

@@ -67,6 +67,22 @@ function environment(search = "?token=credential", stored = new Map()) {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+test("entering shutdown notifies HTTP callers before disconnecting events", async () => {
+  const env = environment();
+  const connection = env.api.connectEvents();
+  env.sockets[0].open();
+  await connection;
+  let closing = false;
+  env.window.addEventListener("xalling:closing", () => {
+    closing = true;
+    assert.equal(env.api.isClosing(), true);
+    assert.equal(env.sockets[0].readyState, 1);
+  });
+  env.api.setClosing(true);
+  assert.equal(closing, true);
+  env.api.disconnectEvents();
+});
+
 test("event subscribers share one authenticated socket and save the launch token", async () => {
   const env = environment();
   const first = env.api.connectEvents();

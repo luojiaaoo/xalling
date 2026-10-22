@@ -117,6 +117,34 @@ test("shutdown request survives unload and does not wait for the event connectio
   assert.equal(env.reports.length, 0);
 });
 
+test("shutdown frees saturated HTTP connections before sending the close request", async () => {
+  const pendingSignals = [];
+  let closeSent = false;
+  const env = environment((url, { signal }) => {
+    if (url.pathname === "/api/window/close") {
+      assert.equal(pendingSignals.length, 6);
+      assert.ok(pendingSignals.every((pending) => pending.aborted));
+      closeSent = true;
+      return Promise.resolve({ ok: true, json: async () => ({ closing: true }) });
+    }
+    pendingSignals.push(signal);
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason));
+    });
+  });
+  env.openEvents();
+  const pending = Array.from({ length: 6 }, (_, i) =>
+    assert.rejects(env.api.request("GET", `/api/chat/sessions/session-${i}/mcp`), /应用正在关闭/));
+  await tick();
+  env.setClosing(true);
+  env.window.dispatchEvent(new Event("xalling:closing"));
+  assert.equal((await env.api.request("POST", "/api/window/close")).closing, true);
+  await Promise.all(pending);
+  assert.equal(closeSent, true);
+  assert.equal(env.timers.size, 0);
+  assert.equal(env.reports.length, 0);
+});
+
 test("closing suppresses notifications for pending and newly requested work", async () => {
   let calls = 0;
   const env = environment((_url, { signal }) => {

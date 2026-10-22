@@ -17,9 +17,12 @@ window.addEventListener("xalling:transport-disconnected", () => {
   }
 });
 
-window.addEventListener("beforeunload", () => {
+const abortForShutdown = () => {
   for (const controller of inFlight) controller.abort(new Error("应用正在关闭"));
-});
+};
+
+window.addEventListener("xalling:closing", abortForShutdown);
+window.addEventListener("beforeunload", abortForShutdown);
 
 export async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();

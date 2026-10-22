@@ -17,6 +17,7 @@ export function isClosing(): boolean {
 
 export function setClosing(value: boolean): void {
   unloading = value;
+  if (value) window.dispatchEvent(new Event("xalling:closing"));
   if (value && reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

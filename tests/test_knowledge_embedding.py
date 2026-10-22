@@ -83,7 +83,7 @@ def test_each_passage_is_embedded_whole_and_query_uses_distinct_embedding(tmp_pa
     assert embed_texts(root, ["问题"], is_query=True)[0][0] == 1.0
     assert [kind for kind, _ in instance.calls] == ["passage", "query"]
     assert instance.calls[0][1] == texts
-    assert instance.batch_sizes == [1, 1]
+    assert instance.batch_sizes == [4, 1]
     assert len(initialized) == 1
     assert initialized[0]["cache_dir"] == str(directory)
     assert initialized[0]["specific_model_path"] == str(directory)
