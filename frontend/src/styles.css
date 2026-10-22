@@ -1576,6 +1576,13 @@ html[data-theme="geek"] .effort-picker-header strong { color: #39ff14; }
 .knowledge-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .knowledge-hint { color: var(--ant-color-text-secondary); font-size: 12px; margin: 0; }
 .knowledge-loading { display: grid; min-height: 260px; place-items: center; }
-.knowledge-file-path { white-space: normal; overflow-wrap: anywhere; }
-.knowledge-tree .ant-tree-node-content-wrapper { min-width: 0; }
-.knowledge-tree .ant-tree-treenode { min-width: 0; }
+.knowledge-forest { max-height: 55vh; overflow: auto; border: 1px solid var(--ant-color-border-secondary); border-radius: var(--ant-border-radius-lg); padding: 8px; }
+.knowledge-tree + .knowledge-tree { border-top: 1px solid var(--ant-color-border-secondary); margin-top: 8px; padding-top: 8px; }
+.knowledge-tree .ant-tree-node-content-wrapper { display: flex; align-items: center; min-width: 0; line-height: 32px; }
+.knowledge-tree .ant-tree-treenode { min-width: 0; padding-bottom: 0; }
+.knowledge-tree .ant-tree-switcher { line-height: 32px; color: var(--ant-color-text-tertiary); }
+.knowledge-tree .ant-tree-iconEle { flex-shrink: 0; color: var(--ant-color-primary); }
+.knowledge-tree .ant-tree-treenode-leaf .ant-tree-iconEle { color: var(--ant-color-text-tertiary); }
+.knowledge-tree .ant-tree-title { min-width: 0; }
+.knowledge-node-name { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.knowledge-root-name { font-weight: 600; }

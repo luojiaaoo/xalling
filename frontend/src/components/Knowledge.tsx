@@ -1,7 +1,7 @@
-import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, HddOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Empty, Modal, Spin, Tree } from "antd";
 import type { TreeDataNode } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   downloadKnowledgeEmbedding,
@@ -10,6 +10,17 @@ import {
   type KnowledgeEmbeddingStatus,
   type KnowledgeTree,
 } from "../api/client";
+import { buildKnowledgeTree, type KnowledgePathNode } from "../knowledge/tree";
+
+function toTreeNode(node: KnowledgePathNode, root = false): TreeDataNode {
+  return {
+    key: node.key,
+    title: <span className={root ? "knowledge-node-name knowledge-root-name" : "knowledge-node-name"} title={node.path}>{node.name}</span>,
+    isLeaf: node.isLeaf,
+    ...(root && { icon: <HddOutlined /> }),
+    ...(node.children && { children: node.children.map((child) => toTreeNode(child)) }),
+  };
+}
 
 function KnowledgePanel() {
   const [data, setData] = useState<KnowledgeTree | null>(null);
@@ -77,13 +88,7 @@ function KnowledgePanel() {
     }
   };
 
-  const nodes: TreeDataNode[] = data?.directories.map((directory) => ({
-    key: `directory:${directory.path}`,
-    title: <strong className="knowledge-file-path">{directory.path}</strong>,
-    children: directory.files.map((path) => ({
-      key: `file:${path}`, title: <span className="knowledge-file-path">{path}</span>, isLeaf: true,
-    })),
-  })) ?? [];
+  const roots = useMemo(() => data ? buildKnowledgeTree(data).map((node) => toTreeNode(node, true)) : [], [data]);
 
   return <div className="knowledge-panel">
     <div className="knowledge-toolbar">
@@ -103,8 +108,17 @@ function KnowledgePanel() {
         onClick={() => void download()}
       >{model.status === "downloading" ? "下载中" : "下载嵌入模型"}</Button>}
     />}
-    {loading && !data && !model ? <div className="knowledge-loading"><Spin /></div> : model?.status !== "ready" ? null : nodes.length ?
-      <Tree className="knowledge-tree" treeData={nodes} selectable={false} defaultExpandAll showLine virtual={false} /> :
+    {loading && !data && !model ? <div className="knowledge-loading"><Spin /></div> : model?.status !== "ready" ? null : roots.length ?
+      <div className="knowledge-forest">
+        {roots.map((root) => <Tree.DirectoryTree
+          key={root.key}
+          className="knowledge-tree"
+          treeData={[root]}
+          selectable={false}
+          blockNode
+          virtual={false}
+        />)}
+      </div> :
       <Empty description="暂无知识库资料，可在对话中让 AI 导入文档" />}
   </div>;
 }
