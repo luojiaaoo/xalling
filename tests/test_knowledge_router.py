@@ -45,6 +45,75 @@ def test_authenticated_read_only_tree_and_file_filters(knowledge_api, tmp_path):
     assert client.get("/api/knowledge/documents", headers=AUTH).json()["total"] == 2
 
 
+def test_document_preview_requires_authentication_and_returns_indexed_content(knowledge_api, tmp_path):
+    client, store = knowledge_api
+    source = tmp_path / "手册 & manual.txt"
+    source.write_text("indexed text", encoding="utf-8")
+    record = store.import_document(str(source))
+    params = {"source": str(source)}
+    url = "/api/knowledge/documents/preview"
+    assert client.get(url, params=params).status_code == 401
+    result = client.get(url, params=params, headers=AUTH)
+    assert result.status_code == 200
+    assert result.json() == {
+        "source": str(source),
+        "mtime_ns": record["mtime_ns"],
+        "chunk_count": 1,
+        "head": "indexed text",
+        "tail": "",
+        "truncated": False,
+    }
+    store.delete_documents([str(source)])
+    assert client.get(url, params=params, headers=AUTH).status_code == 404
+
+
+@pytest.mark.parametrize("params", [{}, {"source": ""}, {"source": "x" * 32769}])
+def test_document_preview_validates_source_without_touching_storage(knowledge_api, params):
+    client, store = knowledge_api
+    response = client.get("/api/knowledge/documents/preview", params=params, headers=AUTH)
+    assert response.status_code == 422
+    assert not store.root.exists()
+
+
+@pytest.mark.parametrize(
+    "error,status", [(knowledge.KnowledgeError("预览片段缺失"), 400), (RuntimeError("private-document-text"), 500)]
+)
+def test_preview_errors_are_reported_and_sanitized(knowledge_api, monkeypatch, error, status):
+    client, store = knowledge_api
+
+    def fail(source):
+        raise error
+
+    monkeypatch.setattr(store, "preview_document", fail)
+    result = client.get("/api/knowledge/documents/preview", params={"source": "file.txt"}, headers=AUTH)
+    assert result.status_code == status
+    assert "private-document-text" not in result.text
+
+
+def test_preview_loading_runs_off_event_loop(knowledge_api, monkeypatch):
+    client, store = knowledge_api
+    entered, release = Event(), Event()
+
+    def slow_preview(source):
+        entered.set()
+        assert release.wait(5)
+        return knowledge.DocumentPreview(
+            source=source, mtime_ns=1, chunk_count=1, head="text", tail="", truncated=False
+        )
+
+    monkeypatch.setattr(store, "preview_document", slow_preview)
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(
+            client.get, "/api/knowledge/documents/preview", params={"source": "file.txt"}, headers=AUTH
+        )
+        try:
+            assert entered.wait(5)
+            assert client.get("/api/window/capabilities", headers=AUTH).status_code == 200
+        finally:
+            release.set()
+        assert pending.result().status_code == 200
+
+
 @pytest.mark.parametrize(
     "method,path",
     [
@@ -217,6 +286,15 @@ def test_missing_model_returns_actionable_error_for_tree_and_documents(knowledge
         result = client.get(path, headers=AUTH)
         assert result.status_code == 400
         assert "手动点击“下载嵌入模型”" in result.json()["detail"]
+    assert not store.root.exists()
+
+
+def test_missing_model_blocks_preview_without_creating_storage(knowledge_api, monkeypatch):
+    client, store = knowledge_api
+    monkeypatch.setattr(knowledge, "ensure_embedding_model", knowledge_embedding.ensure_embedding_model)
+    result = client.get("/api/knowledge/documents/preview", params={"source": "file.txt"}, headers=AUTH)
+    assert result.status_code == 400
+    assert "手动点击“下载嵌入模型”" in result.json()["detail"]
     assert not store.root.exists()
 
 

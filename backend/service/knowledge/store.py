@@ -25,6 +25,7 @@ MAX_TEXT_CHARACTERS = 20_000_000
 # 按字符分块，重叠部分保留跨块上下文。
 CHUNK_SIZE = 1400
 CHUNK_OVERLAP = 200
+PREVIEW_EDGE_CHARACTERS = 500
 _TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 _DOCUMENT_EXTENSIONS = {
     ".doc",
@@ -57,6 +58,10 @@ class KnowledgeError(Exception):
     """可直接展示给用户的知识库业务异常。"""
 
 
+class KnowledgeDocumentNotFoundError(KnowledgeError):
+    """请求的原路径尚未入库，或已从知识库删除。"""
+
+
 def requires_embedding_model[**P, R](
     action: Callable[Concatenate[KnowledgeStore, P], R],
 ) -> Callable[Concatenate[KnowledgeStore, P], R]:
@@ -86,6 +91,14 @@ class DocumentRecord(BaseModel):
     def chunk_id(self, number: int) -> str:
         """按源路径和编号生成固定长度的片段 ID，不包含修改时间。"""
         return uuid5(NAMESPACE_URL, f"{os.path.normcase(self.source)}:{number}").hex
+
+
+class DocumentPreview(DocumentRecord):
+    """已入库正文快照；短文全文放在 head，tail 为空。"""
+
+    head: str
+    tail: str
+    truncated: bool
 
 
 def _source_literal(source: str) -> str:
@@ -329,6 +342,46 @@ class KnowledgeStore:
             for source in self._files():
                 groups.setdefault(str(Path(source).parent), []).append(source)
             return {"directories": [{"path": path, "files": sorted(files)} for path, files in sorted(groups.items())]}
+
+    @requires_embedding_model
+    def preview_document(self, raw_path: str) -> DocumentPreview:
+        """按固定片段 ID 读取已入库正文首尾，不同步原文件或重新计算向量。"""
+        source_key = os.path.normcase(str(Path(raw_path).expanduser().resolve()))
+        with _STORAGE_LOCK:
+            catalog = self._catalog()
+            record = catalog.documents.get(source_key)
+            if record is None:
+                raise KnowledgeDocumentNotFoundError("该文档尚未入库或已从知识库删除。")
+            if source_key in catalog.pending:
+                raise KnowledgeError("该文档索引尚未完成，请重新导入或检索修复后再预览。")
+            numbers = sorted({1, record.chunk_count})
+            with self._collection() as collection:
+                docs = collection.fetch(
+                    [record.chunk_id(number) for number in numbers],
+                    output_fields=["text", "source", "mtime_ns", "chunk_number"],
+                    include_vector=False,
+                )
+                texts: dict[int, str] = {}
+                for number in numbers:
+                    doc = docs.get(record.chunk_id(number))
+                    if (
+                        doc is None
+                        or doc.field("source") != source_key
+                        or doc.field("mtime_ns") != record.mtime_ns
+                        or doc.field("chunk_number") != number
+                        or not isinstance(text := doc.field("text"), str)
+                        or not text
+                    ):
+                        raise KnowledgeError("文档预览片段缺失或与清单不一致，请重新导入该文档。")
+                    texts[number] = text
+            first, last = texts[1], texts[record.chunk_count]
+            truncated = record.chunk_count > 1 or len(first) > PREVIEW_EDGE_CHARACTERS * 2
+            return DocumentPreview(
+                **record.model_dump(),
+                head=first[:PREVIEW_EDGE_CHARACTERS] if truncated else first,
+                tail=last[-PREVIEW_EDGE_CHARACTERS:] if truncated else "",
+                truncated=truncated,
+            )
 
     @requires_embedding_model
     def delete_documents(self, sources: list[str]) -> dict[str, int]:
