@@ -214,25 +214,20 @@ class KnowledgeStore:
                 # PDF/RTF 等有文本签名的文档也应先由 AnyDoc 识别，不能误作纯文本。
                 document_format = anydoc.format_from_bytes(data)
                 file_type = detect_file_type(source)
-                if (
-                    document_format is None
-                    and (file_type is None or file_type["kind"] == "image")
-                    and anydoc.format_from_extension(source.suffix.lstrip(".")) is None
-                ):
-                    raise KnowledgeError("不支持该二进制文件类型；仅支持 AnyDoc 文档或文本文件。")
-                if document_format is None:
+                if document_format is not None:
+                    text = anydoc.to_markdown_bytes(data, format=document_format, ocr="reject")
+                else:
+                    if (file_type is None or file_type["kind"] == "image") and anydoc.format_from_extension(
+                        source.suffix.lstrip(".")
+                    ) is None:
+                        raise KnowledgeError("不支持该二进制文件类型；仅支持 AnyDoc 文档或文本文件。")
                     try:
                         text = decode_text(data)
                     except ValueError as error:
                         document_format = anydoc.format_from_extension(source.suffix.lstrip("."))
                         if document_format is None:
                             raise KnowledgeError("不支持该二进制文件；请导入 AnyDoc 支持的文档或文本文件。") from error
-                if document_format is not None:
-                    text = anydoc.to_markdown_bytes(
-                        data,
-                        format=document_format,
-                        ocr="reject",
-                    )
+                        text = anydoc.to_markdown_bytes(data, format=document_format, ocr="reject")
             except anydoc.NeedsOcrError as error:
                 raise KnowledgeError("该 PDF 含扫描页面，需要先在本地完成 OCR 后再导入。") from error
             except anydoc.ConvertError as error:
