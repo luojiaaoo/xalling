@@ -17,7 +17,7 @@ def knowledge_vectors(monkeypatch):
 
     from backend.service.knowledge import store as knowledge
     from backend.service.knowledge.chunking import chunk_text, index_chunk_options
-    from backend.service.knowledge.embedding import DIMENSIONS
+    from backend.service.knowledge.embedding import DIMENSIONS, MAX_INPUT_TOKENS
 
     def embed(root, texts, *, is_query=False):
         result = []
@@ -34,7 +34,7 @@ def knowledge_vectors(monkeypatch):
     monkeypatch.setattr(knowledge, "ensure_embedding_model", lambda root: None)
 
     def split(root, text, *, markdown=False):
-        max_chars, overlap_chars = index_chunk_options(512, text)
+        max_chars, overlap_chars = index_chunk_options(MAX_INPUT_TOKENS, text)
         return chunk_text(text, markdown=markdown, max_chars=max_chars, overlap_chars=overlap_chars)
 
     monkeypatch.setattr(knowledge, "split_document", split)

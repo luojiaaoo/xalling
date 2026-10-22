@@ -233,6 +233,7 @@ def test_manual_download_reports_progress_and_does_not_block_other_requests(know
         entered.set()
         assert release.wait(5)
         for name in knowledge_embedding.MODEL_FILES:
+            (kwargs["local_dir"] / name).parent.mkdir(parents=True, exist_ok=True)
             (kwargs["local_dir"] / name).write_bytes(b"model-data")
 
     monkeypatch.setattr(modelscope_hub, "snapshot_download", download)

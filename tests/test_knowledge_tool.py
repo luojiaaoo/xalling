@@ -13,6 +13,7 @@ import zvec
 
 from backend.service.knowledge import store as knowledge
 from backend.service.knowledge.chunking import index_chunk_options
+from backend.service.knowledge.embedding import MAX_INPUT_TOKENS
 from backend.service.knowledge.store import DocumentRecord, KnowledgeError, KnowledgeStore
 from backend.service.tools import knowledge as knowledge_tool
 
@@ -80,17 +81,18 @@ def test_chinese_updates_replace_source_content(store):
 
 def test_chunks_preserve_text_and_bounded_overlap(store):
     source = Path.cwd() / "chunks.md"
-    source.write_text("标题\n" + "".join(f"第 {n:04d} 条记录\n" for n in range(1500)), encoding="utf-8")
+    source.write_text("标题\n" + "".join(f"第 {n:04d} 条记录\n" for n in range(6000)), encoding="utf-8")
     record = store.import_document(str(source))
+    assert record["chunk_count"] > 1
     metadata = DocumentRecord.model_validate(record, extra="ignore")
     ids = [metadata.chunk_id(n) for n in range(1, record["chunk_count"] + 1)]
     with store._collection() as collection:
         docs = collection.fetch(ids, include_vector=False)
         chunks = [docs[doc_id].field("text") for doc_id in ids]
-    max_chars, overlap_chars = index_chunk_options(512, source.read_bytes().decode("utf-8"))
+    max_chars, overlap_chars = index_chunk_options(MAX_INPUT_TOKENS, source.read_bytes().decode("utf-8"))
     assert all(0 < len(chunk) <= max_chars for chunk in chunks)
     assert chunks[0].startswith("标题")
-    assert chunks[-1].rstrip().endswith("第 1499 条记录")
+    assert chunks[-1].rstrip().endswith("第 5999 条记录")
     for previous, current in pairwise(chunks):
         previous_lines, current_lines = previous.split("\n"), current.split("\n")
         overlap = max(
@@ -304,7 +306,7 @@ def test_tools_resolve_relative_paths_and_search_multiple_directories(handlers, 
 
 def test_read_tool_follows_search_hits_and_reads_preview_snapshot(handlers, store):
     source = Path.cwd() / "manual.txt"
-    text = "firmware guide\n" * 400
+    text = "firmware guide\n" * 6000
     source.write_text(text, encoding="utf-8")
     text = source.read_bytes().decode("utf-8")
     store.import_document(str(source))

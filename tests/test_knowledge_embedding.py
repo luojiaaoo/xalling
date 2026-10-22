@@ -7,6 +7,7 @@ import pytest
 from backend.service.knowledge import embedding as knowledge_embedding
 from backend.service.knowledge.embedding import (
     DIMENSIONS,
+    MAX_INPUT_TOKENS,
     MODEL_FILES,
     MODEL_NAME,
     EmbeddingError,
@@ -22,6 +23,7 @@ def write_model_files(root, *, ready=True):
     directory = root / "embedding"
     directory.mkdir(parents=True, exist_ok=True)
     for name in MODEL_FILES:
+        (directory / name).parent.mkdir(parents=True, exist_ok=True)
         (directory / name).write_bytes(b"model-data")
     if ready:
         (directory / ".ready").write_text(MODEL_NAME, encoding="utf-8")
@@ -40,24 +42,32 @@ def model(monkeypatch):
     class Model:
         def __init__(self):
             self.calls = []
+            self.batch_sizes = []
 
         def passage_embed(self, texts, **kwargs):
             self.calls.append(("passage", texts))
+            self.batch_sizes.append(kwargs["batch_size"])
             return [Vector([float("甲" in text), float("乙" in text)] + [0.0] * (DIMENSIONS - 2)) for text in texts]
 
-        def query_embed(self, texts):
+        def query_embed(self, texts, **kwargs):
             self.calls.append(("query", texts))
+            self.batch_sizes.append(kwargs["batch_size"])
             return [Vector([1.0] + [0.0] * (DIMENSIONS - 1)) for text in texts]
 
     instance = Model()
     initialized = []
 
-    def create(**kwargs):
-        initialized.append(kwargs)
-        return instance
+    class Factory:
+        @staticmethod
+        def list_supported_models():
+            return [{"model": MODEL_NAME}]
+
+        def __new__(cls, **kwargs):
+            initialized.append(kwargs)
+            return instance
 
     monkeypatch.setattr(knowledge_embedding, "_MODELS", {})
-    monkeypatch.setattr(fastembed, "TextEmbedding", create)
+    monkeypatch.setattr(fastembed, "TextEmbedding", Factory)
     return instance, initialized
 
 
@@ -73,20 +83,59 @@ def test_each_passage_is_embedded_whole_and_query_uses_distinct_embedding(tmp_pa
     assert embed_texts(root, ["问题"], is_query=True)[0][0] == 1.0
     assert [kind for kind, _ in instance.calls] == ["passage", "query"]
     assert instance.calls[0][1] == texts
+    assert instance.batch_sizes == [1, 1]
     assert len(initialized) == 1
     assert initialized[0]["cache_dir"] == str(directory)
     assert initialized[0]["specific_model_path"] == str(directory)
     assert initialized[0]["local_files_only"] is True
+    assert initialized[0]["providers"] == ["CPUExecutionProvider"]
+
+
+def test_custom_granite_registration_is_reused_across_model_directories(tmp_path, monkeypatch):
+    import fastembed
+    from fastembed.common.model_description import PoolingType
+
+    registered, registrations, initialized = [], [], []
+
+    class Factory:
+        @staticmethod
+        def list_supported_models():
+            return registered
+
+        @staticmethod
+        def add_custom_model(**kwargs):
+            registrations.append(kwargs)
+            registered.append({"model": kwargs["model"]})
+
+        def __new__(cls, **kwargs):
+            initialized.append(kwargs)
+            return object()
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", Factory)
+    knowledge_embedding._load_model(tmp_path / "first")
+    knowledge_embedding._load_model(tmp_path / "second")
+    assert len(registrations) == 1
+    config = registrations[0]
+    assert config["model"] == MODEL_NAME
+    assert config["pooling"] == PoolingType.CLS
+    assert config["normalization"] is True
+    assert config["dim"] == 384
+    assert config["model_file"] == "onnx/model_quint8_avx2.onnx"
+    assert config["sources"].hf == MODEL_NAME
+    assert [item["specific_model_path"] for item in initialized] == [
+        str(tmp_path / name) for name in ("first", "second")
+    ]
+    assert all(item["local_files_only"] for item in initialized)
 
 
 def test_long_document_is_split_before_embedding_without_vector_pooling(tmp_path, model):
     instance, _ = model
     write_model_files(tmp_path)
-    text = "甲" * 400 + "乙" * 400
+    text = "甲" * 24000 + "乙" * 24000
     chunks = split_document(tmp_path, text)
     assert "".join(chunks) == text
     assert len(chunks) == 2
-    assert [len(chunk) for chunk in chunks] == [512, 288]
+    assert [len(chunk) for chunk in chunks] == [32768, 15232]
     vectors = embed_texts(tmp_path, chunks)
     assert len(vectors) == len(chunks)
     assert instance.calls == [("passage", chunks)]
@@ -113,11 +162,21 @@ def test_long_query_is_passed_to_backend_for_model_truncation(tmp_path, model):
     assert instance.calls == [("query", [text])]
 
 
-def test_chunking_uses_character_budget_without_loading_tokenizer(tmp_path):
+@pytest.mark.parametrize(
+    "text,expected_lengths",
+    [
+        ("甲" * 2000, [2000]),
+        ("甲" * 70000, [32768, 32768, 4464]),
+        ("a" * 130000, [60620, 60620, 8760]),
+    ],
+    ids=["short-dense", "full-dense-budget", "full-ascii-budget"],
+)
+def test_chunking_uses_full_model_and_density_budget_without_loading_tokenizer(tmp_path, text, expected_lengths):
     write_model_files(tmp_path)
-    chunks = split_document(tmp_path, "甲" * 1000)
-    assert "".join(chunks) == "甲" * 1000
-    assert [len(chunk) for chunk in chunks] == [512, 488]
+    assert MAX_INPUT_TOKENS == 32768
+    chunks = split_document(tmp_path, text)
+    assert "".join(chunks) == text
+    assert [len(chunk) for chunk in chunks] == expected_lengths
 
 
 @pytest.mark.parametrize("invalid", [[], [[1.0]], [[0.0] * DIMENSIONS], [[float("nan")] * DIMENSIONS]])
@@ -202,7 +261,7 @@ def test_download_failure_is_sanitized_and_retryable(tmp_path, model, monkeypatc
         if failure == "network":
             raise OSError("private-network-error")
         if failure == "incomplete":
-            (tmp_path / "embedding" / "model_optimized.onnx").write_bytes(b"partial")
+            (tmp_path / "embedding" / MODEL_FILES[-1]).write_bytes(b"partial")
         else:
             write_model_files(tmp_path, ready=False)
 

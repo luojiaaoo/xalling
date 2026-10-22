@@ -4,6 +4,7 @@ import pytest
 import zvec
 
 from backend.service.knowledge import store as knowledge
+from backend.service.knowledge.embedding import MAX_INPUT_TOKENS
 from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
@@ -16,7 +17,7 @@ def library(tmp_path):
     return store, source
 
 
-@pytest.mark.parametrize("length", [12, 1000, 1001, 1400, 1401, 5000])
+@pytest.mark.parametrize("length", [12, 1000, 1001, 1400, 1401, 5000, 32768, 32769, 65536, 65537])
 def test_preview_returns_full_short_text_or_bounded_head_and_tail(library, length):
     store, source = library
     text = ("开头第一段" + "正文" * length + "结尾最后段")[: length - 5] + "最后五字符"
@@ -26,20 +27,20 @@ def test_preview_returns_full_short_text_or_bounded_head_and_tail(library, lengt
     assert preview.source == str(source)
     assert preview.mtime_ns == imported["mtime_ns"]
     assert preview.chunk_count == imported["chunk_count"]
-    if length == 12:
+    if length <= 1000:
         assert preview.truncated is False
         assert preview.head == text
         assert preview.tail == ""
     else:
-        # 与上游一致，长中文文本按模型上限估算为 512 字符预算。
+        # 长中文文本按模型上限估算字符预算，预览尾部来自最后一块。
         assert preview.truncated is True
         assert preview.head == text[:500]
-        assert preview.tail == text[-min(500, length % 512 or 512) :]
+        assert preview.tail == text[-min(500, length % MAX_INPUT_TOKENS or MAX_INPUT_TOKENS) :]
 
 
 def test_preview_fetches_only_edge_ids_without_vectors_and_never_updates_storage(library, monkeypatch):
     store, source = library
-    source.write_text("head " + "indexed manual " * 2000 + " tail", encoding="utf-8")
+    source.write_text("head " + "indexed manual " * 5000 + " tail", encoding="utf-8")
     imported = store.import_document(str(source))
     catalog_before = (store.root / "catalog.json").read_bytes()
     record = store._catalog().documents[os.path.normcase(str(source))]
@@ -91,7 +92,7 @@ def test_unknown_document_does_not_open_or_create_index(library, monkeypatch):
 )
 def test_preview_rejects_incomplete_missing_or_deleted_records(library, monkeypatch, state):
     store, source = library
-    source.write_text("indexed manual " * 300, encoding="utf-8")
+    source.write_text("indexed manual " * 5000, encoding="utf-8")
     store.import_document(str(source))
     catalog = store._catalog()
     key = os.path.normcase(str(source))
@@ -121,7 +122,7 @@ def test_preview_rejects_incomplete_missing_or_deleted_records(library, monkeypa
 
 def test_chunk_read_uses_source_and_number_and_stops_at_document_boundaries(library, monkeypatch):
     store, source = library
-    source.write_text("不同的正文段落\n" * 600, encoding="utf-8")
+    source.write_text("不同的正文段落\n" * 8000, encoding="utf-8")
     store.import_document(str(source))
     record = store._catalog().documents[os.path.normcase(str(source))]
     fetch = zvec.Collection.fetch

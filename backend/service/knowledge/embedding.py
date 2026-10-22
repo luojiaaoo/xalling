@@ -15,19 +15,18 @@ from backend.service.knowledge.text_files import TEXT_WHITESPACE, utf8_text
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
 
-MODEL_NAME = "BAAI/bge-small-zh-v1.5"
+MODEL_NAME = "ibm-granite/granite-embedding-97m-multilingual-r2"
 # 魔搭（ModelScope）仓库，国内网络可直接下载。
-MODEL_REPOSITORY = "Qdrant/bge-small-zh-v1.5"
+MODEL_REPOSITORY = MODEL_NAME
 MODEL_FILES = (
-    "model_optimized.onnx",
+    "onnx/model_quint8_avx2.onnx",
     "config.json",
     "tokenizer.json",
     "tokenizer_config.json",
     "special_tokens_map.json",
-    "vocab.txt",
 )
-DIMENSIONS = 512
-MAX_INPUT_TOKENS = 512
+DIMENSIONS = 384
+MAX_INPUT_TOKENS = 32768
 _MODELS: dict[Path, TextEmbedding] = {}
 _EMBEDDING_LOCK = RLock()
 _STATE_LOCK = RLock()
@@ -85,6 +84,17 @@ def ensure_embedding_model(root: Path) -> None:
 
 def _load_model(directory: Path) -> TextEmbedding:
     from fastembed import TextEmbedding
+    from fastembed.common.model_description import ModelSource, PoolingType
+
+    if not any(model["model"] == MODEL_NAME for model in TextEmbedding.list_supported_models()):
+        TextEmbedding.add_custom_model(
+            model=MODEL_NAME,
+            pooling=PoolingType.CLS,
+            normalization=True,
+            sources=ModelSource(hf=MODEL_NAME),
+            dim=DIMENSIONS,
+            model_file=MODEL_FILES[0],
+        )
 
     return TextEmbedding(
         model_name=MODEL_NAME,
@@ -92,6 +102,7 @@ def _load_model(directory: Path) -> TextEmbedding:
         specific_model_path=str(directory),
         local_files_only=True,
         threads=2,
+        providers=["CPUExecutionProvider"],
     )
 
 
@@ -171,7 +182,8 @@ def embed_texts(root: Path, texts: list[str], *, is_query: bool = False) -> list
             if directory not in _MODELS:
                 _MODELS[directory] = _load_model(directory)
             model = _MODELS[directory]
-            output = model.query_embed(texts) if is_query else model.passage_embed(texts, batch_size=16)
+            # 此量化模型的输出受同批其他文本影响，逐条计算以保持向量一致。
+            output = model.query_embed(texts, batch_size=1) if is_query else model.passage_embed(texts, batch_size=4)
             vectors = [vector.tolist() for vector in output]
             if len(vectors) != len(texts) or any(
                 len(vector) != DIMENSIONS or not all(math.isfinite(value) for value in vector) for vector in vectors
