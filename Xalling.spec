@@ -2,7 +2,7 @@
 # PyInstaller injects its build classes when executing this specification.
 # ruff: noqa: F821
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 datas = [("frontend/dist", "frontend/dist"), ("tutorials", "tutorials")]
 binaries = [
@@ -12,12 +12,9 @@ binaries = [
 hiddenimports = [
     "backend.scheduler",  # Restore jobs persisted before the service package move.
     "clr",
-    "uvicorn.logging",
-    "uvicorn.loops.asyncio",
-    "uvicorn.protocols.http.h11_impl",
-    "uvicorn.protocols.websockets.websockets_sansio_impl",
-    "uvicorn.lifespan.on",
 ]
+# Uvicorn selects loop and protocol modules dynamically for the build platform.
+hiddenimports += collect_submodules("uvicorn")
 datas += collect_data_files("claude_agent_sdk")
 for package in ("anydoc", "zvec", "fastembed", "onnxruntime", "tokenizers"):
     package_datas, package_binaries, package_imports = collect_all(package)
