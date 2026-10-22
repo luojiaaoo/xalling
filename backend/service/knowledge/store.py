@@ -58,10 +58,6 @@ class KnowledgeError(Exception):
     """可直接展示给用户的知识库业务异常。"""
 
 
-class KnowledgeDocumentNotFoundError(KnowledgeError):
-    """请求的原路径尚未入库，或已从知识库删除。"""
-
-
 def requires_embedding_model[**P, R](
     action: Callable[Concatenate[KnowledgeStore, P], R],
 ) -> Callable[Concatenate[KnowledgeStore, P], R]:
@@ -88,9 +84,9 @@ class DocumentRecord(BaseModel):
     mtime_ns: int
     chunk_count: int = Field(ge=1)
 
-    def chunk_id(self, number: int) -> str:
+    def chunk_id(self, chunck_number: int) -> str:
         """按源路径和编号生成固定长度的片段 ID，不包含修改时间。"""
-        return uuid5(NAMESPACE_URL, f"{os.path.normcase(self.source)}:{number}").hex
+        return uuid5(NAMESPACE_URL, f"{os.path.normcase(self.source)}:{chunck_number}").hex
 
 
 class DocumentPreview(DocumentRecord):
@@ -99,6 +95,13 @@ class DocumentPreview(DocumentRecord):
     head: str
     tail: str
     truncated: bool
+
+
+class DocumentContent(DocumentRecord):
+    """已入库的指定序号切片。"""
+
+    text: str
+    chunck_number: int = Field(ge=1)
 
 
 def _source_literal(source: str) -> str:
@@ -170,8 +173,7 @@ class KnowledgeStore:
                         "text", zvec.DataType.STRING, index_param=zvec.FtsIndexParam(tokenizer_name="jieba")
                     ),
                     zvec.FieldSchema("source", zvec.DataType.STRING),
-                    zvec.FieldSchema("mtime_ns", zvec.DataType.INT64),
-                    zvec.FieldSchema("chunk_number", zvec.DataType.INT64),
+                    zvec.FieldSchema("chunck_number", zvec.DataType.INT64),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -284,16 +286,17 @@ class KnowledgeStore:
                     statuses = collection.upsert(
                         [
                             zvec.Doc(
-                                id=record.chunk_id(number),
+                                id=record.chunk_id(chunck_number),
                                 fields={
                                     "text": chunk,
                                     "source": source_key,
-                                    "mtime_ns": record.mtime_ns,
-                                    "chunk_number": number,
+                                    "chunck_number": chunck_number,
                                 },
                                 vectors={"embedding": vector},
                             )
-                            for number, (chunk, vector) in enumerate(zip(batch, vectors, strict=True), start=offset + 1)
+                            for chunck_number, (chunk, vector) in enumerate(
+                                zip(batch, vectors, strict=True), start=offset + 1
+                            )
                         ]
                     )
                     if len(statuses) != len(batch) or not all(status.ok() for status in statuses):
@@ -344,37 +347,48 @@ class KnowledgeStore:
             return {"directories": [{"path": path, "files": sorted(files)} for path, files in sorted(groups.items())]}
 
     @requires_embedding_model
-    def preview_document(self, raw_path: str) -> DocumentPreview:
-        """按固定片段 ID 读取已入库正文首尾，不同步原文件或重新计算向量。"""
-        source_key = os.path.normcase(str(Path(raw_path).expanduser().resolve()))
+    def read_document(
+        self,
+        raw_path: str,
+        *,
+        chunck_number: int | None = None,
+    ) -> DocumentPreview | DocumentContent:
+        """读取已入库首尾或指定切片，不同步原文件或计算向量。"""
         with _STORAGE_LOCK:
             catalog = self._catalog()
+            error_message = "文档读取失败，请重新导入该文档。"
+            source_key = os.path.normcase(str(Path(raw_path).expanduser().resolve()))
             record = catalog.documents.get(source_key)
-            if record is None:
-                raise KnowledgeDocumentNotFoundError("该文档尚未入库或已从知识库删除。")
-            if source_key in catalog.pending:
-                raise KnowledgeError("该文档索引尚未完成，请重新导入或检索修复后再预览。")
-            numbers = sorted({1, record.chunk_count})
-            with self._collection() as collection:
-                docs = collection.fetch(
-                    [record.chunk_id(number) for number in numbers],
-                    output_fields=["text", "source", "mtime_ns", "chunk_number"],
-                    include_vector=False,
+            if record is None or source_key in catalog.pending:
+                raise KnowledgeError(error_message)
+            if chunck_number is not None:
+                if not 1 <= chunck_number <= record.chunk_count:
+                    raise KnowledgeError(f"切片序号超出范围，请使用 1 到 {record.chunk_count}。")
+                numbers = [chunck_number]
+            else:
+                numbers = sorted({1, record.chunk_count})
+            try:
+                with self._collection() as collection:
+                    texts: list[str] = []
+                    docs = collection.fetch(
+                        [record.chunk_id(selected_number) for selected_number in numbers],
+                        output_fields=["text"],
+                        include_vector=False,
+                    )
+                    for selected_number in numbers:
+                        doc = docs.get(record.chunk_id(selected_number))
+                        if doc is None or not isinstance(text := doc.field("text"), str) or not text:
+                            raise KnowledgeError(error_message)
+                        texts.append(text)
+            except Exception as error:
+                raise KnowledgeError(error_message) from error
+            if chunck_number is not None:
+                return DocumentContent(
+                    **record.model_dump(),
+                    text=texts[0],
+                    chunck_number=chunck_number,
                 )
-                texts: dict[int, str] = {}
-                for number in numbers:
-                    doc = docs.get(record.chunk_id(number))
-                    if (
-                        doc is None
-                        or doc.field("source") != source_key
-                        or doc.field("mtime_ns") != record.mtime_ns
-                        or doc.field("chunk_number") != number
-                        or not isinstance(text := doc.field("text"), str)
-                        or not text
-                    ):
-                        raise KnowledgeError("文档预览片段缺失或与清单不一致，请重新导入该文档。")
-                    texts[number] = text
-            first, last = texts[1], texts[record.chunk_count]
+            first, last = texts[0], texts[-1]
             truncated = record.chunk_count > 1 or len(first) > PREVIEW_EDGE_CHARACTERS * 2
             return DocumentPreview(
                 **record.model_dump(),
@@ -485,8 +499,8 @@ class KnowledgeStore:
                 results = [
                     {
                         "source": active[match.field("source")].source,
-                        "chunk_number": match.field("chunk_number"),
-                        "chunk_id": match.id,
+                        "chunck_number": match.field("chunck_number"),
+                        "chunk_count": active[match.field("source")].chunk_count,
                         "score": match.score,
                         "text": match.field("text"),
                     }

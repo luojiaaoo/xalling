@@ -9,11 +9,6 @@ export type KnowledgeDocument = {
   chunk_count: number;
 };
 export type KnowledgeFilesPage = { total: number; offset: number; files: KnowledgeDocument[] };
-export type KnowledgeDocumentPreview = KnowledgeDocument & {
-  head: string;
-  tail: string;
-  truncated: boolean;
-};
 export type KnowledgeTree = {
   directories: { path: string; files: string[] }[];
 };
@@ -34,10 +29,6 @@ export function downloadKnowledgeEmbedding(): Promise<KnowledgeEmbeddingStatus> 
 
 export function getKnowledgeTree(): Promise<KnowledgeTree> {
   return request("GET", "/api/knowledge/tree");
-}
-
-export function getKnowledgeDocumentPreview(source: string): Promise<KnowledgeDocumentPreview> {
-  return request("GET", "/api/knowledge/documents/preview", { query: { source } });
 }
 
 export function deleteKnowledgeDocuments(sources: string[]): Promise<{ deleted: number }> {

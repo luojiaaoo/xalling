@@ -191,7 +191,7 @@ def test_tools_resolve_relative_paths_and_search_multiple_directories(handlers, 
     source.write_text("firmware installation guide", encoding="utf-8")
 
     async def scenario():
-        assert set(handlers) == {"KnowledgeImport", "KnowledgeSearch", "KnowledgeList"}
+        assert set(handlers) == {"KnowledgeImport", "KnowledgeSearch", "KnowledgeList", "KnowledgeRead"}
         imported = payload(await handlers["KnowledgeImport"].handler({"file_path": source.name}))
         listed = payload(await handlers["KnowledgeList"].handler({"filename": "MANUAL", "parent_path": "."}))
         assert listed["total"] == 1
@@ -210,6 +210,45 @@ def test_tools_resolve_relative_paths_and_search_multiple_directories(handlers, 
         ]
         assert payload(await handlers["KnowledgeSearch"].handler({"query": "firmware"}))["results"]
 
+    anyio.run(scenario)
+
+
+def test_read_tool_follows_search_hits_and_reads_preview_snapshot(handlers, store):
+    source = Path.cwd() / "manual.txt"
+    text = "firmware guide\n" * 400
+    source.write_text(text, encoding="utf-8")
+    store.import_document(str(source))
+
+    async def scenario():
+        hits = payload(await handlers["KnowledgeSearch"].handler({"query": "firmware", "top_k": 20}))["results"]
+        hit = next(hit for hit in hits if hit["chunck_number"] == 1)
+        source.unlink()
+        first = payload(
+            await handlers["KnowledgeRead"].handler({"source": hit["source"], "chunck_number": hit["chunck_number"]})
+        )
+        assert first["text"] == hit["text"]
+        assert "chunk_id" not in hit
+        assert first["chunck_number"] == 1
+        second = payload(
+            await handlers["KnowledgeRead"].handler({"source": source.name, "chunck_number": hit["chunck_number"] + 1})
+        )
+        assert second["source"] == first["source"]
+        assert second["chunck_number"] == 2
+        assert second["chunk_count"] == hit["chunk_count"]
+        preview = payload(await handlers["KnowledgeRead"].handler({"source": source.name}))
+        assert preview["head"] == text[:500]
+        assert preview["tail"] == text.strip()[-500:]
+        assert (
+            payload(await handlers["KnowledgeRead"].handler({"source": source.name, "chunck_number": None})) == preview
+        )
+        failed = await handlers["KnowledgeRead"].handler({"source": "missing.txt", "chunck_number": 1})
+        assert failed["isError"] is True
+        assert "重新导入" in failed["content"][0]["text"]
+
+    annotations = handlers["KnowledgeRead"].annotations.model_dump(by_alias=True)
+    assert annotations["readOnlyHint"] is True
+    assert annotations["openWorldHint"] is False
+    assert set(handlers["KnowledgeRead"].input_schema["properties"]) == {"source", "chunck_number"}
     anyio.run(scenario)
 
 
@@ -232,6 +271,15 @@ def test_tools_resolve_relative_paths_and_search_multiple_directories(handlers, 
         ("KnowledgeSearch", {"query": "x", "parent_path": "."}),
         ("KnowledgeList", {"parent_path": " "}),
         ("KnowledgeList", {"unknown": True}),
+        ("KnowledgeRead", {}),
+        ("KnowledgeRead", {"source": " "}),
+        ("KnowledgeRead", {"source": "x", "mode": "full"}),
+        ("KnowledgeRead", {"chunck_number": 1}),
+        ("KnowledgeRead", {"source": "x", "chunck_number": 0}),
+        ("KnowledgeRead", {"source": "x", "chunck_number": True}),
+        ("KnowledgeRead", {"source": "x", "chunck_number": "1"}),
+        ("KnowledgeRead", {"source": "x", "mode": "preview", "chunck_number": 1}),
+        ("KnowledgeRead", {"source": "x", "chunck_number": 1, "offset": 1}),
     ],
 )
 def test_tools_validate_before_storage(handlers, store, name, args):
@@ -264,6 +312,7 @@ def test_internal_errors_are_sanitized(handlers, store, monkeypatch):
         ("KnowledgeImport", {"file_path": "manual.txt"}),
         ("KnowledgeSearch", {"query": "manual"}),
         ("KnowledgeList", {}),
+        ("KnowledgeRead", {"source": "manual.txt"}),
     ],
 )
 def test_tools_require_user_to_download_missing_model(handlers, store, monkeypatch, name, args):

@@ -62,7 +62,7 @@ def test_pending_write_is_retried_from_json(indexed_document):
         docs = collection.fetch([record.chunk_id(n) for n in range(1, record.chunk_count + 1)])
         assert len(docs) == record.chunk_count
         assert collection.stats.doc_count == record.chunk_count
-        assert docs[record.chunk_id(1)].field("chunk_number") == 1
+        assert docs[record.chunk_id(1)].field("chunck_number") == 1
         assert docs[record.chunk_id(1)].field("text").startswith("original manual")
         assert any(docs[record.chunk_id(1)].vector("embedding"))
 

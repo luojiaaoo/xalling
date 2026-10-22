@@ -27,7 +27,8 @@ def test_identical_content_at_different_paths_is_indexed_independently(tmp_path)
     assert store.list_files(0, 10)["total"] == 2
     results = store.search("original", 5)["results"]
     assert {item["source"] for item in results} == {str(first), str(second)}
-    assert len({item["chunk_id"] for item in results}) == 2
+    assert len({(item["source"], item["chunck_number"]) for item in results}) == 2
+    assert all(item["chunck_number"] == item["chunk_count"] == 1 for item in results)
     assert set(store._catalog().documents) == {os.path.normcase(str(first)), os.path.normcase(str(second))}
     assert set(imported) == {"status", "source", "mtime_ns", "chunk_count"}
 

@@ -13,12 +13,7 @@ from backend.service.knowledge.embedding import (
     download_embedding_model,
     get_embedding_status,
 )
-from backend.service.knowledge.store import (
-    DocumentPreview,
-    KnowledgeDocumentNotFoundError,
-    KnowledgeError,
-    KnowledgeStore,
-)
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"], dependencies=[Depends(authenticate)])
 
@@ -33,8 +28,6 @@ StoreDep = Annotated[KnowledgeStore, Depends(get_store)]
 def checked(action: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     try:
         return action(*args, **kwargs)
-    except KnowledgeDocumentNotFoundError as error:
-        raise HTTPException(404, str(error)) from error
     except (KnowledgeError, EmbeddingError) as error:
         raise HTTPException(400, str(error)) from error
 
@@ -57,14 +50,6 @@ def path_tree(store: StoreDep) -> dict[str, Any]:
 @router.delete("/documents")
 def delete_documents(request: KnowledgeDeleteRequest, store: StoreDep) -> dict[str, int]:
     return checked(store.delete_documents, request.sources)
-
-
-@router.get("/documents/preview")
-def preview_document(
-    store: StoreDep,
-    source: Annotated[str, Query(min_length=1, max_length=32768)],
-) -> DocumentPreview:
-    return checked(store.preview_document, source)
 
 
 @router.get("/documents")

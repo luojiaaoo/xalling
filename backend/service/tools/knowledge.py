@@ -25,7 +25,10 @@ class _ImportInput(_Input):
 
 class _ListInput(_Input):
     parent_path: str | None = Field(
-        default=None, min_length=1, max_length=4096, description="可选父目录，包含其子目录；相对路径以当前项目为基准，省略时不限制目录"
+        default=None,
+        min_length=1,
+        max_length=4096,
+        description="可选父目录，包含其子目录；相对路径以当前项目为基准，省略时不限制目录",
     )
     filename: str | None = Field(
         default=None, min_length=1, max_length=255, description="文件名关键词，部分匹配，不区分大小写"
@@ -41,6 +44,13 @@ class _SearchInput(_Input):
         default=None,
         max_length=100,
         description="父目录列表，同时搜索这些目录及其子目录，重叠范围去重。相对路径以当前项目为基准；省略或 null 为全局搜索，空列表不搜索",
+    )
+
+
+class _ReadInput(_Input):
+    source: str = Field(min_length=1, max_length=32768, description="原文档路径，可使用搜索结果中的 source")
+    chunck_number: int | None = Field(
+        default=None, ge=1, description="从 1 开始的切片序号；查看上一块减 1、下一块加 1，省略或 null 时读取文档首尾"
     )
 
 
@@ -100,7 +110,8 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
         "在本地知识库中混合搜索正文，支持自然语言问题及中英文关键词。"
         "parent_paths 限定多个父目录及其子目录，省略或 null 为全局搜索，空列表不搜索。"
         "用户指定目录时保持其范围，不擅自扩大。"
-        "返回正文片段与来源路径 source，回答时引用来源；分数为排序分，不是置信度。",
+        "返回正文片段、来源路径 source、chunck_number 和 chunk_count。可用 KnowledgeRead 读取该块、相邻块或文档首尾。"
+        "回答时引用来源；分数为排序分，不是置信度。",
         _SearchInput.model_json_schema(),
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
     )
@@ -136,8 +147,26 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
             ),
         )
 
+    @tool(
+        "KnowledgeRead",
+        "读取已入库文档快照，不读取磁盘原文、不更新索引。"
+        "传 source 和 chunck_number 时读取对应切片；序号从 1 开始，上一块减 1，下一块加 1，最大序号为 chunk_count。"
+        "省略 chunck_number 或传 null 时读取首尾各最多 500 字符。",
+        _ReadInput.model_json_schema(),
+        annotations=read_only,
+    )
+    async def knowledge_read(args: dict[str, Any]) -> dict[str, Any]:
+        return await _execute(
+            _ReadInput,
+            args,
+            lambda request: store.read_document(
+                resolve_path(request.source),
+                chunck_number=request.chunck_number,
+            ).model_dump(),
+        )
+
     return create_sdk_mcp_server(
         name="Knowledge",
         version="1.0.0",
-        tools=[knowledge_import, knowledge_search, knowledge_list],
+        tools=[knowledge_import, knowledge_search, knowledge_list, knowledge_read],
     )

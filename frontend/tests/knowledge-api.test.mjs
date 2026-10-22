@@ -17,16 +17,13 @@ test("knowledge tree and file queries remain read-only", async () => {
   await api.getKnowledgeTree();
   await api.listKnowledgeDocuments("D:/资料/嵌入式", 20, "esp32");
   await api.listKnowledgeDocuments();
-  await api.getKnowledgeDocumentPreview("D:/资料/嵌入式/ESP32 & USB.pdf");
   assert.ok(requests.every(({ method }) => method === "GET"));
   assert.equal(requests[0].path, "/api/knowledge/tree");
   assert.equal(requests[1].options.query.parent_path, "D:/资料/嵌入式");
   assert.equal(requests[1].options.query.filename, "esp32");
   assert.equal(requests[1].options.query.offset, 20);
   assert.equal(requests[2].options.query.parent_path, undefined);
-  assert.equal(requests[3].path, "/api/knowledge/documents/preview");
-  assert.equal(requests[3].options.query.source, "D:/资料/嵌入式/ESP32 & USB.pdf");
-  for (const name of ["createKnowledgeCategory", "listKnowledgeCategories", "updateKnowledgeCategoryDescription", "importKnowledgeFile", "removeKnowledgeDocument"]) {
+  for (const name of ["createKnowledgeCategory", "listKnowledgeCategories", "updateKnowledgeCategoryDescription", "importKnowledgeFile", "removeKnowledgeDocument", "getKnowledgeDocumentPreview", "readKnowledgeDocument"]) {
     assert.equal(api[name], undefined);
   }
 });
