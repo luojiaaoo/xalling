@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
@@ -12,6 +11,7 @@ from time import time
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import anyio
 import asyncer
 from claude_agent_sdk import (
     ClaudeSDKError,
@@ -623,16 +623,15 @@ class ChatService:
         if not active_items:
             return
 
-        results = await asyncio.gather(
-            *(active_chat.resources.aclose() for active_chat in active_items),
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, BaseException):
-                claude_sdk_logger.error(
-                    "关闭 Claude 会话资源失败：{}",
-                    result,
-                )
+        async def close_resources(active_chat: _ActiveChat) -> None:
+            try:
+                await active_chat.resources.aclose()
+            except Exception as error:  # noqa: BLE001 - close all clients despite individual failures
+                claude_sdk_logger.error("关闭 Claude 会话资源失败：{}", error)
+
+        async with anyio.create_task_group() as group:
+            for active_chat in active_items:
+                group.create_task(close_resources(active_chat))
 
     async def list_chat_sessions(self) -> list[dict[str, Any]]:
         sessions = await asyncer.asyncify(self._history.list_sessions)()

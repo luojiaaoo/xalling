@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from collections.abc import AsyncIterator
-from contextlib import suppress
-from dataclasses import dataclass, replace
+from contextlib import aclosing, suppress
+from dataclasses import dataclass, field, replace
 from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
 
+import anyio
+from anyio.streams.memory import MemoryObjectSendStream
 from claude_agent_sdk import (
     TERMINAL_TASK_STATUSES,
     ClaudeAgentOptions,
@@ -82,7 +83,12 @@ def _unhandled_event_log_fields(data: dict[str, Any]) -> dict[str, Any]:
 class _PendingPermission:
     tool_name: str
     input_data: dict[str, Any]
-    future: asyncio.Future[PermissionResult]
+    ready: anyio.Event = field(default_factory=anyio.Event)
+    result: PermissionResult | None = None
+
+    def resolve(self, result: PermissionResult) -> None:
+        self.result = result
+        self.ready.set()
 
 
 class ClaudeChatClient:
@@ -116,11 +122,11 @@ class ClaudeChatClient:
         )
         self._transport = transport
         self._sdk: ClaudeSDKClient | None = None
-        self._connect_lock = asyncio.Lock()
-        self._turn_lock = asyncio.Lock()
-        self._active_queue: asyncio.Queue[ChatEvent | object] | None = None
+        self._connect_lock = anyio.Lock()
+        self._turn_lock = anyio.Lock()
+        self._active_queue: MemoryObjectSendStream[ChatEvent | object] | None = None
         self._active_factory: _EventFactory | None = None
-        self._stop_requested: asyncio.Event | None = None
+        self._stop_requested: anyio.Event | None = None
         self._query_submitted = False
         self._pending_permissions: dict[str, _PendingPermission] = {}
         self._plan_approval_modes: dict[str, PlanApprovalMode] = {}
@@ -226,9 +232,9 @@ class ClaudeChatClient:
             raise ValueError(
                 "ExitPlanMode must be resolved with resolve_plan_approval() so mode is supplied explicitly"
             )
-        if pending.future.done():
+        if pending.ready.is_set():
             raise RuntimeError(f"Permission request is already resolved: {request_id}")
-        pending.future.set_result(result)
+        pending.resolve(result)
 
     def resolve_plan_approval(
         self,
@@ -253,7 +259,7 @@ class ClaudeChatClient:
             raise KeyError(f"No pending permission request: {request_id}") from exc
         if pending.tool_name != _EXIT_PLAN_MODE_TOOL_NAME:
             raise ValueError(f"Permission request {request_id!r} is for {pending.tool_name!r}, not ExitPlanMode")
-        if pending.future.done():
+        if pending.ready.is_set():
             raise RuntimeError(f"Permission request is already resolved: {request_id}")
         if approved and mode is None:
             raise ValueError("Approved ExitPlanMode requires an explicit permission mode")
@@ -262,7 +268,7 @@ class ClaudeChatClient:
             raise ValueError(f"Unknown permission mode {mode!r}; expected one of: {modes}")
 
         if not approved:
-            pending.future.set_result(PermissionResultDeny(message=message or "Plan was not approved"))
+            pending.resolve(PermissionResultDeny(message=message or "Plan was not approved"))
             return
 
         updated_permissions = None
@@ -274,7 +280,7 @@ class ClaudeChatClient:
                     destination="session",
                 )
             ]
-        pending.future.set_result(
+        pending.resolve(
             PermissionResultAllow(
                 updated_input=pending.input_data,
                 updated_permissions=updated_permissions,
@@ -344,9 +350,10 @@ class ClaudeChatClient:
             if query is None:
                 raise RuntimeError("SDK 未连接，无法查询文件检查点")
             try:
-                result = await asyncio.wait_for(query._send_control_request({
-                    "subtype": "rewind_files", "user_message_id": user_message_id, "dry_run": True,
-                }), timeout=5)
+                with anyio.fail_after(5):
+                    result = await query._send_control_request({
+                        "subtype": "rewind_files", "user_message_id": user_message_id, "dry_run": True,
+                    })
             except Exception as error:
                 # SDK control errors are plain Exception in the installed version.
                 raise RuntimeError("SDK 文件检查点预览不可用") from error
@@ -388,15 +395,16 @@ class ClaudeChatClient:
                 await handled
 
         try:
-            async for event in self.stream(
+            async with aclosing(self.stream(
                 prompt,
                 session_id=session_id,
                 empty_result_content=empty_result_content,
-            ):
-                if event.event in _TERMINAL_EVENTS:
-                    terminal_event = event
-                else:
-                    await forward(event)
+            )) as events:
+                async for event in events:
+                    if event.event in _TERMINAL_EVENTS:
+                        terminal_event = event
+                    else:
+                        await forward(event)
             if self._last_result is None:
                 raise RuntimeError("Claude turn ended without a result")
             return self._last_result
@@ -435,15 +443,15 @@ class ClaudeChatClient:
             self._last_result = None
             turn_id = str(uuid4())
             factory = _EventFactory(turn_id)
-            queue: asyncio.Queue[ChatEvent | object] = asyncio.Queue()
-            stop_requested = asyncio.Event()
+            queue, receiver = anyio.create_memory_object_stream[ChatEvent | object](float("inf"))
+            stop_requested = anyio.Event()
             error: list[BaseException] = []
             self._active_queue = queue
             self._active_factory = factory
             self._stop_requested = stop_requested
             self._query_submitted = False
 
-            await queue.put(
+            queue.send_nowait(
                 factory.make(
                     "turn.started",
                     {
@@ -452,7 +460,7 @@ class ClaudeChatClient:
                     },
                 )
             )
-            await queue.put(
+            queue.send_nowait(
                 factory.make(
                     "user.message",
                     {
@@ -465,8 +473,9 @@ class ClaudeChatClient:
                 )
             )
 
-            producer = asyncio.create_task(
-                self._produce_turn(
+            consumer_error: BaseException | None = None
+            async with anyio.create_task_group() as group:
+                producer = group.create_task(self._produce_turn(
                     prompt=prompt,
                     session_id=session_id,
                     factory=factory,
@@ -474,31 +483,38 @@ class ClaudeChatClient:
                     error=error,
                     empty_result_content=empty_result_content,
                     stop_requested=stop_requested,
-                )
-            )
-            try:
-                while True:
-                    item = await queue.get()
-                    if item is _STREAM_END:
-                        break
-                    yield cast(ChatEvent, item)
-                await producer
-                if error:
-                    raise error[0]
-            finally:
-                if not producer.done():
-                    with suppress(Exception):
-                        await self.interrupt()
-                    try:
-                        await asyncio.wait_for(asyncio.shield(producer), timeout=10)
-                    except TimeoutError:
-                        producer.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await producer
-                self._active_queue = None
-                self._active_factory = None
-                self._stop_requested = None
-                self._query_submitted = False
+                ))
+                try:
+                    # Publish the input before SDK reception can echo it back.
+                    for _ in range(2):
+                        yield cast(ChatEvent, receiver.receive_nowait())
+                    while True:
+                        item = await receiver.receive()
+                        if item is _STREAM_END:
+                            break
+                        yield cast(ChatEvent, item)
+                    await producer.wait()
+                except BaseException as exc:  # noqa: BLE001 - re-raise after the task group closes
+                    consumer_error = exc
+                finally:
+                    with anyio.CancelScope(shield=True):
+                        if producer.status in {anyio.TaskHandle.Status.PENDING, anyio.TaskHandle.Status.CANCELLING}:
+                            with anyio.move_on_after(10):
+                                with suppress(Exception):
+                                    await self.interrupt()
+                                await producer.wait()
+                            producer.cancel()
+                            await producer.wait()
+                        await queue.aclose()
+                        await receiver.aclose()
+                    self._active_queue = None
+                    self._active_factory = None
+                    self._stop_requested = None
+                    self._query_submitted = False
+            if consumer_error is not None:
+                raise consumer_error
+            if error:
+                raise error[0]
 
     async def _produce_turn(
         self,
@@ -506,10 +522,10 @@ class ClaudeChatClient:
         prompt: str,
         session_id: str,
         factory: _EventFactory,
-        queue: asyncio.Queue[ChatEvent | object],
+        queue: MemoryObjectSendStream[ChatEvent | object],
         error: list[BaseException],
         empty_result_content: str | None,
-        stop_requested: asyncio.Event,
+        stop_requested: anyio.Event,
     ) -> None:
         sdk = self._sdk
         if sdk is None:  # pragma: no cover - guarded by stream
@@ -606,7 +622,7 @@ class ClaudeChatClient:
                         checkpoint = adapter.file_checkpoint(message)
                         if checkpoint is not None and message.uuid not in checkpoint_ids:
                             checkpoint_ids.add(message.uuid)
-                            await queue.put(checkpoint)
+                            await queue.send(checkpoint)
 
                     is_submitted_echo = (
                         isinstance(message, UserMessage)
@@ -633,7 +649,7 @@ class ClaudeChatClient:
                                         self._options,
                                         permission_mode=mode,
                                     )
-                            await queue.put(event)
+                            await queue.send(event)
 
                     if not isinstance(message, ResultMessage):
                         continue
@@ -682,7 +698,7 @@ class ClaudeChatClient:
                     if is_human_result:
                         deferred_human_result = message
 
-                    await queue.put(
+                    await queue.send(
                         factory.make(
                             "turn.proxy.completed",
                             {
@@ -759,7 +775,7 @@ class ClaudeChatClient:
                 duration_api_ms=requested_result.duration_api_ms,
             )
             self._last_result = result
-            await queue.put(
+            await queue.send(
                 factory.make(
                     "turn.completed",
                     {
@@ -782,11 +798,12 @@ class ClaudeChatClient:
             )
         except BaseException as exc:
             self._deny_pending_permissions("Claude turn failed")
-            await self._discard_sdk(sdk)
-            if isinstance(exc, asyncio.CancelledError):
+            with anyio.CancelScope(shield=True):
+                await self._discard_sdk(sdk)
+            if isinstance(exc, anyio.get_cancelled_exc_class()):
                 raise
             error.append(exc)
-            await queue.put(
+            await queue.send(
                 factory.make(
                     "turn.failed",
                     {"error_type": type(exc).__name__, "message": str(exc)},
@@ -795,7 +812,7 @@ class ClaudeChatClient:
         finally:
             self._query_submitted = False
             self._plan_approval_modes.clear()
-            await queue.put(_STREAM_END)
+            queue.send_nowait(_STREAM_END)
 
     async def _discard_sdk(self, sdk: ClaudeSDKClient) -> None:
         """Disconnect a connection whose stream state is no longer reliable."""
@@ -822,11 +839,9 @@ class ClaudeChatClient:
         if self._permission_handler is None and (queue is None or factory is None):
             return PermissionResultDeny(message="Permission request arrived outside an active event stream")
         if self._permission_handler is None:
-            future: asyncio.Future[PermissionResult] = asyncio.get_running_loop().create_future()
             pending = _PendingPermission(
                 tool_name=tool_name,
                 input_data=input_data,
-                future=future,
             )
             self._pending_permissions[request_id] = pending
         if queue is not None and factory is not None:
@@ -834,7 +849,7 @@ class ClaudeChatClient:
                 list[dict[str, Any]],
                 _jsonable(context.suggestions),
             )
-            await queue.put(
+            await queue.send(
                 factory.make(
                     "permission.requested",
                     PermissionRequestedData(
@@ -857,7 +872,10 @@ class ClaudeChatClient:
             if pending is None:  # pragma: no cover - initialized above
                 raise RuntimeError("Permission future was not initialized")
             try:
-                result: PermissionResult = await pending.future
+                await pending.ready.wait()
+                if pending.result is None:  # pragma: no cover - resolve sets the result first
+                    raise RuntimeError("Permission result was not initialized")
+                result: PermissionResult = pending.result
             finally:
                 self._pending_permissions.pop(request_id, None)
         else:
@@ -900,7 +918,7 @@ class ClaudeChatClient:
                     denial_message=result.message,
                     interrupt=result.interrupt,
                 )
-            await queue.put(
+            await queue.send(
                 factory.make(
                     "permission.resolved",
                     resolved_data,
@@ -910,5 +928,5 @@ class ClaudeChatClient:
 
     def _deny_pending_permissions(self, message: str) -> None:
         for pending in tuple(self._pending_permissions.values()):
-            if not pending.future.done():
-                pending.future.set_result(PermissionResultDeny(message=message, interrupt=True))
+            if not pending.ready.is_set():
+                pending.resolve(PermissionResultDeny(message=message, interrupt=True))

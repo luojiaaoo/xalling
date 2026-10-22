@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any, ClassVar
 
 import anyio
+import anyio.lowlevel
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
@@ -124,6 +126,65 @@ def _reset_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_client_consumes_proxy_results_and_correlates_user_turn() -> None:
     anyio.run(_client_consumes_proxy_results_and_correlates_user_turn)
+
+
+@pytest.mark.anyio
+async def test_stream_can_close_early_and_reuse_client() -> None:
+    _FakeSDK.batches = [[_result(origin={"kind": "human"})]]
+    client = ClaudeChatClient()
+    async with aclosing(client.stream("first")) as stream:
+        assert (await anext(stream)).event == "turn.started"
+    assert not client.active
+    assert _FakeSDK.instances[0].interrupted
+    _FakeSDK.batches = [[_result(origin={"kind": "human"})]]
+    assert (await client.send("second")).is_error is False
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_event_handler_failure_closes_stream_in_the_calling_task() -> None:
+    _FakeSDK.batches = [[_result(origin={"kind": "human"})]]
+    client = ClaudeChatClient()
+
+    async def on_event(event):
+        raise ValueError("event handler failed")
+
+    with pytest.raises(ValueError, match="event handler failed"):
+        await client.send("first", on_event=on_event)
+    assert not client.active
+    _FakeSDK.batches = [[_result(origin={"kind": "human"})]]
+    await client.send("second")
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_cancelling_permission_wait_disconnects_with_shielded_cleanup(monkeypatch) -> None:
+    original_disconnect = _FakeSDK.disconnect
+
+    async def disconnect(sdk):
+        await anyio.lowlevel.checkpoint()
+        await original_disconnect(sdk)
+
+    monkeypatch.setattr(_FakeSDK, "disconnect", disconnect)
+    _FakeSDK.batches = [["permission", _result(origin={"kind": "human"})]]
+    client = ClaudeChatClient()
+    permission_requested = anyio.Event()
+
+    async def on_event(event):
+        if event.event == "permission.requested":
+            permission_requested.set()
+
+    with anyio.fail_after(2):
+        async with anyio.create_task_group() as group:
+            task = group.create_task(client.send("write", on_event=on_event))
+            await permission_requested.wait()
+            task.cancel()
+            await task.wait()
+    assert task.status is anyio.TaskHandle.Status.CANCELLED
+    assert not client.active
+    assert not client.connected
+    assert not client.pending_permission_ids
+    assert _FakeSDK.instances[0].disconnected
 
 
 async def _client_consumes_proxy_results_and_correlates_user_turn() -> None:

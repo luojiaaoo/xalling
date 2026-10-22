@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import anyio
 import asyncer
 from claude_agent_sdk import ClaudeSDKError
 from loguru import logger
@@ -50,7 +50,7 @@ class FileCheckpointManager:
         projected = list(events)
         try:
             # A missing/older CLI or a slow preview must not prevent reading history.
-            async with asyncio.timeout(15):
+            with anyio.fail_after(15):
                 for checkpoint_id, source in self.candidates(session_id, events).items():
                     result = await preview(checkpoint_id)
                     if result.can_restore:
@@ -104,7 +104,8 @@ class FileCheckpointManager:
         result = await preview(checkpoint_id)
         if not result.can_restore:
             raise ValueError("SDK 中已不存在此文件检查点，无法恢复")
-        await asyncio.wait_for(rewind(checkpoint_id), timeout=timeout)
+        with anyio.fail_after(timeout):
+            await rewind(checkpoint_id)
         return FileRestoreResult(event=ChatEvent(
             id=f"restore:{uuid4()}", event="files.restored", turn_id=source.turn_id,
             session_id=session_id, data={"checkpoint_id": checkpoint_id},

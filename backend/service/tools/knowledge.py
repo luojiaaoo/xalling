@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
-import anyio
+import asyncer
 from claude_agent_sdk import McpSdkServerConfig, ToolAnnotations, create_sdk_mcp_server, tool
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -74,7 +74,7 @@ async def _execute(model: type[BaseModel], args: dict[str, Any], action: Callabl
         )
     try:
         # 原生句柄关闭后再响应取消，避免文件锁残留；文件解析和索引操作不阻塞事件循环。
-        return _result(await anyio.to_thread.run_sync(action, request))
+        return _result(await asyncer.asyncify(action)(request))
     except KnowledgeError as error:
         return _result({"error": str(error)}, error=True)
     except (ImportError, OSError):

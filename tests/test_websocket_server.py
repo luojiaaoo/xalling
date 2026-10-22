@@ -1,6 +1,5 @@
 """Native FastAPI contracts, event-loop ownership and desktop lifecycle."""
 
-import asyncio
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, get_ident
@@ -8,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, Mock
 
+import anyio
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +31,7 @@ class ChatStub(ChatService):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.started = Event()
-        self.release = asyncio.Event()
+        self.release = anyio.Event()
         self.closed = False
         self.disconnected = Event()
         self.calls: list[int] = []
@@ -154,7 +154,7 @@ def test_mcp_status_remains_available_while_reconnecting(transport, monkeypatch)
     client, app = transport
     path = "/api/chat/sessions/00000000-0000-0000-0000-000000000001/mcp"
     started = Event()
-    release = asyncio.Event()
+    release = anyio.Event()
 
     async def reconnect(session_id, server_name):
         started.set()
@@ -469,14 +469,14 @@ def test_websocket_rejects_old_rpc_messages(transport):
 async def test_http_cancellation_retains_turn_and_lifespan_stops_owned_work():
     class Chat:
         def __init__(self):
-            self.started = asyncio.Event()
+            self.started = anyio.Event()
             self.finished = False
             self.closed = False
 
         async def send_chat_message(self, **parameters):
             self.started.set()
             try:
-                await asyncio.Event().wait()
+                await anyio.Event().wait()
             finally:
                 self.finished = True
 
@@ -487,17 +487,54 @@ async def test_http_cancellation_retains_turn_and_lifespan_stops_owned_work():
             self.closed = True
 
     chat = Chat()
-    services = ApplicationServices(chat=chat, window=WindowService())
-    caller = asyncio.create_task(services.send_chat_message(prompt="hello"))
-    await chat.started.wait()
-    caller.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await caller
-    assert services.tasks
-    assert not chat.finished
-    await services.shutdown()
-    assert chat.finished and chat.closed
-    assert not services.tasks
+    async with anyio.create_task_group() as group:
+        services = ApplicationServices(chat=chat, window=WindowService(), task_group=group)
+        caller = group.create_task(services.send_chat_message(prompt="hello"))
+        await chat.started.wait()
+        caller.cancel()
+        await caller.wait()
+        assert caller.status is anyio.TaskHandle.Status.CANCELLED
+        assert services.tasks
+        assert not chat.finished
+        await services.shutdown()
+        assert chat.finished and chat.closed
+        assert not services.tasks
+
+
+@pytest.mark.anyio
+async def test_application_worker_failure_isolated_after_http_disconnect():
+    started, release = anyio.Event(), anyio.Event()
+
+    class Chat:
+        async def send_chat_message(self, *, prompt):
+            if prompt == "fail":
+                started.set()
+                await release.wait()
+                raise ValueError("worker failed")
+            return {"content": prompt}
+
+        def deny_pending_permissions(self):
+            pass
+
+        async def shutdown_clients(self):
+            pass
+
+    with anyio.fail_after(2):
+        async with anyio.create_task_group() as group:
+            services = ApplicationServices(chat=Chat(), window=WindowService(), task_group=group)
+            caller = group.create_task(services.send_chat_message(prompt="fail"))
+            await started.wait()
+            caller.cancel()
+            await caller.wait()
+            pending = tuple(services.tasks)
+            release.set()
+            for operation in pending:
+                await operation.done.wait()
+            assert not services.tasks
+            assert await services.send_chat_message(prompt="next") == {"content": "next"}
+            with pytest.raises(ValueError, match="worker failed"):
+                await services.send_chat_message(prompt="fail")
+            await services.shutdown()
 
 
 def test_local_server_and_desktop_bootstrap(tmp_path, monkeypatch):
@@ -637,7 +674,7 @@ def test_desktop_closes_window_before_client_cleanup_finishes(tmp_path, monkeypa
             assert destroyed.is_set()
             cleanup_started.set()
             while not release.is_set():
-                await asyncio.sleep(0.01)
+                await anyio.sleep(0.01)
             await original_shutdown()
 
         monkeypatch.setattr(chat, "shutdown_clients", delayed_shutdown)

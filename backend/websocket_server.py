@@ -11,6 +11,7 @@ from functools import partial
 from pathlib import Path
 from threading import Thread
 
+import anyio
 import psutil
 import uvicorn
 from fastapi import FastAPI, Request, Response
@@ -45,15 +46,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        services = ApplicationServices(chat=chat_factory(event_sink=events.publish), window=window)
-        app.state.services = services
-        try:
-            yield
-        finally:
-            shutdown_scheduler()
-            set_scheduled_task_executor(None)
-            await services.shutdown()
-            await logger.complete()
+        async with anyio.create_task_group() as task_group:
+            services = ApplicationServices(
+                chat=chat_factory(event_sink=events.publish), window=window, task_group=task_group,
+            )
+            app.state.services = services
+            try:
+                yield
+            finally:
+                shutdown_scheduler()
+                set_scheduled_task_executor(None)
+                await services.shutdown()
+                await logger.complete()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.token = token

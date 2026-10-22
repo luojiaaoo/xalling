@@ -9,6 +9,7 @@ from typing import Any
 
 import anyio
 import arxiv
+import asyncer
 import httpx
 from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
 
@@ -190,7 +191,7 @@ async def _run_arxiv_search(query: str, max_results: int) -> dict[str, Any]:
     """执行 arXiv 检索，返回论文元数据列表。"""
     try:
         with anyio.fail_after(_SEARCH_TIMEOUT_SECONDS):
-            articles = await anyio.to_thread.run_sync(_search_collect, query, max_results)
+            articles = await asyncer.asyncify(_search_collect)(query, max_results)
     except TimeoutError:
         return _text_result("arXiv 检索失败：检索超时，请稍后重试", is_error=True)
     except Exception as error:  # noqa: BLE001 - 网络异常统一降级为工具错误
@@ -220,7 +221,7 @@ async def _run_arxiv_download(
         try:
             with anyio.fail_after(_DOWNLOAD_TIMEOUT_SECONDS):
                 articles.append(
-                    await anyio.to_thread.run_sync(_download_one, paper_id, download_dir)
+                    await asyncer.asyncify(_download_one)(paper_id, download_dir)
                 )
         except TimeoutError:
             errors[paper_id] = "下载超时"
@@ -229,7 +230,7 @@ async def _run_arxiv_download(
 
     async with anyio.create_task_group() as group:
         for paper_id in papers:
-            group.start_soon(collect, paper_id)
+            group.create_task(collect(paper_id))
 
     if not articles:
         detail = "；".join(f"{paper_id}：{message}" for paper_id, message in errors.items())

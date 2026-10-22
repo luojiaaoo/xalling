@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import anyio
+import asyncer
 from baidusearch.baidusearch import search as baidu_search
 from claude_agent_sdk import McpSdkServerConfig, create_sdk_mcp_server, tool
 from ddgs import DDGS
@@ -170,7 +171,7 @@ async def _run_baidu_search(query: str, max_results: int) -> dict[str, Any]:
     """执行百度搜索，返回归一化结果。"""
     try:
         with anyio.fail_after(_SEARCH_TIMEOUT_SECONDS):
-            results = await anyio.to_thread.run_sync(baidu_search, query, max_results)
+            results = await asyncer.asyncify(baidu_search)(query, max_results)
     except TimeoutError:
         return _text_result("百度搜索失败：搜索超时，请稍后重试", is_error=True)
     except Exception as error:  # noqa: BLE001 - 网络异常统一降级为工具错误
@@ -192,9 +193,7 @@ async def _run_ddgs_text_search(
     """按指定 DDGS 后端执行网页搜索，返回归一化结果。"""
     try:
         with anyio.fail_after(_SEARCH_TIMEOUT_SECONDS):
-            results = await anyio.to_thread.run_sync(
-                _ddgs_search, "text", backend, query, max_results, timelimit
-            )
+            results = await asyncer.asyncify(_ddgs_search)("text", backend, query, max_results, timelimit)
     except TimeoutError:
         return _text_result(f"{label}搜索失败：搜索超时，请稍后重试", is_error=True)
     except Exception as error:  # noqa: BLE001 - 网络异常统一降级为工具错误
@@ -210,9 +209,7 @@ async def _run_web_news(query: str, max_results: int, timelimit: str | None) -> 
     """执行新闻搜索并返回归一化结果。"""
     try:
         with anyio.fail_after(_SEARCH_TIMEOUT_SECONDS):
-            results = await anyio.to_thread.run_sync(
-                _ddgs_search, "news", _NEWS_BACKEND, query, max_results, timelimit
-            )
+            results = await asyncer.asyncify(_ddgs_search)("news", _NEWS_BACKEND, query, max_results, timelimit)
     except TimeoutError:
         return _text_result("新闻搜索失败：搜索超时，请稍后重试", is_error=True)
     except Exception as error:  # noqa: BLE001 - 网络异常统一降级为工具错误

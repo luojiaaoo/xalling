@@ -1,11 +1,11 @@
 """SDK checkpoint discovery, ownership and application restoration lifecycle."""
 
-import asyncio
 from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
 
@@ -109,9 +109,9 @@ async def test_failed_preview_preserves_history_and_cancellation_propagates(tmp_
     assert await manager.project_history(session_id, events, unavailable) == list(events)
 
     async def cancelled(_identifier):
-        raise asyncio.CancelledError
+        raise anyio.get_cancelled_exc_class()
 
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(anyio.get_cancelled_exc_class()):
         await manager.project_history(session_id, events, cancelled)
 
 
@@ -215,7 +215,7 @@ async def test_restore_failure_does_not_emit_success_and_unlocks(tmp_path):
 
 @pytest.mark.anyio
 async def test_restoration_blocks_generation_duplicate_restore_and_client_close(tmp_path):
-    started, release = asyncio.Event(), asyncio.Event()
+    started, release = anyio.Event(), anyio.Event()
 
     class Client(PreviewClient):
         async def rewind_files(self, checkpoint_id):
@@ -229,23 +229,25 @@ async def test_restoration_blocks_generation_duplicate_restore_and_client_close(
     with pytest.raises(ValueError, match="正在生成"):
         await service.rewind_chat_files(session_id, checkpoint_id)
     service._active_chats[session_id].running = False
-    task = asyncio.create_task(service.rewind_chat_files(session_id, checkpoint_id))
-    await asyncio.wait_for(started.wait(), 2)
-    try:
-        with pytest.raises(ValueError, match="正在恢复"):
-            await service.rewind_chat_files(session_id, checkpoint_id)
-        with pytest.raises(ValueError, match="正在恢复"):
-            await service.send_chat_message("hello", project_path=str(tmp_path), session_id=session_id)
-        with pytest.raises(ValueError, match="正在恢复"):
-            await service.close_chat_client(session_id)
-    finally:
-        release.set()
-        await task
+    async with anyio.create_task_group() as group:
+        task = group.create_task(service.rewind_chat_files(session_id, checkpoint_id))
+        with anyio.fail_after(2):
+            await started.wait()
+        try:
+            with pytest.raises(ValueError, match="正在恢复"):
+                await service.rewind_chat_files(session_id, checkpoint_id)
+            with pytest.raises(ValueError, match="正在恢复"):
+                await service.send_chat_message("hello", project_path=str(tmp_path), session_id=session_id)
+            with pytest.raises(ValueError, match="正在恢复"):
+                await service.close_chat_client(session_id)
+        finally:
+            release.set()
+            await task.wait()
 
 
 @pytest.mark.anyio
 async def test_http_cancellation_keeps_restoration_owned_by_application(tmp_path):
-    started, release = asyncio.Event(), asyncio.Event()
+    started, release = anyio.Event(), anyio.Event()
 
     class Client(PreviewClient):
         async def rewind_files(self, checkpoint_id):
@@ -255,17 +257,21 @@ async def test_http_cancellation_keeps_restoration_owned_by_application(tmp_path
     service, session_id, emitted = configured_service(tmp_path, Client())
     checkpoint_id = str(uuid4())
     await service._emit_chat_event(checkpoint_event(checkpoint_id), session_id=session_id)
-    application = ApplicationServices(chat=service, window=WindowService())
-    request = asyncio.create_task(application.rewind_chat_files(session_id=session_id, checkpoint_id=checkpoint_id))
-    await asyncio.wait_for(started.wait(), 2)
-    request.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await request
-    assert application.tasks
-    release.set()
-    await asyncio.gather(*tuple(application.tasks))
-    assert emitted[-1]["event"] == "files.restored"
-    assert list(tmp_path.iterdir()) == []
+    async with anyio.create_task_group() as group:
+        application = ApplicationServices(chat=service, window=WindowService(), task_group=group)
+        request = group.create_task(application.rewind_chat_files(session_id=session_id, checkpoint_id=checkpoint_id))
+        with anyio.fail_after(2):
+            await started.wait()
+        request.cancel()
+        await request.wait()
+        assert request.status is anyio.TaskHandle.Status.CANCELLED
+        assert application.tasks
+        pending = tuple(application.tasks)
+        release.set()
+        for operation in pending:
+            await operation.done.wait()
+        assert emitted[-1]["event"] == "files.restored"
+        assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.anyio
@@ -316,7 +322,7 @@ async def test_restore_timeout_never_emits_success(tmp_path):
     events = history_snapshot(session_id, tmp_path, checkpoint_id).events
 
     async def rewind(_identifier):
-        await asyncio.Event().wait()
+        await anyio.Event().wait()
 
     with pytest.raises(TimeoutError):
         await FileCheckpointManager().rewind_files(
