@@ -31,15 +31,19 @@
 
 Claude 连接同时启用 `enable_file_checkpointing` 和 `replay-user-messages`。适配层仅对 SDK 回传的主 Agent 人类输入 UUID 发出 `files.checkpoint`，不会将本地合成消息或后台通知当作已建立的检查点。重复的用户消息回显不会创建第二个用户气泡。
 
-`FileCheckpointStore` 在本地 `file-checkpoints/<session UUID>.json` 保存确认收到的检查点标识、事件身份、所属工作区、恢复时间及每轮最后一份 `files.changed` 差异快照。差异包含预览文件内容，不保存完整聊天正文。历史加载仍使用 SDK 公共消息字段，以 `message_uuid` 接回对应回合；保存的快照优先于缺少结构化工具结果的历史重建，不读取原生 transcript。旧会话没有已记录的检查点时不显示恢复按钮。
+应用不再读写本地 `file-checkpoints`，也不另存检查点或 diff 快照；磁盘上的旧 JSON 不参与恢复。历史消息仍通过 SDK 公共历史接口加载，由顶层人类消息的 `message_uuid` 得到候选检查点，再向恢复的 SDK 会话发送只读 `rewind_files` / `dry_run: true` 查询。只有 `canRewind: true` 才补入 `files.checkpoint`。预览不发送模型提示、不修改工作区，查询失败不影响聊天历史展示；查询总等待上限为 15 秒。正在生成的会话不额外查询，实时检查点仍由活动事件快照恢复。
 
-检查点存储、历史补齐、恢复事件构造和传输投影均归 `backend/claude_chat_client/`：`file_checkpoint.py` 接收应用注入的目录，提供 `record_event()`、`project_history()` 和 `rewind_files()`；`models.py` 定义 `ChatEvent` / `FileRestoreResult`，由 `ChatEvent.to_payload()` 生成统一的事件及 UI 投影。service 层只消费包的公共接口，负责工作区锁、配置、应用任务和事件转发，不定义或构造 `ChatEvent`。
+检查点发现、历史补齐、恢复事件构造和传输投影均归 `backend/claude_chat_client/`：无本地存储的 `FileCheckpointManager` 提供 `project_history()` 和 `rewind_files()`；`models.py` 定义 `ChatEvent` / `FileRestoreResult`，由 `ChatEvent.to_payload()` 生成统一的事件及 UI 投影。Python SDK 0.2.157 没有暴露预览参数，`ClaudeChatClient.preview_file_rewind()` 集中适配 CLI 控制协议，始终发送 `dry_run: true` 并校验返回类型，单次等待上限为 5 秒。该适配依赖 SDK 内部接口，升级 SDK/CLI 时须验证；不读取原生 transcript 或备份文件。service 层只消费包的接口，负责工作区锁、配置、应用任务和事件转发，不定义或构造 `ChatEvent`。
 
-`POST /api/chat/files/rewind` 校验检查点归属，通过保留或恢复连接的 SDK 客户端调用公共 `rewind_files()`。同一工作区生成期间不能恢复，恢复期间不能开始新的生成、重复恢复或关闭客户端；HTTP 取消不会取消应用持有的恢复任务。成功后产生 `files.restored`，实时推送和 HTTP 返回均通过同一事件归并器更新回合状态，不创建模型回合。
+`POST /api/chat/files/rewind` 通过当前活动事件或 SDK 历史校验检查点及工作区归属，再由只读预览复核有效性，最后调用 SDK 公共 `rewind_files()`。同一工作区生成期间不能恢复，恢复期间不能开始新的生成、重复恢复或关闭客户端；HTTP 取消不会取消应用持有的恢复任务。成功后产生 `files.restored`，实时推送和 HTTP 返回均通过同一事件归并器更新回合状态，不创建模型回合。恢复状态仅保留于活动会话内存，应用重启后不推断过去是否执行过恢复。
+
+`POST /api/chat/files/rewind/preview` 接收相同的会话和检查点标识，实时与历史统一返回 `FileRewindPreview`：`can_restore`、`files`、`insertions`、`deletions`。SDK 的 `canRewind` / `filesChanged` 字段转换、活动事件与历史消息查找均封装在 `claude_chat_client` 内；服务、路由和组件不判断来源。缺少的统计返回 `null`，不填零；不可恢复时不透出 SDK 内部错误。前端先查询预览，再在同一确认框显示文件列表和增删行数，只有用户确认才提交实际恢复。过期、无变更或预览失败时不执行恢复，切换会话后的旧预览响应不弹出确认框。
 
 `file_changes.py` 从成功的 SDK Write / Edit / NotebookEdit 结果提取文件变更，每个逻辑回合独立统计。同一文件以首次成功编辑前的内容和最后一次编辑后的内容计算净差异；编辑后又还原的文件不计入。只读、失败或拒绝的调用不计入。内容缺失、过大或前后不连续时标为部分记录，不编造净增删行数；普通子 Agent 的文件编辑可展示，但标记为不在主 Agent 检查点恢复范围内。命令行修改不从 Git 工作区猜测。`files.changed` 使用统一事件投影，前端归并器将文件快照挂在对应 AI 回合，生成期间不显示变更卡片，完成、停止或失败后均能查看已经发生的修改。
 
-前端 `TurnChanges` 在回复下显示文件列表、净增删行数和展开入口，`DiffViewer` 显示保存的本轮差异，`FileCheckpointAction` 在卡片中提供撤销确认。恢复只改文件，保留对话和修改记录；恢复较早消息会撤销该检查点之后 SDK 跟踪的修改，不依赖 Git 提交。独立 Git 面板及其 HTTP 接口已移除。
+SDK 历史缺少结构化工具结果时，仍利用公共 `tool_result.content`：若 Write 结果明确确认在完全匹配的路径创建文件，并提供写入内容，适配层以空文件为基线重建完整 diff，实时和历史输出一致。普通更新提示、未知结果或仅有同前缀路径不会被当作新建。查询确认的 `files.checkpoint` 同时携带统一的 `preview` 数据；变更卡片与详情可展示“检查点差异”统计，明确这是检查点至当前文件的范围，可能包含后续修改，不将其冒充本轮净差异，也不据此制造 diff 正文。
+
+前端 `TurnChanges` 在回复下显示文件列表、净增删行数和展开入口，`DiffViewer` 显示 SDK 消息可重建的本轮差异。历史工具结果缺少原文或结构化差异时显示部分记录或无可展示差异，不用当前磁盘内容猜测。SDK 预览中的文件列表和增删行数是恢复影响范围，不作为某一历史回合的 diff。`FileCheckpointAction` 在用户消息下及变更卡片中提供恢复确认，检查点操作不依赖 diff 卡片存在。恢复只改文件，保留对话和修改记录；恢复较早消息会撤销该检查点之后 SDK 跟踪的修改，不依赖 Git 提交。独立 Git 面板及其 HTTP 接口已移除。
 
 ## 验证
 

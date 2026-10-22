@@ -41,6 +41,9 @@ class _FakeSDK:
         self.interrupted = False
         self.queries: list[dict[str, Any]] = []
         self.permission_result: PermissionResult | None = None
+        self._query = self
+        self.control_requests: list[dict[str, Any]] = []
+        self.rewind_preview: dict[str, Any] = {"canRewind": True, "filesChanged": []}
         self.__class__.instances.append(self)
 
     async def connect(self) -> None:
@@ -103,6 +106,10 @@ class _FakeSDK:
 
     async def rewind_files(self, user_message_id: str) -> None:
         self.rewound_message = user_message_id
+
+    async def _send_control_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.control_requests.append(request)
+        return self.rewind_preview
 
 
 @pytest.fixture(autouse=True)
@@ -642,6 +649,30 @@ async def _client_forwards_connection_controls() -> None:
     assert sdk.toggled_server == ("memory", False)
     assert sdk.stopped_task == "task-1"
     assert sdk.rewound_message == "user-1"
+
+
+@pytest.mark.anyio
+async def test_checkpoint_preview_never_sends_a_prompt_or_restores_files() -> None:
+    async with ClaudeChatClient() as client:
+        result = await client.preview_file_rewind("checkpoint")
+        sdk = _FakeSDK.instances[0]
+        assert result.to_dict() == {"can_restore": True, "files": [], "insertions": None, "deletions": None}
+        assert sdk.control_requests == [{
+            "subtype": "rewind_files", "user_message_id": "checkpoint", "dry_run": True,
+        }]
+        assert sdk.queries == []
+        assert not hasattr(sdk, "rewound_message")
+        sdk.rewind_preview = {}
+        with pytest.raises(RuntimeError, match="无效"):
+            await client.preview_file_rewind("checkpoint")
+
+        async def unsupported(_request):
+            # Match the SDK's plain control-protocol Exception exactly.
+            raise Exception("unsupported control subtype")  # noqa: TRY002
+
+        sdk._send_control_request = unsupported
+        with pytest.raises(RuntimeError, match="不可用"):
+            await client.preview_file_rewind("checkpoint")
 
 
 def test_client_supports_empty_command_fallback_content() -> None:

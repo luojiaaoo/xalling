@@ -70,6 +70,11 @@ async def rewind_chat_files(body: FileRewindRequest, services: ServicesDep) -> d
     return await services.rewind_chat_files(**body.model_dump())
 
 
+@router.post("/files/rewind/preview")
+async def preview_chat_files(body: FileRewindRequest, chat: ChatDep) -> dict[str, Any]:
+    return await chat.preview_chat_files(**body.model_dump())
+
+
 @router.post("/close")
 async def close_chat_client(body: SessionRequest, chat: ChatDep) -> bool:
     return await chat.close_chat_client(body.session_id)

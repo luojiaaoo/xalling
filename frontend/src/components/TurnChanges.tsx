@@ -2,13 +2,14 @@ import { DownOutlined, FileTextOutlined, QuestionCircleOutlined, UpOutlined } fr
 import { Button, Modal, Tooltip } from "antd";
 import { useState } from "react";
 
-import type { ChatRenderEvent, TurnFileChange } from "../api/client";
+import type { ChatRenderEvent, FileRewindPreview, TurnFileChange } from "../api/client";
 import { DiffViewer } from "./DiffViewer";
 import { FileCheckpointAction } from "./FileCheckpointAction";
 import "./TurnChanges.css";
 
 type Props = {
   files: TurnFileChange[];
+  preview?: FileRewindPreview;
   checkpointId?: string;
   filesRestoredAt?: string;
   disabled: boolean;
@@ -42,6 +43,9 @@ export function TurnChanges(props: Props) {
   const hasCounts = files.some((file) => file.additions !== null && file.deletions !== null);
   const additions = files.reduce((total, file) => total + (file.additions ?? 0), 0);
   const deletions = files.reduce((total, file) => total + (file.deletions ?? 0), 0);
+  const preview = props.preview;
+  const hasCheckpointCounts = preview?.can_restore === true
+    && preview.insertions !== null && preview.deletions !== null;
   return (
     <section className="turn-changes" aria-label="本轮文件修改">
       <div className="turn-changes-header">
@@ -71,6 +75,12 @@ export function TurnChanges(props: Props) {
           <Button size="small" onClick={() => setSelectedPath(files[0]?.path ?? null)}>查看变更</Button>
         </div>
       </div>
+      {partial && hasCheckpointCounts && (
+        <div className="turn-changes-note" role="status">
+          检查点差异 <Counts additions={preview.insertions} deletions={preview.deletions} />
+          <span>（检查点至当前文件，可能包含后续修改）</span>
+        </div>
+      )}
       {props.filesRestoredAt && <div className="turn-changes-restored" role="status">已恢复到本轮开始前；以下保留本轮修改记录</div>}
       <div className="turn-changes-files">
         {(expanded ? files : files.slice(0, 4)).map((file) => (
@@ -103,6 +113,9 @@ export function TurnChanges(props: Props) {
           <div className="turn-changes-diff">
             <div className="turn-changes-diff-title">{selected && displayPath(selected.path, projectPath)}</div>
             {selected?.partial && <div className="turn-changes-note">SDK 未提供完整的修改前后内容，显示已记录的逐次修改，无法计算净增删行数。</div>}
+            {selected?.partial && hasCheckpointCounts && <div className="turn-changes-note">
+              检查点差异合计：+{preview.insertions} / -{preview.deletions}；这是检查点至当前文件的范围，无法据此恢复本轮完整 diff 正文。
+            </div>}
             {selected?.truncated && <div className="turn-changes-note">差异过大，预览已截断。</div>}
             {selected?.patch ? <DiffViewer key={selected.path} patch={selected.patch} /> : <div className="turn-changes-note">此文件没有可展示的文本差异。</div>}
           </div>

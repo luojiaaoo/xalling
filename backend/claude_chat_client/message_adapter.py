@@ -213,7 +213,8 @@ class _MessageAdapter:
             if call is not None:
                 result = _tool_result_mapping(event.data.get("content"), event.data.get("tool_use_result"))
                 changed = self.file_changes.apply(call.name, call.input, result, str(tool_id),
-                                                 restorable=event.parent_tool_use_id is None) or changed
+                                                 restorable=event.parent_tool_use_id is None,
+                                                 result_content=event.data.get("content")) or changed
         if changed:
             events.append(replace(events[-1], event="files.changed",
                                   id=f"changes:{self.factory.turn_id}:{len(self.file_changes.seen_tools)}",

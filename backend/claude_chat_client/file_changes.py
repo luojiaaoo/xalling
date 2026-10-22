@@ -16,6 +16,23 @@ def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and len(value) <= _MAX_CONTENT and value.count("\n") <= 20_000 else None
 
 
+def _confirmed_creation(content: Any, path: str) -> bool:
+    """Recognize an explicit creation result in public SDK message content."""
+    if isinstance(content, list):
+        return any(
+            isinstance(block, Mapping) and block.get("type") == "text"
+            and _confirmed_creation(block.get("text"), path) for block in content
+        )
+    if not isinstance(content, str):
+        return False
+    prefix = f"File created successfully at: {path}"
+    if not content.startswith(prefix):
+        return False
+    suffix = content[len(prefix):]
+    # Do not mistake a.txtz's creation for a.txt's, or an update for a creation.
+    return not suffix or suffix.startswith(" (file state is current in your context")
+
+
 def _unified(before: str, after: str, path: str, created: bool) -> str:
     lines = unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
                          fromfile="/dev/null" if created else path, tofile=path)
@@ -63,7 +80,7 @@ class TurnFileChanges:
         self.seen_tools: set[str] = set()
 
     def apply(self, name: str, tool_input: Mapping[str, Any], result: Mapping[str, Any],
-              tool_id: str, *, restorable: bool) -> bool:
+              tool_id: str, *, restorable: bool, result_content: Any = None) -> bool:
         if name not in _FILE_TOOLS or tool_id in self.seen_tools:
             return False
         path = result.get("filePath") or tool_input.get("file_path") or tool_input.get("notebook_path")
@@ -71,7 +88,10 @@ class TurnFileChanges:
             return False
         self.seen_tools.add(tool_id)
         before = _text(result.get("originalFile"))
-        created = name == "Write" and result.get("type") == "create"
+        created = name == "Write" and (
+            result.get("type") == "create"
+            or (result.get("type") is None and _confirmed_creation(result_content, path))
+        )
         if created:
             before = ""
         after = None

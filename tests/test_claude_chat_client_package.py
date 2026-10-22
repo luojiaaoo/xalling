@@ -28,8 +28,9 @@ def test_package_exports_are_available() -> None:
         "EventData",
         "EventHandler",
         "EventName",
-        "FileCheckpointStore",
+        "FileCheckpointManager",
         "FileRestoreResult",
+        "FileRewindPreview",
         "ExitPlanModeCompletedData",
         "ExitPlanModeRequestedData",
         "PermissionHandler",
@@ -44,7 +45,7 @@ def test_package_exports_are_available() -> None:
     }
     assert ClaudeChatClient.__module__ == "backend.claude_chat_client.client"
     assert ChatEvent.__module__ == "backend.claude_chat_client.models"
-    assert chat_client.FileCheckpointStore.__module__ == "backend.claude_chat_client.file_checkpoint"
+    assert chat_client.FileCheckpointManager.__module__ == "backend.claude_chat_client.file_checkpoint"
     assert chat_client.FileRestoreResult.__module__ == "backend.claude_chat_client.models"
 
 
@@ -63,8 +64,8 @@ def test_services_consume_chat_events_without_defining_or_constructing_them() ->
                 assert name not in aliases, source
 
 
-def test_checkpoint_module_takes_its_storage_path_from_the_application() -> None:
-    source = Path(chat_client.FileCheckpointStore.__module__.replace(".", "/") + ".py")
+def test_checkpoint_module_is_independent_of_application_paths() -> None:
+    source = Path(chat_client.FileCheckpointManager.__module__.replace(".", "/") + ".py")
     source = Path(__file__).resolve().parents[1] / source
     for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
         if isinstance(node, ast.ImportFrom):

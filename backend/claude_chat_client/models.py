@@ -270,11 +270,38 @@ class ChatEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class FileRewindPreview:
+    """Source-independent preview of restoring files to a checkpoint."""
+
+    can_restore: bool
+    files: tuple[str, ...] | None = None
+    insertions: int | None = None
+    deletions: int | None = None
+
+    @classmethod
+    def from_sdk(cls, result: Mapping[str, Any]) -> FileRewindPreview:
+        """Keep CLI wire fields and optional/incomplete statistics inside the client."""
+        if result.get("canRewind") is not True:
+            return cls(can_restore=False)
+        files = result.get("filesChanged")
+        insertions, deletions = result.get("insertions"), result.get("deletions")
+        return cls(
+            can_restore=True,
+            files=tuple(files) if isinstance(files, list) and all(isinstance(path, str) for path in files) else None,
+            insertions=insertions if type(insertions) is int and insertions >= 0 else None,
+            deletions=deletions if type(deletions) is int and deletions >= 0 else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return only the common application-facing preview fields."""
+        return cast(dict[str, Any], _jsonable(asdict(self)))
+
+
+@dataclass(frozen=True, slots=True)
 class FileRestoreResult:
-    """A successful file restoration and its checkpoint metadata outcome."""
+    """The public event for a successful SDK file restoration."""
 
     event: ChatEvent
-    metadata_saved: bool
 
 
 def render_event(event: ChatEvent) -> dict[str, Any]:
@@ -383,6 +410,8 @@ def render_event(event: ChatEvent) -> dict[str, Any]:
         render_data = {"files": data.get("files", [])}
     elif event.event in {"files.checkpoint", "files.restored"}:
         render_data = {"checkpoint_id": data.get("checkpoint_id")}
+        if isinstance(data.get("preview"), dict):
+            render_data["preview"] = data["preview"]
     elif event.event == "permission.mode.changed":
         render_data = {"mode": data.get("mode")}
     elif event.event == "turn.started":

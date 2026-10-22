@@ -40,6 +40,19 @@ test("desktop close requests backend shutdown and disconnects events after ackno
   assert.equal(env.isClosing(), true);
 });
 
+test("checkpoint preview uses the common API contract without exposing SDK wire fields", async () => {
+  const env = environment(async (method, path, options) => {
+    assert.equal(method, "POST");
+    assert.equal(path, "/api/chat/files/rewind/preview");
+    assert.deepEqual(JSON.parse(JSON.stringify(options.body)), { session_id: "session", checkpoint_id: "checkpoint" });
+    return { can_restore: true, files: ["a.txt"], insertions: 0, deletions: 2 };
+  });
+  const preview = await env.api.previewChatFiles("session", "checkpoint");
+  assert.equal(preview.can_restore, true);
+  assert.deepEqual(preview.files, ["a.txt"]);
+  assert.equal(preview.insertions, 0);
+});
+
 test("failed desktop close allows normal work and another close attempt", async () => {
   let requests = 0;
   const env = environment(async () => {

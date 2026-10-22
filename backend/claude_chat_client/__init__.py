@@ -5,7 +5,7 @@ transports while keeping SDK message adaptation and usage accounting internal.
 """
 
 from .client import ClaudeChatClient
-from .file_checkpoint import FileCheckpointStore
+from .file_checkpoint import FileCheckpointManager
 from .history import ClaudeChatHistory, assemble_session_messages
 from .models import (
     AskUserAnswer,
@@ -25,6 +25,7 @@ from .models import (
     ExitPlanModeCompletedData,
     ExitPlanModeRequestedData,
     FileRestoreResult,
+    FileRewindPreview,
     PermissionHandler,
     PermissionModeChangedData,
     PermissionRequestedData,
@@ -54,8 +55,9 @@ __all__ = [
     "EventName",
     "ExitPlanModeCompletedData",
     "ExitPlanModeRequestedData",
-    "FileCheckpointStore",
+    "FileCheckpointManager",
     "FileRestoreResult",
+    "FileRewindPreview",
     "PermissionHandler",
     "PermissionModeChangedData",
     "PermissionRequestedData",

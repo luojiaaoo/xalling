@@ -26,12 +26,11 @@ from backend.claude_chat_client import (
     ClaudeChatClient,
     ClaudeChatHistory,
     CompletionHandler,
-    FileCheckpointStore,
+    FileCheckpointManager,
 )
 from backend.claude_chat_client.command_results import EMPTY_COMMAND_RESULTS
 from backend.config.current import CurrentConfig
 from backend.config.setting import (
-    USER_CONF_DIRPATH,
     ModelConfig,
     ModelSiteConfig,
     default_project_folder,
@@ -283,7 +282,7 @@ class ChatService:
         self._event_sink = event_sink
         self._active_chats: dict[str, _ActiveChat] = {}
         self._history = ClaudeChatHistory()
-        self._checkpoints = FileCheckpointStore(USER_CONF_DIRPATH / "file-checkpoints")
+        self._checkpoints = FileCheckpointManager(self._history)
         self._restoring_projects: set[Path] = set()
         set_scheduled_task_executor(self._run_scheduled_task)
 
@@ -735,8 +734,15 @@ class ChatService:
                     "历史会话工作区与连接配置不一致："
                     f"{history_cwd} != {active_chat.config.project}"
                 )
-            history_events = await asyncer.asyncify(self._checkpoints.project_history)(
-                normalized, active_chat.config.project, tuple(snapshot.events),
+            history_events = list(snapshot.events)
+            if not active_chat.running:
+                history_events = await self._checkpoints.project_history(
+                    normalized, tuple(history_events),
+                    lambda checkpoint_id: active_chat.client.preview_file_rewind(checkpoint_id),
+                )
+            # Restore acknowledgements live only as long as the retained client.
+            history_events.extend(
+                event for event in active_chat.events if event.event == "files.restored"
             )
             payload = snapshot.to_dict()
             payload["events"] = [event.to_dict() for event in history_events]
@@ -806,8 +812,10 @@ class ChatService:
         await active_chat.client.request_stop()
         return True
 
-    async def rewind_chat_files(self, session_id: str, checkpoint_id: str) -> dict[str, object]:
-        """Restore a confirmed checkpoint in its owning session and workspace."""
+    def _file_checkpoint_session(
+        self, session_id: str, checkpoint_id: str,
+    ) -> tuple[str, str, _ActiveChat]:
+        """Apply the same workspace availability checks to preview and restoration."""
         normalized = self._normalize_optional_session_id(session_id)
         checkpoint_id = self._normalize_optional_session_id(checkpoint_id)
         if normalized is None or checkpoint_id is None:
@@ -820,14 +828,28 @@ class ChatService:
             raise ValueError("当前工作区正在恢复文件，请稍后操作")
         if any(chat.running for chat in self._active_chats.values() if chat.config.project.resolve() == project):
             raise ValueError("当前工作区有会话正在生成，请先停止后再恢复文件")
+        return normalized, checkpoint_id, active
+
+    async def preview_chat_files(self, session_id: str, checkpoint_id: str) -> dict[str, Any]:
+        """Expose the client's unified preview without dispatching a turn or restore event."""
+        normalized, checkpoint_id, active = self._file_checkpoint_session(session_id, checkpoint_id)
+        result = await self._checkpoints.preview_files(
+            normalized, active.config.project, checkpoint_id, tuple(active.events), active.client.preview_file_rewind,
+        )
+        return result.to_dict()
+
+    async def rewind_chat_files(self, session_id: str, checkpoint_id: str) -> dict[str, object]:
+        """Restore a confirmed checkpoint in its owning session and workspace."""
+        normalized, checkpoint_id, active = self._file_checkpoint_session(session_id, checkpoint_id)
+        project = active.config.project.resolve()
         self._restoring_projects.add(project)
         try:
             result = await self._checkpoints.rewind_files(
-                normalized, project, checkpoint_id, active.client.rewind_files,
+                normalized, project, checkpoint_id, tuple(active.events),
+                active.client.preview_file_rewind, active.client.rewind_files,
             )
-            warning = None if result.metadata_saved else "文件恢复已执行，但恢复记录保存失败。"
             await self._emit_chat_event(result.event, session_id=normalized)
-            return {"restored": True, "checkpoint_id": checkpoint_id, "warning": warning,
+            return {"restored": True, "checkpoint_id": checkpoint_id, "warning": None,
                     "event": self._event_payload(result.event, normalized)}
         finally:
             self._restoring_projects.discard(project)
@@ -1030,10 +1052,6 @@ class ChatService:
 
     async def _emit_chat_event(self, event: ChatEvent, *, session_id: str) -> bool:
         active_chat = self._active_chats.get(session_id)
-        if active_chat is not None and not await self._checkpoints.record_event(
-            session_id, active_chat.config.project, event,
-        ):
-            return False
         if active_chat is not None:
             active_chat.events.append(event)
             if event.event == "permission.mode.changed":

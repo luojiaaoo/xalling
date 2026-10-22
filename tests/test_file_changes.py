@@ -106,3 +106,43 @@ def test_live_and_public_history_share_file_change_projection_and_skip_failures(
     adapter.adapt(AssistantMessage(content=[ToolUseBlock(id="failed", name="Write", input=tool_input)], model="model"))
     failed = adapter.adapt(UserMessage(content=[ToolResultBlock(tool_use_id="failed", content="denied", is_error=True)]))
     assert not any(event.event == "files.changed" for event in failed)
+
+
+def test_public_creation_result_rebuilds_complete_history_diff_like_realtime():
+    path, content = "C:\\workspace\\a.txt", "2026-10-22\n"
+    tool_input = {"file_path": path, "content": content}
+    public_result = f"File created successfully at: {path} (file state is current in your context — no need to Read it back)"
+    live = _MessageAdapter(_EventFactory("turn", session_id="session"), {})
+    live.adapt(AssistantMessage(content=[ToolUseBlock(id="write", name="Write", input=tool_input)], model="model"))
+    live_events = live.adapt(UserMessage(
+        content=[ToolResultBlock(tool_use_id="write", content=public_result)],
+        tool_use_result={"type": "create", "filePath": path, "content": content},
+    ))
+    history = assemble_session_messages([
+        SessionMessage("user", "turn", "session", {"content": "write today's date"}),
+        SessionMessage("assistant", "assistant", "session", {"model": "model", "content": [
+            {"type": "tool_use", "id": "write", "name": "Write", "input": tool_input}]}),
+        SessionMessage("user", "result", "session", {"content": [
+            {"type": "tool_result", "tool_use_id": "write", "content": public_result}]}),
+    ])
+    live_change = next(event for event in live_events if event.event == "files.changed")
+    history_change = next(event for event in history if event.event == "files.changed")
+    assert render_event(live_change)["data"] == render_event(history_change)["data"]
+    change, = history_change.data["files"]
+    assert (change["additions"], change["deletions"]) == (1, 0)
+    assert change["status"] == "added" and not change["partial"]
+    assert "+2026-10-22" in change["patch"]
+
+
+def test_creation_result_requires_the_exact_path_and_explicit_success():
+    for result in (
+        "The file C:\\workspace\\a.txt has been updated successfully.",
+        "File created successfully at: C:\\workspace\\a.txtz",
+        "done",
+    ):
+        tracker = TurnFileChanges()
+        tracker.apply("Write", {"file_path": "C:\\workspace\\a.txt", "content": "new"}, {},
+                      "write", restorable=True, result_content=result)
+        change, = tracker.snapshot()
+        assert change["partial"] and change["additions"] is None
+        assert change["patch"] == ""

@@ -1,4 +1,4 @@
-import { isPermissionRequestEvent, type ChatPermissionRequestEvent, type ChatRenderEvent, type ChatUsage, type TurnFileChange } from "../api/client";
+import { isPermissionRequestEvent, type ChatPermissionRequestEvent, type ChatRenderEvent, type ChatUsage, type FileRewindPreview, type TurnFileChange } from "../api/client";
 import { applyRenderEvent, finishAgentTrace, hasTraceTool, stripExitPlanContent, type AgentTraceItem } from "./trace";
 
 export type ConversationMessage = {
@@ -6,6 +6,7 @@ export type ConversationMessage = {
   checkpointId?: string;
   filesRestoredAt?: string;
   fileChanges?: TurnFileChange[];
+  fileRestorePreview?: FileRewindPreview;
   expandedTraceItemKeys?: string[];
   finalOutputKey?: string;
   finalOutputKeys?: string[];
@@ -134,9 +135,11 @@ export function reduceConversationEvent(messages: ConversationMessage[], event: 
   if (event.event === "files.checkpoint" || event.event === "files.restored") {
     const checkpointId = event.data.checkpoint_id;
     if (event.parent_tool_use_id !== null || typeof checkpointId !== "string") return messages;
+    const preview = event.data.preview as FileRewindPreview | undefined;
     return messages.map((item) => (item.key === turnUserKey(event.turn_id)
       || item.key === turnAssistantKey(event.turn_id) || item.checkpointId === checkpointId)
-      ? { ...item, checkpointId, filesRestoredAt: event.event === "files.restored" ? event.created_at : item.filesRestoredAt }
+      ? { ...item, checkpointId, fileRestorePreview: preview ?? item.fileRestorePreview,
+        filesRestoredAt: event.event === "files.restored" ? event.created_at : item.filesRestoredAt }
       : item);
   }
   if (!isConversationEvent(event)) return messages;

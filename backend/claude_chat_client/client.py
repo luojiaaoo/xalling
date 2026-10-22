@@ -45,6 +45,7 @@ from .models import (
     ChatResult,
     CompletionHandler,
     EventHandler,
+    FileRewindPreview,
     PermissionHandler,
     PermissionRequestedData,
     PermissionResolvedData,
@@ -328,6 +329,30 @@ class ClaudeChatClient:
         """Stop one background task running in this session."""
         sdk = await self._connected_sdk()
         await sdk.stop_task(task_id)
+
+    async def preview_file_rewind(self, user_message_id: str) -> FileRewindPreview:
+        """Inspect a checkpoint without sending a prompt or modifying files.
+
+        Python SDK 0.2.157 omits the CLI's dry_run parameter and response.
+        Keep this version-dependent control-protocol bridge isolated here.
+        """
+        if self.active:
+            raise ValueError("会话正在生成，请稍后查询文件检查点")
+        async with self._turn_lock:
+            sdk = await self._connected_sdk()
+            query = sdk._query
+            if query is None:
+                raise RuntimeError("SDK 未连接，无法查询文件检查点")
+            try:
+                result = await asyncio.wait_for(query._send_control_request({
+                    "subtype": "rewind_files", "user_message_id": user_message_id, "dry_run": True,
+                }), timeout=5)
+            except Exception as error:
+                # SDK control errors are plain Exception in the installed version.
+                raise RuntimeError("SDK 文件检查点预览不可用") from error
+            if not isinstance(result, dict) or type(result.get("canRewind")) is not bool:
+                raise RuntimeError("SDK 返回了无效的文件检查点预览")
+            return FileRewindPreview.from_sdk(result)
 
     async def rewind_files(self, user_message_id: str) -> None:
         """Restore files to a checkpoint created for a user message."""

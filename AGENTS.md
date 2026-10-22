@@ -368,6 +368,11 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 
 ## 实现约定
 
+### 自定义文件与目录命名（必须遵守）
+
+- 程序自定义在 .xalling 下创建的持久化文件、缓存、日志、附件和其他运行时文件或文件夹，名称必须以 `xalling-` 开头。
+- SDK 或第三方库自行管理的文件和目录保留其原始名称，不为其另外复制一份存储；优先通过 SDK 接口查询、恢复其数据。
+
 ### 前端
 
 - 优先使用 Ant Design 的 `Layout`、`Menu`、`Card`、`Form`、`Table` 与 `ConfigProvider` 构建可访问、高信息密度的桌面界面。

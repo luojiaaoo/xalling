@@ -647,6 +647,19 @@ export type FileRewindResult = {
   event: ChatRenderEvent;
 };
 
+export type FileRewindPreview = {
+  can_restore: boolean;
+  files: string[] | null;
+  insertions: number | null;
+  deletions: number | null;
+};
+
+export function previewChatFiles(sessionId: string, checkpointId: string): Promise<FileRewindPreview> {
+  return request("POST", "/api/chat/files/rewind/preview", {
+    body: { session_id: sessionId, checkpoint_id: checkpointId }, silent: true,
+  });
+}
+
 export async function rewindChatFiles(sessionId: string, checkpointId: string): Promise<FileRewindResult> {
   const result = await applicationApi.rewind_chat_files(sessionId, checkpointId);
   const event = decodeChatRenderEvent(result.event);

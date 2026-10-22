@@ -39,6 +39,7 @@ import { finishAgentTrace } from "../chat/trace";
 import { conversationFromEvents, reduceConversationEvent, isConversationEvent, eventTime, turnAssistantKey, contextCompactionText, pendingPermissionsFromEvents, type ConversationMessage } from "../chat/conversation";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { TurnChanges } from "./TurnChanges";
+import { FileCheckpointAction } from "./FileCheckpointAction";
 import {
   TaskComposer,
   type ComposerAttachment,
@@ -725,6 +726,17 @@ export function Workspace({
       streaming: item.role === "ai" && item.loading,
       footer: item.role === "user" ? (
         <div className="message-actions user-message-footer">
+          {item.checkpointId && (
+            <FileCheckpointAction
+              checkpointId={item.checkpointId}
+              disabled={busy || restoringFiles || historyLoading}
+              filesRestoredAt={item.filesRestoredAt}
+              projectPath={selectedProject?.path ?? null}
+              sessionId={sessionIdRef.current}
+              onRestored={applyLiveEvent}
+              onRestoringChange={setRestoringFiles}
+            />
+          )}
           <button
             aria-label="复制用户消息的 Markdown 原文"
             className={`message-action-button${
@@ -826,6 +838,7 @@ export function Workspace({
           {!item.loading && !!item.fileChanges?.length && (
             <TurnChanges
               files={item.fileChanges}
+              preview={item.fileRestorePreview}
               checkpointId={item.checkpointId}
               filesRestoredAt={item.filesRestoredAt}
               disabled={busy || restoringFiles || historyLoading}

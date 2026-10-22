@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import { typescriptLoader } from "./helpers/load-typescript.mjs";
 
 const file = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -15,6 +18,151 @@ const event = (kind, data = {}, options = {}) => ({ id: `event-${++sequence}`, k
   created_at: "2026-10-08T00:00:00Z", data, ...options });
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const assistant = (messages) => messages.find((item) => item.key === "turn-turn-assistant");
+
+const checkpointComponentCode = ts.transpileModule(
+  readFileSync(new URL("../src/components/FileCheckpointAction.tsx", import.meta.url), "utf8"),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } },
+).outputText;
+
+function checkpointComponent(preview, rewind = async () => ({ event: { event: "files.restored" }, warning: null })) {
+  const confirmations = [], errors = [], restoring = [], restored = [], cleanups = [];
+  const jsx = (type, props) => ({ type, props });
+  const api = {};
+  runInNewContext(checkpointComponentCode, {
+    exports: api, Error,
+    require: (name) => {
+      if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (name === "react") return {
+        useState: (initial) => [initial, () => {}], useRef: (initial) => ({ current: initial }),
+        useEffect: (effect) => cleanups.push(effect()),
+      };
+      if (name === "antd") return { App: { useApp: () => ({
+        modal: { confirm: (config) => confirmations.push(config) },
+        message: { error: (error) => errors.push(error), success: () => {}, warning: () => {} },
+      }) } };
+      if (name === "@ant-design/icons") return { RollbackOutlined: "rollback" };
+      if (name === "../api/client") return { previewChatFiles: preview, rewindChatFiles: rewind };
+      throw new Error(`Unexpected dependency: ${name}`);
+    },
+  });
+  const button = api.FileCheckpointAction({
+    checkpointId: "checkpoint", sessionId: "session", disabled: false, projectPath: "project",
+    onRestoringChange: (value) => restoring.push(value), onRestored: (event) => restored.push(event),
+  });
+  return { button, confirmations, errors, restoring, restored, dispose: () => cleanups.forEach((cleanup) => cleanup?.()) };
+}
+
+function nodeText(node) {
+  if (Array.isArray(node)) return node.map(nodeText).join(" ");
+  if (node && typeof node === "object") return nodeText(node.props?.children);
+  return node == null || typeof node === "boolean" ? "" : String(node);
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+function changeCard(files, preview) {
+  const compiled = ts.transpileModule(
+    readFileSync(new URL("../src/components/TurnChanges.tsx", import.meta.url), "utf8"),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } },
+  ).outputText;
+  const jsx = (type, props) => typeof type === "function" ? type(props) : { type, props };
+  const component = {};
+  runInNewContext(compiled, {
+    exports: component,
+    require: (name) => {
+      if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (name === "react") return { useState: (value) => [value, () => {}] };
+      if (name === "antd") return {
+        Button: (props) => jsx("button", props), Tooltip: (props) => props.children,
+        Modal: (props) => props.open ? props.children : null,
+      };
+      if (name === "@ant-design/icons" || name.endsWith(".css")) return {};
+      if (name === "./DiffViewer") return { DiffViewer: () => null };
+      if (name === "./FileCheckpointAction") return { FileCheckpointAction: () => null };
+      throw new Error(`Unexpected dependency: ${name}`);
+    },
+  });
+  return component.TurnChanges({ files, preview, projectPath: "C:/workspace", sessionId: "session", disabled: false });
+}
+
+test("the file-change card shows exact reconstructed counts and labels checkpoint-only statistics separately", () => {
+  const file = { path: "C:/workspace/a.txt", additions: 1, deletions: 0, partial: false, patch: "patch", restorable: true };
+  const exact = nodeText(changeCard([file]));
+  assert.match(exact, /\+ 1/);
+  assert.doesNotMatch(exact, /行数未知/);
+  const incomplete = { ...file, additions: null, deletions: null, partial: true, patch: "" };
+  const preview = { can_restore: true, files: [file.path], insertions: 3, deletions: 1 };
+  const partial = nodeText(changeCard([incomplete], preview));
+  assert.match(partial, /检查点差异/);
+  assert.match(partial, /\+ 3/);
+  assert.match(partial, /可能包含后续修改/);
+  assert.doesNotMatch(nodeText(changeCard([incomplete])), /检查点差异/);
+});
+
+test("checkpoint action previews files and zero counts before allowing explicit restoration", async () => {
+  let resolvePreview, previews = 0, rewinds = 0;
+  const env = checkpointComponent((session, checkpoint) => {
+    assert.equal(session, "session");
+    assert.equal(checkpoint, "checkpoint");
+    previews++;
+    return new Promise((resolve) => { resolvePreview = resolve; });
+  }, async () => { rewinds++; return { event: { event: "files.restored" }, warning: null }; });
+  env.button.props.onClick();
+  env.button.props.onClick();
+  assert.equal(previews, 1);
+  assert.equal(env.confirmations.length, 0);
+  assert.equal(rewinds, 0);
+  resolvePreview({ can_restore: true, files: ["a.txt"], insertions: 0, deletions: 2 });
+  await tick();
+  const confirmation = env.confirmations[0];
+  assert.match(nodeText(confirmation.content), /a\.txt/);
+  assert.match(nodeText(confirmation.content), /\+0 \/ -2/);
+  assert.equal(confirmation.okButtonProps.disabled, false);
+  assert.equal(rewinds, 0);
+  await confirmation.onOk();
+  assert.equal(rewinds, 1);
+  assert.deepEqual(env.restoring, [true, false]);
+  assert.equal(env.restored[0].event, "files.restored");
+});
+
+test("unavailable or unchanged checkpoints cannot be restored through the preview dialog", async () => {
+  for (const preview of [
+    { can_restore: false, files: null, insertions: null, deletions: null },
+    { can_restore: true, files: [], insertions: 0, deletions: 0 },
+  ]) {
+    let rewinds = 0;
+    const env = checkpointComponent(async () => preview, async () => { rewinds++; });
+    env.button.props.onClick();
+    await tick();
+    assert.equal(env.confirmations[0].okButtonProps.disabled, true);
+    await env.confirmations[0].onOk();
+    assert.equal(rewinds, 0);
+  }
+});
+
+test("preview failures and stale responses never open a restore confirmation", async () => {
+  const failed = checkpointComponent(async () => { throw new Error("preview failed"); });
+  failed.button.props.onClick();
+  await tick();
+  assert.deepEqual(failed.errors, ["preview failed"]);
+  assert.equal(failed.confirmations.length, 0);
+  let resolvePreview;
+  const stale = checkpointComponent(() => new Promise((resolve) => { resolvePreview = resolve; }));
+  stale.button.props.onClick();
+  stale.dispose();
+  resolvePreview({ can_restore: true, files: ["a.txt"], insertions: 1, deletions: 0 });
+  await tick();
+  assert.equal(stale.confirmations.length, 0);
+});
+
+test("missing preview statistics remain unknown instead of becoming zero", async () => {
+  const env = checkpointComponent(async () => ({ can_restore: true, files: null, insertions: null, deletions: null }));
+  env.button.props.onClick();
+  await tick();
+  assert.match(nodeText(env.confirmations[0].content), /文件数量未知/);
+  assert.match(nodeText(env.confirmations[0].content), /增删行数： 未知/);
+  assert.equal(env.confirmations[0].okButtonProps.disabled, false);
+});
 
 test("checkpoints attach to user messages and restoring earlier files creates no assistant turn", () => {
   const messages = conversationFromEvents([
@@ -55,6 +203,22 @@ test("file changes stay attached to their completed turn and empty net snapshots
   assert.equal(assistant(messages).loading, false);
   assert.equal(assistant(messages).content, "done");
   assert.equal(messages.length, 4);
+});
+
+test("verified historical checkpoints attach after replay without requiring a diff", () => {
+  const preview = { can_restore: true, files: ["a.txt"], insertions: 2, deletions: 1 };
+  const messages = conversationFromEvents([
+    event("turn.started"), event("user.message", { content: "edit files" }),
+    event("turn.completed", { content: "done" }),
+    event("files.checkpoint", { checkpoint_id: "history-checkpoint", preview }),
+  ]);
+  assert.equal(messages[0].checkpointId, "history-checkpoint");
+  assert.equal(assistant(messages).checkpointId, "history-checkpoint");
+  assert.equal(assistant(messages).fileChanges, undefined);
+  assert.equal(assistant(messages).loading, false);
+  assert.deepEqual(plain(assistant(messages).fileRestorePreview), preview);
+  const restored = reduceConversationEvent(messages, event("files.restored", { checkpoint_id: "history-checkpoint" }));
+  assert.deepEqual(plain(assistant(restored).fileRestorePreview), preview);
 });
 
 test("live and history share completion, absolute blocks and durations", () => {
