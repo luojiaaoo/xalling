@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { typescriptLoader } from "./helpers/load-typescript.mjs";
 
 const load = typescriptLoader();
-const { buildKnowledgeTree } = load(fileURLToPath(new URL("../src/knowledge/tree.ts", import.meta.url)));
+const { buildKnowledgeTree, collectKnowledgeSources } = load(fileURLToPath(new URL("../src/knowledge/tree.ts", import.meta.url)));
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const directory = (path, ...files) => ({ path, files });
 
@@ -73,4 +73,8 @@ test("compact folder chains stop at branches and never absorb roots or files", (
   assert.equal(linux.children[0].name, "home/user/docs");
   assert.equal(linux.children[0].path, "/home/user/docs");
   assert.equal(linux.children[0].children[0].name, "readme.md");
+  assert.deepEqual(plain(collectKnowledgeSources(user)), [
+    "C:/Users/user/docs/deep/report.pdf", "C:/Users/user/images/photo.png",
+  ]);
+  assert.deepEqual(plain(collectKnowledgeSources(docs.children[0])), ["C:/Users/user/docs/deep/report.pdf"]);
 });

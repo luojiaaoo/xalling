@@ -1,12 +1,16 @@
 """Strict JSON request models shared by FastAPI routes."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class RequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class KnowledgeDeleteRequest(RequestModel):
+    sources: list[Annotated[str, Field(min_length=1, max_length=32768)]] = Field(min_length=1)
 
 
 class ChatConnectionRequest(RequestModel):

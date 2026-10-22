@@ -330,6 +330,29 @@ class KnowledgeStore:
                 groups.setdefault(str(Path(source).parent), []).append(source)
             return {"directories": [{"path": path, "files": sorted(files)} for path, files in sorted(groups.items())]}
 
+    @requires_embedding_model
+    def delete_documents(self, sources: list[str]) -> dict[str, int]:
+        """移除已确认的文档记录及向量，保留所有磁盘原文件。"""
+        keys = {os.path.normcase(str(Path(source).expanduser().resolve())) for source in sources}
+        with _STORAGE_LOCK:
+            catalog = self._catalog()
+            selected = keys.intersection(catalog.documents)
+            if not selected:
+                return {"deleted": 0}
+            if (self.root / "index").exists():
+                # 删除中途失败时，保留的记录可在下次检索时重建向量。
+                catalog.pending = sorted(set(catalog.pending) | selected)
+                self._publish(catalog)
+                with self._collection() as collection:
+                    for source_key in sorted(selected):
+                        collection.delete_by_filter(f"source = {_source_literal(source_key)}")
+                    collection.flush()
+            for source_key in selected:
+                del catalog.documents[source_key]
+            catalog.pending = [key for key in catalog.pending if key not in selected]
+            self._publish(catalog)
+            return {"deleted": len(selected)}
+
     def _sync(self) -> None:
         """按 JSON 更新文件，并重试上次未完成或索引丢失的写入。"""
         with _STORAGE_LOCK:

@@ -51,15 +51,85 @@ def test_authenticated_read_only_tree_and_file_filters(knowledge_api, tmp_path):
         ("post", "/api/knowledge/categories"),
         ("patch", "/api/knowledge/categories"),
         ("post", "/api/knowledge/documents/import"),
-        ("delete", "/api/knowledge/documents"),
         ("patch", "/api/knowledge/documents/categories"),
     ],
 )
-def test_http_cannot_mutate_knowledge(knowledge_api, method, path):
+def test_http_cannot_import_or_categorize_knowledge(knowledge_api, method, path):
     client, store = knowledge_api
     result = getattr(client, method)(path, headers=AUTH)
     assert result.status_code in {404, 405}
     assert not store.root.exists()
+
+
+def test_delete_requires_auth_and_only_removes_confirmed_documents(knowledge_api, tmp_path):
+    client, store = knowledge_api
+    first, second = tmp_path / "first.txt", tmp_path / "second.txt"
+    for source in (first, second):
+        source.write_text("shared knowledge manual", encoding="utf-8")
+        store.import_document(str(source))
+    body = {"sources": [str(first), str(first)]}
+    assert client.request("DELETE", "/api/knowledge/documents", json=body).status_code == 401
+    result = client.request("DELETE", "/api/knowledge/documents", json=body, headers=AUTH)
+    assert result.status_code == 200
+    assert result.json() == {"deleted": 1}
+    assert first.read_text(encoding="utf-8") == "shared knowledge manual"
+    assert client.get("/api/knowledge/tree", headers=AUTH).json()["directories"][0]["files"] == [str(second)]
+    assert client.request("DELETE", "/api/knowledge/documents", json=body, headers=AUTH).json() == {"deleted": 0}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"sources": []},
+        {"sources": [""]},
+        {"sources": [123]},
+        {"sources": "file.txt"},
+        {"sources": ["file.txt"], "extra": True},
+    ],
+)
+def test_delete_validation_never_touches_storage(knowledge_api, body):
+    client, store = knowledge_api
+    result = client.request("DELETE", "/api/knowledge/documents", json=body, headers=AUTH)
+    assert result.status_code == 422
+    assert not store.root.exists()
+
+
+@pytest.mark.parametrize(
+    "error,status", [(knowledge.KnowledgeError("文档无法删除"), 400), (RuntimeError("private-index-content"), 500)]
+)
+def test_delete_errors_are_reported_and_sanitized(knowledge_api, monkeypatch, error, status):
+    client, store = knowledge_api
+
+    def fail(sources):
+        raise error
+
+    monkeypatch.setattr(store, "delete_documents", fail)
+    result = client.request("DELETE", "/api/knowledge/documents", json={"sources": ["file.txt"]}, headers=AUTH)
+    assert result.status_code == status
+    assert "private-index-content" not in result.text
+
+
+def test_deleting_documents_does_not_block_status_requests(knowledge_api, monkeypatch):
+    client, store = knowledge_api
+    entered, release = Event(), Event()
+
+    def slow_delete(sources):
+        entered.set()
+        assert release.wait(5)
+        return {"deleted": 1}
+
+    monkeypatch.setattr(store, "delete_documents", slow_delete)
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(
+            client.request, "DELETE", "/api/knowledge/documents", json={"sources": ["file.txt"]}, headers=AUTH
+        )
+        try:
+            assert entered.wait(5)
+            assert client.get("/api/window/capabilities", headers=AUTH).status_code == 200
+        finally:
+            release.set()
+        assert pending.result().json() == {"deleted": 1}
 
 
 @pytest.mark.parametrize(

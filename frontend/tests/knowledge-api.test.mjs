@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { typescriptLoader } from "./helpers/load-typescript.mjs";
 
-test("knowledge UI only exposes read-only path tree and file queries", async () => {
+test("knowledge tree and file queries remain read-only", async () => {
   const requests = [];
   const load = typescriptLoader({
     globals: { window: new EventTarget() },
@@ -26,6 +26,23 @@ test("knowledge UI only exposes read-only path tree and file queries", async () 
   for (const name of ["createKnowledgeCategory", "listKnowledgeCategories", "updateKnowledgeCategoryDescription", "importKnowledgeFile", "removeKnowledgeDocument"]) {
     assert.equal(api[name], undefined);
   }
+});
+
+test("document deletion submits exactly the confirmed source list", async () => {
+  const requests = [];
+  const load = typescriptLoader({
+    globals: { window: new EventTarget() },
+    overrides: {
+      "./http": { request: async (method, path, options) => { requests.push({ method, path, options }); return { deleted: 2 }; } },
+      "./websocket": {},
+    },
+  });
+  const api = load(fileURLToPath(new URL("../src/api/client.ts", import.meta.url)));
+  const sources = ["C:\\资料\\a.pdf", "C:\\资料\\nested\\b.pdf"];
+  assert.equal((await api.deleteKnowledgeDocuments(sources)).deleted, 2);
+  assert.equal(requests[0].method, "DELETE");
+  assert.equal(requests[0].path, "/api/knowledge/documents");
+  assert.deepEqual(requests[0].options.body.sources, sources);
 });
 
 test("embedding status is read-only and downloading requires an explicit POST", async () => {

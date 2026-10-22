@@ -1,4 +1,4 @@
-"""知识库路径展示和手动下载嵌入模型接口，导入及检索由智能体工具完成。"""
+"""知识库路径展示、文档移除和手动下载嵌入模型接口。"""
 
 from collections.abc import Callable
 from typing import Annotated, Any
@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.router.dependencies import authenticate
+from backend.router.schemas import KnowledgeDeleteRequest
 from backend.service.knowledge.embedding import (
     EmbeddingError,
     EmbeddingStatus,
@@ -44,6 +45,11 @@ def download_embedding(store: StoreDep) -> EmbeddingStatus:
 @router.get("/tree")
 def path_tree(store: StoreDep) -> dict[str, Any]:
     return checked(store.path_tree)
+
+
+@router.delete("/documents")
+def delete_documents(request: KnowledgeDeleteRequest, store: StoreDep) -> dict[str, int]:
+    return checked(store.delete_documents, request.sources)
 
 
 @router.get("/documents")

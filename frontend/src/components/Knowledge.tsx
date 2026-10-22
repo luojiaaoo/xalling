@@ -1,33 +1,54 @@
-import { DownloadOutlined, HddOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, Button, Empty, Modal, Spin, Tree } from "antd";
+import { DeleteOutlined, DownloadOutlined, HddOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Empty, Modal, Spin, Tree } from "antd";
 import type { TreeDataNode } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  deleteKnowledgeDocuments,
   downloadKnowledgeEmbedding,
   getKnowledgeEmbeddingStatus,
   getKnowledgeTree,
   type KnowledgeEmbeddingStatus,
   type KnowledgeTree,
 } from "../api/client";
-import { buildKnowledgeTree, type KnowledgePathNode } from "../knowledge/tree";
+import { buildKnowledgeTree, collectKnowledgeSources, type KnowledgePathNode } from "../knowledge/tree";
 
-function toTreeNode(node: KnowledgePathNode, root = false): TreeDataNode {
+function toTreeNode(node: KnowledgePathNode, onDelete: (node: KnowledgePathNode) => void, deleting: boolean, root = false): TreeDataNode {
   return {
     key: node.key,
-    title: <span className={root ? "knowledge-node-name knowledge-root-name" : "knowledge-node-name"} title={node.path}>{node.name}</span>,
+    title: <span className="knowledge-node-label">
+      <span className={root ? "knowledge-node-name knowledge-root-name" : "knowledge-node-name"} title={node.path}>{node.name}</span>
+      {!root && <Button
+        className="knowledge-node-delete"
+        type="text"
+        size="small"
+        danger
+        icon={<DeleteOutlined />}
+        aria-label={`删除${node.isLeaf ? "文档" : "文件夹下的文档"}：${node.path}`}
+        title={node.isLeaf ? "从知识库删除文档" : "从知识库删除此文件夹下的全部文档"}
+        disabled={deleting}
+        onClick={(event) => { event.stopPropagation(); onDelete(node); }}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); }}
+      />}
+    </span>,
     isLeaf: node.isLeaf,
     ...(root && { icon: <HddOutlined /> }),
-    ...(node.children && { children: node.children.map((child) => toTreeNode(child)) }),
+    ...(node.children && { children: node.children.map((child) => toTreeNode(child, onDelete, deleting)) }),
   };
 }
 
 function KnowledgePanel() {
+  const { message } = App.useApp();
   const [data, setData] = useState<KnowledgeTree | null>(null);
   const [model, setModel] = useState<KnowledgeEmbeddingStatus | null>(null);
   const [downloadPending, setDownloadPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ node: KnowledgePathNode; sources: string[] } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deletePending = useRef(false);
   const requestId = useRef(0);
   const mounted = useRef(false);
 
@@ -88,12 +109,41 @@ function KnowledgePanel() {
     }
   };
 
-  const roots = useMemo(() => data ? buildKnowledgeTree(data).map((node) => toTreeNode(node, true)) : [], [data]);
+  const selectDelete = useCallback((node: KnowledgePathNode) => {
+    if (deletePending.current) return;
+    setDeleteError(null);
+    setDeleteTarget({ node, sources: collectKnowledgeSources(node) });
+  }, []);
+
+  const remove = async () => {
+    if (!deleteTarget || deletePending.current) return;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const result = await deleteKnowledgeDocuments(deleteTarget.sources);
+      if (!mounted.current) return;
+      setDeleteTarget(null);
+      const removed = new Set(deleteTarget.sources);
+      setData((previous) => previous && ({ directories: previous.directories.map((directory) => ({
+        ...directory, files: directory.files.filter((path) => !removed.has(path)),
+      })) }));
+      void message.success(`已从知识库删除 ${result.deleted} 个文档`);
+      await refresh();
+    } catch (reason) {
+      if (mounted.current) setDeleteError(reason instanceof Error ? reason.message : "删除文档失败，请重试");
+    } finally {
+      deletePending.current = false;
+      if (mounted.current) setDeleting(false);
+    }
+  };
+
+  const roots = useMemo(() => data ? buildKnowledgeTree(data).map((node) => toTreeNode(node, selectDelete, deleting, true)) : [], [data, selectDelete, deleting]);
 
   return <div className="knowledge-panel">
     <div className="knowledge-toolbar">
-      <p className="knowledge-scope">所有工作区共享。此处只读展示已入库文件的原路径，可在对话中指定目录或让 AI 语义查找文件。</p>
-      <Button icon={<ReloadOutlined />} aria-label="刷新知识库" loading={loading} onClick={() => void refresh()} />
+      <p className="knowledge-scope">所有工作区共享。可在对话中指定目录或让 AI 语义查找文件；删除仅移除知识库文档，保留磁盘原文件。</p>
+      <Button icon={<ReloadOutlined />} aria-label="刷新知识库" loading={loading} disabled={deleting} onClick={() => void refresh()} />
     </div>
     {error && error !== model?.message && <Alert type="error" title={error} showIcon />}
     {model && <Alert
@@ -120,6 +170,27 @@ function KnowledgePanel() {
         />)}
       </div> :
       <Empty description="暂无知识库资料，可在对话中让 AI 导入文档" />}
+    <Modal
+      title={deleteTarget?.node.isLeaf ? "从知识库删除文档？" : "删除文件夹下的全部知识库文档？"}
+      open={deleteTarget !== null}
+      onCancel={() => { if (!deletePending.current) setDeleteTarget(null); }}
+      onOk={() => void remove()}
+      okText="删除文档"
+      cancelText="取消"
+      okButtonProps={{ danger: true, disabled: !deleteTarget?.sources.length }}
+      cancelButtonProps={{ disabled: deleting }}
+      confirmLoading={deleting}
+      closable={!deleting}
+      keyboard={!deleting}
+      mask={{ closable: !deleting }}
+    >
+      <p className="knowledge-delete-path">{deleteTarget?.node.path}</p>
+      <p>将删除 {deleteTarget?.sources.length ?? 0} 个已入库文档及其检索索引，保留磁盘原文件。</p>
+      <ul className="knowledge-delete-sources" aria-label="将删除的知识库文档">
+        {deleteTarget?.sources.map((path) => <li key={path}>{path}</li>)}
+      </ul>
+      {deleteError && <Alert type="error" title={deleteError} showIcon />}
+    </Modal>
   </div>;
 }
 

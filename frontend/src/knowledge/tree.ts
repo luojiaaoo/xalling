@@ -8,6 +8,10 @@ export type KnowledgePathNode = {
   children?: KnowledgePathNode[];
 };
 
+export function collectKnowledgeSources(node: KnowledgePathNode): string[] {
+  return node.isLeaf ? [node.path] : (node.children ?? []).flatMap(collectKnowledgeSources);
+}
+
 /** Build from source paths, independent of the browser's operating system. */
 export function buildKnowledgeTree(data: KnowledgeTree): KnowledgePathNode[] {
   const roots: KnowledgePathNode[] = [];

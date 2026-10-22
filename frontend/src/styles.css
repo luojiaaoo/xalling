@@ -1583,6 +1583,11 @@ html[data-theme="geek"] .effort-picker-header strong { color: #39ff14; }
 .knowledge-tree .ant-tree-switcher { line-height: 32px; color: var(--ant-color-text-tertiary); }
 .knowledge-tree .ant-tree-iconEle { flex-shrink: 0; color: var(--ant-color-primary); }
 .knowledge-tree .ant-tree-treenode-leaf .ant-tree-iconEle { color: var(--ant-color-text-tertiary); }
-.knowledge-tree .ant-tree-title { min-width: 0; }
+.knowledge-tree .ant-tree-title { min-width: 0; flex: 1; }
+.knowledge-node-label { display: flex; align-items: center; gap: 8px; }
+.knowledge-node-label .knowledge-node-name { flex: 1; min-width: 0; }
+.knowledge-node-delete { flex-shrink: 0; margin-left: auto; }
+.knowledge-delete-path { overflow-wrap: anywhere; font-weight: 600; }
+.knowledge-delete-sources { max-height: 240px; overflow-y: auto; overflow-wrap: anywhere; padding-left: 20px; }
 .knowledge-node-name { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .knowledge-root-name { font-weight: 600; }

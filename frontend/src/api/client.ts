@@ -31,6 +31,10 @@ export function getKnowledgeTree(): Promise<KnowledgeTree> {
   return request("GET", "/api/knowledge/tree");
 }
 
+export function deleteKnowledgeDocuments(sources: string[]): Promise<{ deleted: number }> {
+  return request("DELETE", "/api/knowledge/documents", { body: { sources } });
+}
+
 export function listKnowledgeDocuments(parentPath?: string, offset = 0, filename?: string): Promise<KnowledgeFilesPage> {
   return request("GET", "/api/knowledge/documents", {
     query: { parent_path: parentPath, offset, limit: 20, filename },
