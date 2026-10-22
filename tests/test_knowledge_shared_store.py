@@ -5,6 +5,8 @@ from pathlib import Path
 import anydoc
 import pytest
 
+from backend.service.knowledge.chunking import index_chunk_options
+from backend.service.knowledge.embedding import MAX_INPUT_TOKENS
 from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
 
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
@@ -133,7 +135,10 @@ def test_failed_publish_is_retryable(tmp_path, monkeypatch):
 def test_updating_to_fewer_chunks_excludes_old_tail(tmp_path):
     store = KnowledgeStore(tmp_path / "storage")
     source = tmp_path / "manual.txt"
-    write_document(source, "obsolete firmware " * 300)
+    # 按当前英文切片预算生成多片文本，避免依赖固定的模型上下文长度。
+    max_chars, _ = index_chunk_options(MAX_INPUT_TOKENS)
+    phrase = "obsolete firmware "
+    write_document(source, phrase * (max_chars // len(phrase) + 1))
     assert store.import_document(str(source))["chunk_count"] > 1
     write_document(source, "replacement policy", 2_000_000_000)
     assert store.import_document(str(source))["chunk_count"] == 1
