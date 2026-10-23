@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from threading import RLock
@@ -15,7 +16,7 @@ from backend.service.knowledge.text_files import TEXT_WHITESPACE, utf8_text
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
 
-MODEL_NAME = "ibm-granite/granite-embedding-97m-multilingual-r2"
+MODEL_NAME = "ibm-granite/granite-embedding-311m-multilingual-r2"
 # 魔搭（ModelScope）仓库，国内网络可直接下载。
 MODEL_REPOSITORY = MODEL_NAME
 MODEL_FILES = (
@@ -25,7 +26,7 @@ MODEL_FILES = (
     "tokenizer_config.json",
     "special_tokens_map.json",
 )
-DIMENSIONS = 384
+DIMENSIONS = 768
 MAX_INPUT_TOKENS = 32768
 _MODELS: dict[Path, TextEmbedding] = {}
 _EMBEDDING_LOCK = RLock()
@@ -85,6 +86,13 @@ def ensure_embedding_model(root: Path) -> None:
 def _load_model(directory: Path) -> TextEmbedding:
     from fastembed import TextEmbedding
     from fastembed.common.model_description import ModelSource, PoolingType
+
+    # tokenizer_config.json 有特殊符号，FastEmbed 0.7 用系统默认编码读取这些 JSON；转义非 ASCII 字符兼容 Windows GBK。
+    for name in ("config.json", "tokenizer_config.json", "special_tokens_map.json"):
+        path = directory / name
+        content = path.read_text(encoding="utf-8")
+        if not content.isascii():
+            path.write_text(json.dumps(json.loads(content), ensure_ascii=True), encoding="utf-8")
 
     if not any(model["model"] == MODEL_NAME for model in TextEmbedding.list_supported_models()):
         TextEmbedding.add_custom_model(

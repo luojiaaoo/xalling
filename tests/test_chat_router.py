@@ -152,6 +152,10 @@ async def test_xalling_claude_options_preserve_provider_and_session_settings(
     assert options_new.session_id == session_id
     assert options_resume.resume == session_id
     assert options_resume.session_id is None
+    for options in (options_new, options_resume):
+        assert options.env["MCP_TIMEOUT"] == "120000"
+        assert "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT" not in options.env
+        assert "MCP_TOOL_TIMEOUT" not in options.env
     assert options_new.settings == str(settings_path)
     assert options_new.model == "claude-sonnet"
     assert options_new.enable_file_checkpointing is True

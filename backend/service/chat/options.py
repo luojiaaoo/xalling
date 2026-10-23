@@ -192,7 +192,10 @@ def _agent_options(
         enable_file_checkpointing=True,
         effort=config.effort,
         cli_path=_bundled_claude_cli(),
-        env={"CLAUDE_AGENT_SDK_CLIENT_APP": "xalling"},
+        env={
+            "CLAUDE_AGENT_SDK_CLIENT_APP": "xalling",
+            "MCP_TIMEOUT": "120000",  # MCP 启动等 2 分钟
+        },
         extra_args={"allow-dangerously-skip-permissions": None, "replay-user-messages": None},
         max_turns=200,
         model=config.model,

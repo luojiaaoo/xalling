@@ -78,11 +78,12 @@ def test_empty_scope_does_not_load_embedding_model(tmp_path, monkeypatch):
     assert store.search("manual", 5, parent_paths=[str(tmp_path / "missing")])["results"] == []
 
 
-def test_old_keyword_only_catalog_requires_reimport_without_modification(tmp_path):
+@pytest.mark.parametrize("version", [2, 3])
+def test_unreleased_catalog_versions_require_reimport_without_modification(tmp_path, version):
     root = tmp_path / "storage"
     root.mkdir()
     path = root / "catalog.json"
-    original = json.dumps({"version": 2, "documents": {}})
+    original = json.dumps({"version": version, "documents": {}})
     path.write_text(original, encoding="utf-8")
     store = KnowledgeStore(root)
     with pytest.raises(KnowledgeError, match="版本不兼容"):

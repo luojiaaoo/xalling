@@ -94,7 +94,7 @@ class _Catalog(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    version: Literal[3] = 3
+    version: Literal[1] = 1
     documents: dict[str, DocumentRecord] = Field(default_factory=dict)
     pending: list[str] = Field(default_factory=list)
 

@@ -42,6 +42,7 @@ def test_removed_metadata_in_existing_catalog_does_not_require_reimport(tmp_path
     imported = store.import_document(str(source))
     path = store.root / "catalog.json"
     catalog = json.loads(path.read_text(encoding="utf-8"))
+    assert catalog["version"] == 1
     catalog["documents"][os.path.normcase(str(source))]["imported_at"] = "2026-10-21T00:00:00+00:00"
     path.write_text(json.dumps(catalog), encoding="utf-8")
     reloaded = KnowledgeStore(store.root)

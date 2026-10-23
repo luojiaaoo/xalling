@@ -159,7 +159,7 @@ def test_failed_repair_write_stops_query(indexed_document, monkeypatch):
 def test_invalid_json_does_not_change_vector_store(indexed_document):
     store, _, record = indexed_document
     path = store.root / "catalog.json"
-    path.write_text('{"version":3,"documents":', encoding="utf-8")
+    path.write_text('{"version":1,"documents":', encoding="utf-8")
     original = path.read_bytes()
     with pytest.raises(KnowledgeError, match="清单无法读取"):
         store.search("manual", 5)

@@ -1,3 +1,4 @@
+import json
 import math
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -112,20 +113,35 @@ def test_custom_granite_registration_is_reused_across_model_directories(tmp_path
             return object()
 
     monkeypatch.setattr(fastembed, "TextEmbedding", Factory)
-    knowledge_embedding._load_model(tmp_path / "first")
-    knowledge_embedding._load_model(tmp_path / "second")
+    directories = [write_model_files(tmp_path / name) for name in ("first", "second")]
+    for directory in directories:
+        knowledge_embedding._load_model(directory)
     assert len(registrations) == 1
     config = registrations[0]
     assert config["model"] == MODEL_NAME
     assert config["pooling"] == PoolingType.CLS
     assert config["normalization"] is True
-    assert config["dim"] == 384
+    assert config["dim"] == 768
     assert config["model_file"] == "onnx/model_quint8_avx2.onnx"
     assert config["sources"].hf == MODEL_NAME
-    assert [item["specific_model_path"] for item in initialized] == [
-        str(tmp_path / name) for name in ("first", "second")
-    ]
+    assert [item["specific_model_path"] for item in initialized] == list(map(str, directories))
     assert all(item["local_files_only"] for item in initialized)
+
+
+def test_model_configs_remain_readable_with_windows_gbk_encoding(tmp_path, model):
+    directory = write_model_files(tmp_path)
+    payload = {"token": "多语言配置🧠", "values": [1, True, None]}
+    configs = ("config.json", "tokenizer_config.json", "special_tokens_map.json")
+    for name in configs:
+        (directory / name).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tokenizer_before = (directory / "tokenizer.json").read_bytes()
+
+    knowledge_embedding._load_model(directory)
+
+    for name in configs:
+        assert json.loads((directory / name).read_text(encoding="gbk")) == payload
+    assert (directory / "tokenizer.json").read_bytes() == tokenizer_before
+    assert get_embedding_status(tmp_path).status == "ready"
 
 
 def test_long_document_is_split_before_embedding_without_vector_pooling(tmp_path, model):
