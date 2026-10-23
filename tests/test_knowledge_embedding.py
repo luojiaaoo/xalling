@@ -150,8 +150,8 @@ def test_long_document_is_split_before_embedding_without_vector_pooling(tmp_path
     text = "甲" * 24000 + "乙" * 24000
     chunks = split_document(tmp_path, text)
     assert "".join(chunks) == text
-    assert len(chunks) == 2
-    assert [len(chunk) for chunk in chunks] == [32768, 15232]
+    assert len(chunks) == 6
+    assert [len(chunk) for chunk in chunks] == [8192] * 5 + [7040]
     vectors = embed_texts(tmp_path, chunks)
     assert len(vectors) == len(chunks)
     assert instance.calls == [("passage", chunks)]
@@ -182,14 +182,16 @@ def test_long_query_is_passed_to_backend_for_model_truncation(tmp_path, model):
     "text,expected_lengths",
     [
         ("甲" * 2000, [2000]),
-        ("甲" * 70000, [32768, 32768, 4464]),
-        ("a" * 130000, [60620, 60620, 8760]),
+        ("甲" * 8192, [8192]),
+        ("甲" * 8193, [8192, 1]),
+        ("甲" * 70000, [8192] * 8 + [4464]),
+        ("a" * 130000, [15155] * 8 + [8760]),
     ],
-    ids=["short-dense", "full-dense-budget", "full-ascii-budget"],
+    ids=["short-dense", "dense-at-limit", "dense-over-limit", "full-dense-budget", "full-ascii-budget"],
 )
-def test_chunking_uses_full_model_and_density_budget_without_loading_tokenizer(tmp_path, text, expected_lengths):
+def test_chunking_uses_configured_density_budget_without_loading_tokenizer(tmp_path, text, expected_lengths):
     write_model_files(tmp_path)
-    assert MAX_INPUT_TOKENS == 32768
+    assert MAX_INPUT_TOKENS == 8192
     chunks = split_document(tmp_path, text)
     assert "".join(chunks) == text
     assert [len(chunk) for chunk in chunks] == expected_lengths

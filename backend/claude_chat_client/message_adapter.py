@@ -70,6 +70,13 @@ class _StreamState:
 
 
 @dataclass(slots=True)
+class _StreamReply:
+    start: ChatEvent | None = None
+    pending_text: str = ""
+    visible: bool = False
+
+
+@dataclass(slots=True)
 class _AssistantBlockState:
     """SDK assistant envelopes contain consecutive slices of one message."""
 
@@ -193,6 +200,7 @@ class _MessageAdapter:
         self.tools: dict[str, _ToolCall] = {}
         self.file_changes = file_changes if file_changes is not None else TurnFileChanges()
         self.stream_blocks: dict[tuple[str, int], dict[str, Any]] = {}
+        self._stream_replies: dict[tuple[str, int], _StreamReply] = {}
         self.streams: dict[tuple[str, str | None], _StreamState] = {}
         self._assistant_blocks: dict[
             tuple[str | None, str | None, str], _AssistantBlockState
@@ -398,6 +406,8 @@ class _MessageAdapter:
         # indices span the whole model message. Preserve that global identity.
         for block_index, block in enumerate(message.content, start=offset):
             if isinstance(block, TextBlock):
+                if not block.text.strip():
+                    continue
                 event: EventName = "subagent.reply.completed" if is_subagent else "assistant.reply.completed"
                 if not is_subagent:
                     message_text.append(block.text)
@@ -880,6 +890,8 @@ class _MessageAdapter:
     def _clear_stream_blocks(self, stream_uuid: str) -> None:
         for key in [key for key in self.stream_blocks if key[0] == stream_uuid]:
             self.stream_blocks.pop(key, None)
+        for key in [key for key in self._stream_replies if key[0] == stream_uuid]:
+            self._stream_replies.pop(key, None)
 
     def _stream_block_start(
         self,
@@ -908,15 +920,17 @@ class _MessageAdapter:
             event = "assistant.thinking.started"
         else:
             return []
-        return [
-            self.factory.make(
-                event,
-                data,
-                model_turn_id=_string_or_none(common.get("message_id")),
-                session_id=message.session_id,
-                parent_tool_use_id=message.parent_tool_use_id,
-            )
-        ]
+        started = self.factory.make(
+            event,
+            data,
+            model_turn_id=_string_or_none(common.get("message_id")),
+            session_id=message.session_id,
+            parent_tool_use_id=message.parent_tool_use_id,
+        )
+        if block_type == "text":
+            self._stream_replies[(stream_uuid, index)] = _StreamReply(start=started)
+            return []
+        return [started]
 
     def _stream_block_delta(
         self,
@@ -966,14 +980,30 @@ class _MessageAdapter:
                     parent_tool_use_id=message.parent_tool_use_id,
                 )
             ]
+        prefix: list[ChatEvent] = []
+        if delta_type == "text_delta":
+            key = (cast(str, common["stream_uuid"]), index)
+            reply = self._stream_replies.setdefault(key, _StreamReply())
+            if not reply.visible:
+                reply.pending_text += _string_or_empty(data["text"])
+                if not reply.pending_text.strip():
+                    return []
+                # Reveal the block only with actual text, preserving its whitespace.
+                data["text"] = reply.pending_text
+                reply.pending_text = ""
+                reply.visible = True
+                if reply.start is not None:
+                    prefix.append(reply.start)
+                    reply.start = None
         return [
+            *prefix,
             self.factory.make(
                 event,
                 data,
                 model_turn_id=_string_or_none(common.get("message_id")),
                 session_id=message.session_id,
                 parent_tool_use_id=message.parent_tool_use_id,
-            )
+            ),
         ]
 
     def _stream_block_stop(
@@ -987,6 +1017,9 @@ class _MessageAdapter:
         block = self.stream_blocks.get((stream_uuid, index), {})
         block_type = block.get("type")
         if block_type == "text":
+            reply = self._stream_replies.pop((stream_uuid, index), None)
+            if reply is None or not reply.visible:
+                return []
             event: EventName = "assistant.reply.stopped"
         elif block_type in {"thinking", "redacted_thinking"}:
             event = "assistant.thinking.stopped"

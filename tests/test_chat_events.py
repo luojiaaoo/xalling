@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from claude_agent_sdk import AssistantMessage, SessionMessage, StreamEvent, TextBlock, ThinkingBlock
+from claude_agent_sdk import AssistantMessage, SessionMessage, StreamEvent, TextBlock, ThinkingBlock, ToolUseBlock
 
 from backend.claude_chat_client.history import ClaudeChatHistory, assemble_session_messages
 from backend.claude_chat_client.message_adapter import _EventFactory, _MessageAdapter
@@ -95,6 +95,104 @@ def test_split_sdk_packets_live_and_history_have_one_copy_per_block(texts):
         assert messages[-1]["content"] == "\n\n".join(texts)
         assert [item["content"] for item in messages[-1]["trace"]] == ["plan", *texts]
         assert len(messages[-1]["finalOutputKeys"]) == len(texts)
+
+
+@pytest.mark.parametrize("parent", [None, "agent"])
+def test_stream_buffers_leading_whitespace_until_text_and_preserves_later_whitespace(parent):
+    adapter = _MessageAdapter(_EventFactory("turn", session_id="session"), {})
+
+    def stream(raw):
+        return adapter.adapt(StreamEvent(
+            uuid="frame", session_id="session", parent_tool_use_id=parent, event=raw,
+        ))
+
+    stream({"type": "message_start", "message": {"id": "model"}})
+    assert stream({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}}) == []
+    for text in ["", "\n", " \t", "\r\n\u3000"]:
+        assert stream({
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": text},
+        }) == []
+    revealed = stream({
+        "type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": "Hello"},
+    })
+    assert [event.event for event in revealed] == ["assistant.reply.started", "assistant.reply.delta"]
+    assert revealed[-1].data["text"] == "\n \t\r\n\u3000Hello"
+    assert {event.data["block_id"] for event in revealed} == {"model:0"}
+    assert all(event.parent_tool_use_id == parent for event in revealed)
+    trailing = stream({
+        "type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": "\n "},
+    })
+    assert trailing[0].data["text"] == "\n "
+    assert stream({"type": "content_block_stop", "index": 0})[0].event == "assistant.reply.stopped"
+
+
+@pytest.mark.parametrize("ending", ["content_block_stop", "message_stop", "message_start"])
+def test_whitespace_stream_is_discarded_without_blocking_tools_or_other_scopes(ending):
+    adapter = _MessageAdapter(_EventFactory("turn", session_id="session"), {})
+
+    def stream(raw, parent=None):
+        return adapter.adapt(StreamEvent(
+            uuid=f"frame-{parent}", session_id="session", parent_tool_use_id=parent, event=raw,
+        ))
+
+    stream({"type": "message_start", "message": {"id": "main"}})
+    assert stream({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}}) == []
+    assert stream({
+        "type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": "\n \t"},
+    }) == []
+    tool = adapter.adapt(AssistantMessage(
+        content=[ToolUseBlock(id="read", name="Read", input={})], model="claude", message_id="main",
+    ))
+    assert any(event.event == "tool.requested" for event in tool)
+    stream({"type": "message_start", "message": {"id": "child"}}, "agent")
+    stream({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}}, "agent")
+    child = stream({
+        "type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": "child"},
+    }, "agent")
+    assert child[-1].data["text"] == "child"
+    assert all(event.parent_tool_use_id == "agent" for event in child)
+    ended = stream({"type": ending, "index": 0, "message": {"id": "next"}})
+    assert not any(event.event.startswith("assistant.reply.") for event in ended)
+    following = stream({
+        "type": "content_block_delta", "index": 1,
+        "delta": {"type": "text_delta", "text": "next"},
+    })
+    assert following[-1].data["text"] == "next"
+    assert not any(state.pending_text for state in adapter._stream_replies.values())
+
+
+@pytest.mark.parametrize("parent", [None, "agent"])
+def test_live_complete_and_history_drop_whitespace_without_renumbering_blocks(parent):
+    adapter = _MessageAdapter(_EventFactory("turn", session_id="session"), {})
+    texts = ["", "\n", " \t\r\n\u3000", "\n  answer\n "]
+    live = []
+    for index, text in enumerate(texts):
+        live.extend(adapter.adapt(AssistantMessage(
+            content=[TextBlock(text=text)], model="claude", message_id="model",
+            uuid=f"packet-{index}", session_id="session", parent_tool_use_id=parent,
+        )))
+    name = "subagent.reply.completed" if parent else "assistant.reply.completed"
+    outputs = [event for event in live if event.event == name]
+    assert len(outputs) == 1
+    assert outputs[0].data["text"] == texts[-1]
+    assert outputs[0].data["block_id"] == "model:3"
+    if parent is None:
+        assert adapter.main_text == [texts[-1]]
+        history = assemble_session_messages([
+            SessionMessage("user", "user", "session", {"content": "question"}),
+            *(SessionMessage("assistant", f"packet-{index}", "session", {
+                "id": "model", "model": "claude", "content": [{"type": "text", "text": text}],
+            }) for index, text in enumerate(texts)),
+        ])
+        restored = [event for event in history if event.event == name]
+        assert [event.data for event in restored] == [event.data for event in outputs]
+        ui = render_in_ui([render_event(event) for event in history])[0]
+        assert [item["content"] for item in ui[-1]["trace"]] == [texts[-1]]
 
 
 def test_history_uses_sdk_messages_without_reading_storage(monkeypatch):
