@@ -234,6 +234,7 @@ def _agent_options(
             "WebSearch": build_web_search_mcp_server(),
             # 科研工具（arXiv 论文检索与 PDF 下载）
             "Research": build_research_mcp_server(),
+            # 知识库
             "Knowledge": build_knowledge_mcp_server(config.project),
         },
     )

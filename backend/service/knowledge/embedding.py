@@ -28,7 +28,7 @@ MODEL_FILES = (
     "special_tokens_map.json",
 )
 DIMENSIONS = 768
-MAX_INPUT_TOKENS = 32768
+MAX_INPUT_TOKENS = 3600 # 原生最大 32768，太大会导致知识块过大
 _MODELS: dict[Path, TextEmbedding] = {}
 _EMBEDDING_LOCK = RLock()
 _STATE_LOCK = RLock()
