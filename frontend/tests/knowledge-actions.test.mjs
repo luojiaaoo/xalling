@@ -20,14 +20,14 @@ function walk(node) {
   return [node, ...walk(node.props?.children)];
 }
 
-async function panel(remove = async () => ({ deleted: 2 }), embedding = { status: "ready", message: "ready" }) {
+async function panel(remove = async () => ({ deleted: 2 }), embedding = { status: "ready", message: "ready" }, syncState = { status: "idle", completed_files: 0, total_files: 0, message: "" }, sync = async () => ({ ...syncState, status: "completed" })) {
   const sources = ["C:/Users/user/docs/a.pdf", "C:/Users/user/docs/nested/b.pdf", "C:/Users/user/other/c.pdf"];
   let files = [...sources], cursor = 0, initialized = false, view;
   const slots = [], effects = [], cleanups = [], requests = [], successes = [];
   const jsx = (type, props) => typeof type === "function" ? type(props) : { type, props };
   const exports = {};
   runInNewContext(compiled, {
-    exports, Error, Set,
+    exports, Error, Set, setTimeout, clearTimeout,
     require: (name) => {
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
       if (name === "react") return {
@@ -51,6 +51,8 @@ async function panel(remove = async () => ({ deleted: 2 }), embedding = { status
       if (name === "@ant-design/icons") return {};
       if (name === "../knowledge/tree") return tree;
       if (name === "../api/client") return {
+        getKnowledgeSyncStatus: async () => syncState,
+        syncKnowledgeDocuments: sync,
         getKnowledgeEmbeddingStatus: async () => embedding,
         getKnowledgeTree: async () => ({ directories: [{ path: "C:/Users/user", files: [...files] }] }),
         deleteKnowledgeDocuments: async (selected) => {
@@ -79,6 +81,8 @@ async function panel(remove = async () => ({ deleted: 2 }), embedding = { status
       .find((node) => node.type === "Button"),
     confirmation: () => walk(view).find((node) => node.type === "Modal" && node.props.title !== "本地知识库"),
     progressNodes: () => walk(walk(view).find((node) => node.type === "Alert")?.props.description),
+    syncButton: () => walk(view).find((node) => node.type === "Button" && node.props.children === "同步知识库"),
+    syncProgress: () => walk(view).find((node) => node.props?.["aria-label"] === "知识库同步进度"),
     refreshEmbedding: async (next) => {
       embedding = next;
       await walk(view).find((node) => node.props?.["aria-label"] === "刷新知识库").props.onClick();
@@ -88,6 +92,35 @@ async function panel(remove = async () => ({ deleted: 2 }), embedding = { status
     dispose: () => cleanups.forEach((cleanup) => cleanup?.()),
   };
 }
+
+test("reopening the panel restores sync progress and disables deletion", async () => {
+  const env = await panel(undefined, undefined, { status: "running", completed_files: 2, total_files: 4, message: "同步中" });
+  assert.equal(env.syncProgress().props.percent, 50);
+  assert.equal(env.syncProgress().props.status, "active");
+  assert.equal(env.syncButton().props.loading, true);
+  assert.equal(env.button(env.sources[0]).props.disabled, true);
+  env.dispose();
+});
+
+test("sync requires a click, prevents duplicate submissions and shows completion", async () => {
+  let finish, calls = 0;
+  const env = await panel(undefined, undefined, undefined, () => {
+    calls += 1;
+    return new Promise((resolve) => { finish = resolve; });
+  });
+  assert.equal(calls, 0);
+  env.syncButton().props.onClick();
+  env.syncButton().props.onClick();
+  env.render();
+  assert.equal(calls, 1);
+  assert.equal(env.button(env.sources[0]).props.disabled, true);
+  finish({ status: "completed", completed_files: 3, total_files: 3, message: "同步完成" });
+  await tick();
+  env.render();
+  assert.equal(env.syncProgress().props.percent, 100);
+  assert.equal(env.syncButton().props.loading, false);
+  env.dispose();
+});
 
 test("embedding progress shows bytes, unknown totals and validation without claiming readiness", async () => {
   const downloading = {

@@ -166,6 +166,7 @@ def test_multiple_parent_directories_union_overlap_and_boundaries(tmp_path):
     assert not store.search("firmware", 5, parent_paths=[str(tmp_path / "absent")])["results"]
     assert len(store.search("firmware", 20)["results"]) == 3
     paths[0].unlink()
+    store.sync()
     assert store.search("firmware", 5, parent_paths=[scope])["results"]
     remaining = paths[1:]
     assert store.path_tree()["directories"] == [

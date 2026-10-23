@@ -61,6 +61,8 @@ def test_real_anydoc_and_zvec_roundtrip_without_copy(store):
     source.unlink()
     reloaded = KnowledgeStore(store.root)
     assert imported["source"] == str(source)
+    assert reloaded.search("Xalling", 5)["results"]
+    reloaded.sync()
     assert reloaded.search("Xalling", 5)["results"] == []
     assert reloaded.list_files(0, 50)["total"] == 0
 
@@ -199,6 +201,7 @@ def test_failed_publish_preserves_old_snapshot(store, monkeypatch):
         with pytest.raises(OSError):
             store.import_document(str(source))
     assert store.list_files(0, 5)["files"][0]["mtime_ns"] == first["mtime_ns"]
+    store.sync()
     assert store.search("replacement", 5)["results"][0]["text"] == "replacement policy"
 
 
@@ -210,6 +213,7 @@ def test_upsert_failure_keeps_json_record_for_repair(store, monkeypatch):
         with pytest.raises(KnowledgeError, match="索引写入失败"):
             store.import_document(str(source))
     assert store.list_files(0, 10)["total"] == 1
+    store.sync()
     assert store.search("manual", 5)["results"][0]["source"] == str(source)
 
 
@@ -259,6 +263,7 @@ def test_missing_index_is_rebuilt_from_catalog_without_dropping_other_documents(
     store.import_document(str(second))
     (store.root / "index").rename(store.root / "backup-index")
     assert store.import_document(str(source))["status"] == "unchanged"
+    store.sync()
     results = store.search("manual", 5)["results"]
     assert {item["source"] for item in results} == {str(source), str(second)}
     assert store.list_files(0, 10)["total"] == 2
@@ -295,7 +300,8 @@ def test_tools_resolve_relative_paths_and_search_multiple_directories(handlers, 
         )
         assert scoped["retrieval"] == "hybrid"
         assert scoped["results"][0]["source"] == str(source)
-        assert scoped["results"][0]["text"] == "firmware updated guide"
+        assert scoped["results"][0]["text"] == "firmware installation guide"
+        assert handlers["KnowledgeSearch"].annotations.model_dump(by_alias=True)["readOnlyHint"] is True
         assert not payload(await handlers["KnowledgeSearch"].handler({"query": "firmware", "parent_paths": []}))[
             "results"
         ]

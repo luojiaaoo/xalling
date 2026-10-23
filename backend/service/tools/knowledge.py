@@ -109,12 +109,13 @@ def build_knowledge_mcp_server(project: Path) -> McpSdkServerConfig:
     @tool(
         "KnowledgeSearch",
         "在本地知识库中混合搜索正文，支持自然语言问题及中英文关键词。"
+        "仅搜索已入库内容，不自动同步原文件；需要更新时请在本地知识库弹窗点击同步。"
         "parent_paths 限定多个父目录及其子目录，省略或 null 为全局搜索，空列表不搜索。"
         "用户指定目录时保持其范围，不擅自扩大。"
         "返回正文片段、来源路径 source、chunck_number 和 chunk_count。可用 KnowledgeRead 读取该块、相邻块或文档首尾。"
         "回答时引用来源；分数为排序分，不是置信度。",
         _SearchInput.model_json_schema(),
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
+        annotations=read_only,
     )
     async def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
         return await _execute(

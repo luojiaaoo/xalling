@@ -66,6 +66,8 @@ def test_interrupted_deletion_retains_repairable_records(library, monkeypatch, f
             store.delete_documents([str(path) for path in paths[:2]])
     assert len(store._catalog().documents) == 3
     assert set(store._catalog().pending) == {os.path.normcase(str(path)) for path in paths[:2]}
+    assert {item["source"] for item in store.search("manual", 10)["results"]} == {str(paths[2])}
+    store.sync()
     assert {item["source"] for item in store.search("manual", 10)["results"]} == {str(path) for path in paths}
     assert store._catalog().pending == []
     assert store.delete_documents([str(path) for path in paths[:2]]) == {"deleted": 2}
@@ -75,4 +77,5 @@ def test_missing_index_does_not_prevent_deletion_or_hide_remaining_documents(lib
     store, paths = library
     (store.root / "index").rename(store.root / "previous-index")
     assert store.delete_documents([str(paths[0])]) == {"deleted": 1}
+    store.sync()
     assert {item["source"] for item in store.search("manual", 10)["results"]} == {str(path) for path in paths[1:]}

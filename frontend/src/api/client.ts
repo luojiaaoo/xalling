@@ -12,6 +12,20 @@ export type KnowledgeFilesPage = { total: number; offset: number; files: Knowled
 export type KnowledgeTree = {
   directories: { path: string; files: string[] }[];
 };
+export type KnowledgeSyncStatus = {
+  status: "idle" | "running" | "completed" | "error";
+  completed_files: number;
+  total_files: number;
+  message: string;
+};
+
+export function getKnowledgeSyncStatus(): Promise<KnowledgeSyncStatus> {
+  return request("GET", "/api/knowledge/sync", { silent: true });
+}
+
+export function syncKnowledgeDocuments(): Promise<KnowledgeSyncStatus> {
+  return request("POST", "/api/knowledge/sync", { timeoutMs: 30 * 60 * 1000, silent: true });
+}
 export type KnowledgeEmbeddingStatus = {
   status: "missing" | "downloading" | "ready" | "error";
   model: string;

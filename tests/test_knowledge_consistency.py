@@ -56,6 +56,7 @@ def test_pending_write_is_retried_from_json(indexed_document):
         chunk_id = record.chunk_id(1)
         assert collection.delete(chunk_id).ok()
         collection.flush()
+    store.sync()
     assert store.search("manual", 5)["results"]
     assert json.loads(path.read_text(encoding="utf-8"))["pending"] == []
     with store._collection() as collection:
@@ -85,7 +86,7 @@ def test_finished_unchanged_file_does_not_read_back_vectors(indexed_document, mo
     assert results[0]["source"] == str(source)
 
 
-def test_failed_catalog_deletion_keeps_json_and_next_search_finishes_deletion(indexed_document, monkeypatch):
+def test_failed_catalog_deletion_keeps_json_and_next_sync_finishes_deletion(indexed_document, monkeypatch):
     store, source, record = indexed_document
     original = (store.root / "catalog.json").read_bytes()
     source.unlink()
@@ -96,14 +97,15 @@ def test_failed_catalog_deletion_keeps_json_and_next_search_finishes_deletion(in
     with monkeypatch.context() as patch:
         patch.setattr(store, "_publish", fail)
         with pytest.raises(OSError, match="publish interrupted"):
-            store.search("manual", 5)
+            store.sync()
     assert (store.root / "catalog.json").read_bytes() == original
     with store._collection() as collection:
         assert record.chunk_id(1) not in collection.fetch(record.chunk_id(1))
+    store.sync()
     assert store.search("manual", 5)["results"] == []
 
 
-def test_vector_deletion_failure_keeps_catalog_until_next_search(indexed_document, monkeypatch):
+def test_vector_deletion_failure_keeps_catalog_until_next_sync(indexed_document, monkeypatch):
     store, source, _ = indexed_document
     source.unlink()
 
@@ -113,8 +115,9 @@ def test_vector_deletion_failure_keeps_catalog_until_next_search(indexed_documen
     with monkeypatch.context() as patch:
         patch.setattr(zvec.Collection, "delete_by_filter", fail)
         with pytest.raises(OSError, match="cleanup interrupted"):
-            store.search("manual", 5)
+            store.sync()
     assert len(store._catalog().documents) == 1
+    store.sync()
     assert store.search("manual", 5)["results"] == []
     with store._collection() as collection:
         assert collection.stats.doc_count == 0
@@ -137,8 +140,9 @@ def test_repair_failure_blocks_query_and_retains_json_for_retry(indexed_document
         patch.setattr(knowledge, "embed_texts", fail)
         patch.setattr(zvec.Collection, "query", lambda *a, **kw: pytest.fail("修复失败不应查询"))
         with pytest.raises(KnowledgeError, match="model unavailable"):
-            store.search("manual", 5)
+            store.sync()
     assert (store.root / "catalog.json").read_bytes() == original
+    store.sync()
     assert store.search("manual", 5)["results"]
 
 
@@ -153,7 +157,7 @@ def test_failed_repair_write_stops_query(indexed_document, monkeypatch):
     monkeypatch.setattr(zvec.Collection, "upsert", lambda *args: [zvec.Status.InternalError("write failed")])
     monkeypatch.setattr(zvec.Collection, "query", lambda *a, **kw: pytest.fail("修复失败不应查询"))
     with pytest.raises(KnowledgeError, match="索引写入失败"):
-        store.search("manual", 5)
+        store.sync()
 
 
 def test_invalid_json_does_not_change_vector_store(indexed_document):
@@ -183,6 +187,7 @@ def test_new_record_is_saved_before_embedding_and_repaired_after_failure(tmp_pat
         with pytest.raises(KnowledgeError, match="model unavailable"):
             store.import_document(str(source))
     record = store._catalog().documents[os.path.normcase(str(source))]
+    store.sync()
     assert store.search("manual", 5)["results"][0]["source"] == str(source)
     assert store._catalog().pending == []
     changed = record.model_copy(update={"mtime_ns": record.mtime_ns + 1_000_000_000})
@@ -201,6 +206,7 @@ def test_vectors_are_deleted_before_json_entry_is_removed(indexed_document, monk
         publish(catalog)
 
     monkeypatch.setattr(store, "_publish", check_order)
+    store.sync()
     assert store.search("manual", 5)["results"] == []
 
 
@@ -208,5 +214,6 @@ def test_missing_index_is_rebuilt_without_changing_json(indexed_document):
     store, source, _ = indexed_document
     original = (store.root / "catalog.json").read_bytes()
     (store.root / "index").rename(store.root / "previous-index")
+    store.sync()
     assert store.search("manual", 5)["results"][0]["source"] == str(source)
     assert (store.root / "catalog.json").read_bytes() == original

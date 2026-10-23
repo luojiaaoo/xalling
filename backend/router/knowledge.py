@@ -13,7 +13,7 @@ from backend.service.knowledge.embedding import (
     download_embedding_model,
     get_embedding_status,
 )
-from backend.service.knowledge.store import KnowledgeError, KnowledgeStore
+from backend.service.knowledge.store import KnowledgeError, KnowledgeStore, KnowledgeSyncStatus
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"], dependencies=[Depends(authenticate)])
 
@@ -45,6 +45,16 @@ def download_embedding(store: StoreDep) -> EmbeddingStatus:
 @router.get("/tree")
 def path_tree(store: StoreDep) -> dict[str, Any]:
     return checked(store.path_tree)
+
+
+@router.get("/sync")
+def sync_status(store: StoreDep) -> KnowledgeSyncStatus:
+    return store.sync_status()
+
+
+@router.post("/sync")
+def sync_documents(store: StoreDep) -> KnowledgeSyncStatus:
+    return checked(store.sync)
 
 
 @router.delete("/documents")

@@ -1,5 +1,7 @@
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pathlib import Path
+from threading import Event
 
 import pytest
 import zvec
@@ -10,6 +12,57 @@ from backend.service.knowledge.store import DocumentRecord, KnowledgeError, Know
 pytestmark = pytest.mark.usefixtures("knowledge_vectors")
 
 
+def test_search_uses_snapshot_without_stat_or_sync(tmp_path, monkeypatch):
+    store = KnowledgeStore(tmp_path / "storage")
+    source = tmp_path / "manual.txt"
+    write_document(source, "original manual", 1_000_000_000)
+    store.import_document(str(source))
+    write_document(source, "replacement manual", 2_000_000_000)
+    actual_stat = Path.stat
+
+    def stat(path, *args, **kwargs):
+        if path == source:
+            pytest.fail("搜索不得检查原文件")
+        return actual_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    monkeypatch.setattr(store, "_sync", lambda: pytest.fail("搜索不得触发同步"))
+    assert store.search("manual", 5)["results"][0]["text"] == "original manual"
+
+
+@pytest.mark.parametrize("operation", ["import", "delete"])
+def test_sync_serializes_mutations_across_store_instances(tmp_path, monkeypatch, operation):
+    store = KnowledgeStore(tmp_path / "storage")
+    other = KnowledgeStore(store.root)
+    entered, release, attempted = Event(), Event(), Event()
+    source = tmp_path / "new.txt"
+    source.write_text("new manual", encoding="utf-8")
+
+    def slow_sync():
+        entered.set()
+        assert release.wait(5)
+
+    def mutate():
+        attempted.set()
+        return other.import_document(str(source)) if operation == "import" else other.delete_documents([str(source)])
+
+    monkeypatch.setattr(store, "_sync", slow_sync)
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(store.sync)
+        try:
+            assert entered.wait(5)
+            assert other.sync().status == "running"
+            mutation = pool.submit(mutate)
+            assert attempted.wait(5)
+            with pytest.raises(TimeoutError):
+                mutation.result(timeout=0.05)
+            assert other.sync_status().status == "running"
+        finally:
+            release.set()
+        assert pending.result().status == "completed"
+        mutation.result()
+
+
 def write_document(source, text, mtime_ns):
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(text, encoding="utf-8")
@@ -17,7 +70,7 @@ def write_document(source, text, mtime_ns):
 
 
 @pytest.mark.parametrize("mtime_ns", [500_000_000, 2_000_000_000])
-def test_scoped_search_refreshes_entire_library_and_deletes_before_reimport(tmp_path, monkeypatch, mtime_ns):
+def test_manual_sync_refreshes_entire_library_and_deletes_before_reimport(tmp_path, monkeypatch, mtime_ns):
     store = KnowledgeStore(tmp_path / "storage")
     sources = [tmp_path / "docs" / "one.txt", tmp_path / "other" / "two.txt"]
     old = {}
@@ -38,6 +91,7 @@ def test_scoped_search_refreshes_entire_library_and_deletes_before_reimport(tmp_
         return result
 
     monkeypatch.setattr(store, "_write_document", rewrite)
+    store.sync()
     result = store.search("latest", 5, parent_paths=[str(sources[0].parent)])
     assert set(refreshed) == set(map(str, sources))
     assert [item["source"] for item in result["results"]] == [str(sources[0])]
@@ -55,6 +109,7 @@ def test_missing_file_is_removed_without_reverting_other_refreshed_records(tmp_p
         store.import_document(str(source))
     write_document(updated, "latest manual", 2_000_000_000)
     deleted.unlink()
+    store.sync()
     results = store.search("manual", 5)["results"]
     assert [(item["source"], item["text"]) for item in results] == [(str(updated), "latest manual")]
     assert store.list_files(0, 10)["files"][0]["mtime_ns"] == 2_000_000_000
@@ -82,6 +137,7 @@ def test_unchanged_files_are_not_read_or_reembedded_during_search(tmp_path, monk
     monkeypatch.setattr(Path, "open", open_file)
     monkeypatch.setattr(knowledge, "embed_texts", embed)
     monkeypatch.setattr(store, "import_document", lambda *args: pytest.fail("不应重新导入"))
+    store.sync()
     assert store.search("manual", 5)["results"][0]["text"] == "original manual"
 
 
@@ -95,9 +151,10 @@ def test_refresh_failure_blocks_stale_search_and_retries_after_file_is_fixed(tmp
     with monkeypatch.context() as patch:
         patch.setattr(zvec.Collection, "query", lambda *a, **kw: pytest.fail("同步失败不应查询旧索引"))
         with pytest.raises(KnowledgeError, match="二进制"):
-            store.search("manual", 5, parent_paths=[str(tmp_path / "unrelated")])
+            store.sync()
     assert store.list_files(0, 10)["files"][0]["mtime_ns"] == 1_000_000_000
     write_document(source, "fixed manual", 2_000_000_000)
+    store.sync()
     assert store.search("manual", 5)["results"][0]["text"] == "fixed manual"
 
 
@@ -114,8 +171,9 @@ def test_retry_replaces_source_with_shorter_content(tmp_path, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(store, "_publish", fail)
         with pytest.raises(OSError, match="publish failed"):
-            store.search("manual", 5)
+            store.sync()
     write_document(source, "latest manual", 2_000_000_000)
+    store.sync()
     assert store.search("manual", 5)["results"][0]["text"] == "latest manual"
     with store._collection() as collection:
         assert collection.stats.doc_count == 1
@@ -135,7 +193,8 @@ def test_failed_deletion_stops_refresh_and_next_search_retries(tmp_path, monkeyp
         patch.setattr(zvec.Collection, "delete_by_filter", fail)
         patch.setattr(zvec.Collection, "query", lambda *a, **kw: pytest.fail("删除失败不应查询"))
         with pytest.raises(OSError, match="index unavailable"):
-            store.search("manual", 5)
+            store.sync()
+    store.sync()
     assert store.search("manual", 5)["results"][0]["text"] == "new manual"
 
 
@@ -154,5 +213,5 @@ def test_stat_permission_error_blocks_search_instead_of_removing_file(tmp_path, 
     with monkeypatch.context() as patch:
         patch.setattr(Path, "stat", stat)
         with pytest.raises(KnowledgeError, match="访问权限"):
-            store.search("manual", 5)
+            store.sync()
     assert store.list_files(0, 10)["total"] == 1

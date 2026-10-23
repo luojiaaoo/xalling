@@ -46,7 +46,7 @@ def test_hybrid_fuses_keyword_and_semantic_only_matches_with_scope(tmp_path, mon
     assert len(store.search("ZX42", 1, parent_paths=[str(directory)])["results"]) == 1
 
 
-def test_embedding_failure_during_refresh_is_retried_on_next_search(tmp_path, monkeypatch):
+def test_embedding_failure_during_refresh_is_retried_on_next_sync(tmp_path, monkeypatch):
     store = KnowledgeStore(tmp_path / "storage")
     source = tmp_path / "manual.txt"
     source.write_text("original manual", encoding="utf-8")
@@ -63,8 +63,9 @@ def test_embedding_failure_during_refresh_is_retried_on_next_search(tmp_path, mo
         with pytest.raises(KnowledgeError, match="模型不可用"):
             store.import_document(str(source))
         with pytest.raises(KnowledgeError, match="模型不可用"):
-            store.search("manual", 5)
+            store.sync()
     assert store.list_files(0, 10)["files"][0]["mtime_ns"] == updated_time
+    store.sync()
     assert store.search("manual", 5)["results"][0]["text"] == "replacement manual"
 
 
@@ -111,4 +112,5 @@ def test_file_changed_during_embedding_does_not_publish_stale_version(tmp_path, 
         with pytest.raises(KnowledgeError, match="导入期间发生修改"):
             store.import_document(str(source))
     assert store.list_files(0, 10)["files"][0]["mtime_ns"] == modified_time
+    store.sync()
     assert store.search("manual", 5)["results"][0]["text"] == "replacement manual"

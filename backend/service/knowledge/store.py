@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from threading import RLock
+from threading import Lock, RLock
 from typing import TYPE_CHECKING, Concatenate, Literal
 from uuid import NAMESPACE_URL, uuid5
 
@@ -32,10 +32,22 @@ MAX_TEXT_CHARACTERS = 20_000_000
 PREVIEW_EDGE_CHARACTERS = 500
 # 所有会话共用集合；持锁直到句柄关闭，避免原生文件锁竞争。
 _STORAGE_LOCK = RLock()
+# 进度查询不能等待存储锁，否则同步时界面的进度条无法更新。
+_SYNC_STATE_LOCK = Lock()
+_SYNC_STATES: dict[Path, KnowledgeSyncStatus] = {}
 
 
 class KnowledgeError(Exception):
     """可直接展示给用户的知识库业务异常。"""
+
+
+class KnowledgeSyncStatus(BaseModel):
+    """独立于索引锁的同步进度，可在写入期间查询。"""
+
+    status: Literal["idle", "running", "completed", "error"] = "idle"
+    completed_files: int = 0
+    total_files: int = 0
+    message: str = "点击同步，更新已入库的原文件并清理已删除文件。"
 
 
 def requires_embedding_model[**P, R](
@@ -391,7 +403,7 @@ class KnowledgeStore:
             if not selected:
                 return {"deleted": 0}
             if (self.root / "index").exists():
-                # 删除中途失败时，保留的记录可在下次检索时重建向量。
+                # 删除中途失败时，保留的记录可在下次手动同步时重建向量。
                 catalog.pending = sorted(set(catalog.pending) | selected)
                 self._publish(catalog)
                 with self._collection() as collection:
@@ -404,42 +416,74 @@ class KnowledgeStore:
             self._publish(catalog)
             return {"deleted": len(selected)}
 
+    def sync_status(self) -> KnowledgeSyncStatus:
+        with _SYNC_STATE_LOCK:
+            return _SYNC_STATES.get(self.root, KnowledgeSyncStatus()).model_copy()
+
+    def _sync_progress(self, **updates: str | int) -> None:
+        with _SYNC_STATE_LOCK:
+            _SYNC_STATES[self.root] = _SYNC_STATES[self.root].model_copy(update=updates)
+
+    @requires_embedding_model
+    def sync(self) -> KnowledgeSyncStatus:
+        """仅由界面显式触发；重复请求复用进度，所有修改串行执行。"""
+        with _SYNC_STATE_LOCK:
+            state = _SYNC_STATES.get(self.root)
+            if state is not None and state.status == "running":
+                return state.model_copy()
+            _SYNC_STATES[self.root] = KnowledgeSyncStatus(status="running", message="等待写入锁，准备同步。")
+        try:
+            with _STORAGE_LOCK:
+                self._sync()
+            self._sync_progress(status="completed", message="同步完成。")
+        except Exception as error:
+            message = str(error) if isinstance(error, KnowledgeError) else "同步失败，请检查索引、磁盘空间和文件权限后重试。"
+            self._sync_progress(status="error", message=message)
+            raise
+        return self.sync_status()
+
     def _sync(self) -> None:
-        """按 JSON 更新文件，并重试上次未完成或索引丢失的写入。"""
-        with _STORAGE_LOCK:
-            catalog = self._catalog()
-            # 整个索引丢失时全部重写，先记录状态，避免重建首个文档后误跳过其余文档。
-            index_exists = (self.root / "index").exists()
-            for source_key, record in catalog.documents.items():
-                source = Path(record.source)
-                try:
-                    mtime_ns = source.stat().st_mtime_ns
-                except FileNotFoundError:
-                    mtime_ns = None
-                except OSError as error:
-                    raise KnowledgeError("无法检查知识库原文件的修改时间，请检查文件路径与访问权限后重试。") from error
-                # 原文件已删除：先删向量，再从 JSON 移除。
-                if mtime_ns is None:
-                    with self._collection(create=True) as collection:
-                        collection.delete_by_filter(f"source = {_source_literal(source_key)}")
-                        collection.flush()
-                    current = self._catalog()
-                    del current.documents[source_key]
-                    if source_key in current.pending:
-                        current.pending.remove(source_key)
-                    self._publish(current)
-                    continue
+        """调用方持有存储锁；按 JSON 更新文件，并重试未完成或索引丢失的写入。"""
+        catalog = self._catalog()
+        # 整个索引丢失时全部重写，先记录状态，避免重建首个文档后误跳过其余文档。
+        index_exists = (self.root / "index").exists()
+        self._sync_progress(total_files=len(catalog.documents), message="正在检查并同步原文件。")
+        for completed, (source_key, record) in enumerate(catalog.documents.items(), start=1):
+            self._sync_progress(message=f"正在同步：{record.source}")
+            self._sync_document(source_key, record, catalog, index_exists)
+            self._sync_progress(completed_files=completed)
 
-                # 原文件更新：删除旧向量、更新 JSON、插入新向量。
-                if mtime_ns != record.mtime_ns:
-                    self._write_document(source)
-                    continue
+    def _sync_document(self, source_key: str, record: DocumentRecord, catalog: _Catalog, index_exists: bool) -> None:
+        """调用方持有存储锁。"""
+        source = Path(record.source)
+        try:
+            mtime_ns = source.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtime_ns = None
+        except OSError as error:
+            raise KnowledgeError("无法检查知识库原文件的修改时间，请检查文件路径与访问权限后重试。") from error
+        # 原文件已删除：先删向量，再从 JSON 移除。
+        if mtime_ns is None:
+            with self._collection(create=True) as collection:
+                collection.delete_by_filter(f"source = {_source_literal(source_key)}")
+                collection.flush()
+            current = self._catalog()
+            del current.documents[source_key]
+            if source_key in current.pending:
+                current.pending.remove(source_key)
+            self._publish(current)
+            return
 
-                # 时间相同、上次已写完且索引目录存在：直接跳过。
-                if source_key not in catalog.pending and index_exists:
-                    continue
-                # 上次写入未完成，或整个索引目录丢失：重新写入。
-                self._write_document(source)
+        # 原文件更新：删除旧向量、更新 JSON、插入新向量。
+        if mtime_ns != record.mtime_ns:
+            self._write_document(source)
+            return
+
+        # 时间相同、上次已写完且索引目录存在：直接跳过。
+        if source_key not in catalog.pending and index_exists:
+            return
+        # 上次写入未完成，或整个索引目录丢失：重新写入。
+        self._write_document(source)
 
     @requires_embedding_model
     def search(
@@ -449,17 +493,18 @@ class KnowledgeStore:
         *,
         parent_paths: list[str] | None = None,
     ) -> dict:
-        """先同步全库原文件，再按指定目录范围混合检索正文。"""
+        """按指定目录范围检索已入库正文，不读取或同步原文件。"""
         import zvec
 
         with _STORAGE_LOCK:
-            self._sync()
             if parent_paths is None:
                 files = self._files()
             else:
                 files = {}
                 for parent in parent_paths:
                     files.update(self._files(parent))
+            pending = set(self._catalog().pending)
+            files = {source: record for source, record in files.items() if os.path.normcase(source) not in pending}
             if not files:
                 return {"query": query, "retrieval": "hybrid", "results": []}
             active = {os.path.normcase(source): record for source, record in files.items()}

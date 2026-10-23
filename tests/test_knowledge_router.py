@@ -25,6 +25,56 @@ def knowledge_api(tmp_path):
         yield client, store
 
 
+def test_sync_requires_auth_and_reports_live_progress(knowledge_api, tmp_path, monkeypatch):
+    client, store = knowledge_api
+    for method in (client.get, client.post):
+        assert method("/api/knowledge/sync").status_code == 401
+    assert client.get("/api/knowledge/sync", headers=AUTH).json()["status"] == "idle"
+    source = tmp_path / "manual.txt"
+    source.write_text("manual", encoding="utf-8")
+    store.import_document(str(source))
+    entered, release = Event(), Event()
+    sync_document = store._sync_document
+
+    def slow_document(*args):
+        entered.set()
+        assert release.wait(5)
+        return sync_document(*args)
+
+    monkeypatch.setattr(store, "_sync_document", slow_document)
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(client.post, "/api/knowledge/sync", headers=AUTH)
+        try:
+            assert entered.wait(5)
+            state = client.get("/api/knowledge/sync", headers=AUTH).json()
+            assert state["status"] == "running"
+            assert state["total_files"] == 1
+            assert state["completed_files"] == 0
+            assert client.post("/api/knowledge/sync", headers=AUTH).json()["status"] == "running"
+            assert client.get("/api/window/capabilities", headers=AUTH).status_code == 200
+        finally:
+            release.set()
+        state = pending.result().json()
+        assert state["status"] == "completed"
+        assert state["completed_files"] == state["total_files"] == 1
+
+
+@pytest.mark.parametrize("error,status", [(knowledge.KnowledgeError("原文件无法访问"), 400), (RuntimeError("secret"), 500)])
+def test_sync_failure_status_and_sanitized_response(knowledge_api, monkeypatch, error, status):
+    client, store = knowledge_api
+
+    def fail():
+        raise error
+
+    monkeypatch.setattr(store, "_sync", fail)
+    response = client.post("/api/knowledge/sync", headers=AUTH)
+    assert response.status_code == status
+    assert "secret" not in response.text
+    state = client.get("/api/knowledge/sync", headers=AUTH).json()
+    assert state["status"] == "error"
+    assert "secret" not in state["message"]
+
+
 def test_authenticated_read_only_tree_and_file_filters(knowledge_api, tmp_path):
     client, store = knowledge_api
     assert client.get("/api/knowledge/tree").status_code == 401

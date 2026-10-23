@@ -8,6 +8,9 @@ import {
   downloadKnowledgeEmbedding,
   getKnowledgeEmbeddingStatus,
   getKnowledgeTree,
+  getKnowledgeSyncStatus,
+  syncKnowledgeDocuments,
+  type KnowledgeSyncStatus,
   type KnowledgeEmbeddingStatus,
   type KnowledgeTree,
 } from "../api/client";
@@ -53,6 +56,10 @@ function KnowledgePanel() {
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ node: KnowledgePathNode; sources: string[] } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [syncState, setSyncState] = useState<KnowledgeSyncStatus | null>(null);
+  const [syncPending, setSyncPending] = useState(false);
+  const syncRunning = syncPending || syncState?.status === "running";
+  const syncRequest = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const deletePending = useRef(false);
   const requestId = useRef(0);
@@ -84,6 +91,45 @@ function KnowledgePanel() {
     void refresh();
     return () => { mounted.current = false; requestId.current += 1; };
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let wasRunning = false;
+    const poll = async () => {
+      try {
+        const state = await getKnowledgeSyncStatus();
+        if (cancelled) return;
+        setSyncState(state);
+        if (wasRunning && state.status !== "running") void refresh();
+        wasRunning = state.status === "running";
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "读取同步进度失败");
+      } finally {
+        if (!cancelled) timer = setTimeout(() => void poll(), 1000);
+      }
+    };
+    void poll();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [refresh]);
+
+  const sync = async () => {
+    if (syncRequest.current || syncRunning || deleting) return;
+    syncRequest.current = true;
+    setSyncPending(true);
+    setError(null);
+    try {
+      const state = await syncKnowledgeDocuments();
+      if (!mounted.current) return;
+      setSyncState(state);
+      if (state.status === "completed") await refresh();
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : "同步知识库失败");
+    } finally {
+      syncRequest.current = false;
+      if (mounted.current) setSyncPending(false);
+    }
+  };
 
   useEffect(() => {
     if (model?.status !== "downloading") return;
@@ -122,7 +168,7 @@ function KnowledgePanel() {
   }, []);
 
   const remove = async () => {
-    if (!deleteTarget || deletePending.current) return;
+    if (!deleteTarget || deletePending.current || syncRunning) return;
     deletePending.current = true;
     setDeleting(true);
     setDeleteError(null);
@@ -144,7 +190,7 @@ function KnowledgePanel() {
     }
   };
 
-  const roots = useMemo(() => data ? buildKnowledgeTree(data).map((node) => toTreeNode(node, selectDelete, deleting, true)) : [], [data, selectDelete, deleting]);
+  const roots = useMemo(() => data ? buildKnowledgeTree(data).map((node) => toTreeNode(node, selectDelete, deleting || syncRunning, true)) : [], [data, selectDelete, deleting, syncRunning]);
   const progress = model?.progress;
   const validating = progress?.phase === "validating";
   const percent = validating ? 100 : progress?.total_bytes
@@ -153,8 +199,17 @@ function KnowledgePanel() {
   return <div className="knowledge-panel">
     <div className="knowledge-toolbar">
       <p className="knowledge-scope">所有工作区共享。可在对话中指定目录或让 AI 语义查找文件；删除仅移除知识库文档，保留磁盘原文件。</p>
+      <Button disabled={model?.status !== "ready" || deleting} loading={syncRunning} onClick={() => void sync()}>同步知识库</Button>
       <Button icon={<ReloadOutlined />} aria-label="刷新知识库" loading={loading} disabled={deleting} onClick={() => void refresh()} />
     </div>
+    {syncState && syncState.status !== "idle" && <div aria-live="polite">
+      <Progress
+        aria-label="知识库同步进度"
+        percent={syncState.status === "completed" ? 100 : syncState.total_files ? Math.floor(syncState.completed_files / syncState.total_files * 100) : 0}
+        status={syncState.status === "error" ? "exception" : syncRunning ? "active" : "success"}
+      />
+      <p className="knowledge-hint">{syncState.message} · 文件 {syncState.completed_files}/{syncState.total_files}</p>
+    </div>}
     {error && error !== model?.message && <Alert type="error" title={error} showIcon />}
     {model && <Alert
       type={model.status === "ready" ? "success" : model.status === "error" ? "error" : model.status === "downloading" ? "info" : "warning"}
@@ -202,7 +257,7 @@ function KnowledgePanel() {
       onOk={() => void remove()}
       okText="删除文档"
       cancelText="取消"
-      okButtonProps={{ danger: true, disabled: !deleteTarget?.sources.length }}
+      okButtonProps={{ danger: true, disabled: syncRunning || !deleteTarget?.sources.length }}
       cancelButtonProps={{ disabled: deleting }}
       confirmLoading={deleting}
       closable={!deleting}
