@@ -235,3 +235,4 @@ __marimo__/
 # Local plugin build artifacts
 plugins/bin/
 .xalling/
+xalling-userdata/

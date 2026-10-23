@@ -1,5 +1,1 @@
-"""Application configuration exports."""
-
-from .setting import Settings, get_settings
-
-__all__ = ["Settings", "get_settings"]
+"""Configuration modules; import concrete submodules without startup side effects."""

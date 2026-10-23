@@ -4,6 +4,18 @@
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
+# A small standalone helper runs before the main application is installed.
+installer_helper = Analysis(
+    ["script/installer_data.py"], pathex=["."], binaries=[], datas=[],
+    hiddenimports=[], hookspath=[], hooksconfig={}, runtime_hooks=[],
+    excludes=[], noarchive=False, optimize=0,
+)
+EXE(
+    PYZ(installer_helper.pure), installer_helper.scripts,
+    installer_helper.binaries, installer_helper.datas, [],
+    name="Xalling-DataSetup", console=True, icon=["favicon.ico"],
+)
+
 datas = [("frontend/dist", "frontend/dist"), ("tutorials", "tutorials")]
 binaries = [
     ("plugins/bin/claude-proxy-rust.exe", "plugins/bin"),

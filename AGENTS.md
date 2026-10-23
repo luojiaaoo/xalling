@@ -75,9 +75,13 @@ name = "Qwen3.6-35B-A3B"
 
 `backend/config/setting.py` 中的 `Settings` 会把 `model` 加载为 `ModelSiteConfig` 列表，每个站点下的 `models` 则是 `ModelConfig` 列表。对话界面通过 HTTP API 获取分组名、模型名和上下文设置，并保存当前选择；模型设置页通过已认证的连接编辑站点配置。推理强度是对话界面的临时状态，不写入配置文件。
 
-真实配置位于 `~/.xalling/xalling-setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
+数据目录在启动时从 `~/xalling-paths.toml` 的顶层 `data_dir` 读取，文件不存在时自动创建并写入 `data_dir = "~/xalling-userdata"`，字段不存在时也默认使用 `~/xalling-userdata`。支持绝对路径、`~` 和相对于用户主目录的路径，例如 `data_dir = 'D:\XallingData'`。修改后重启生效，已有数据需自行搬迁；无效配置会导致启动报错。模型配置、当前选择、日志、附件、知识库、调度数据库和 SDK 数据共用此目录。本文中的 `~/xalling-userdata` 均表示默认数据目录，自定义后应替换为对应路径。
 
-当前选择单独保存在 `~/.xalling/xalling-current.toml`：
+Windows 安装向导始终显示欢迎页和程序安装目录页，安装目录默认恢复上次选择。检测到已有安装时，不区分同版本、升级或降级，正式安装前先调用原卸载程序，成功后再安装；卸载失败则停止，用户数据及路径配置保留。Windows 安装向导按 `~/xalling-paths.toml` 的 `data_dir` 检测并显示数据目录，未配置时使用 `~/xalling-userdata`，已有配置默认保留。修改路径并发现已有数据时，提供二选一：默认“复制后删除旧目录”，先复制、校验并更新配置，再删除源目录，更稳妥但占用额外空间；或“直接剪切”，同磁盘可直接移动、减少临时空间占用，但中途停止可能导致数据分散或不完整，界面明确提醒勿停止安装或关闭电脑。目标须为空且不能与源目录相互包含。“下一步”和准备页只做路径校验，不扫描文件或计算空间；点击安装并完成程序文件安装后，才启动数据大小计算，检查空间通过后立即迁移。大小和磁盘空间按 1024 进制自动显示 B、KB、MB、GB 等单位；迁移前后均检查磁盘剩余空间必须超过 1 GB（1024 MB）。复制模式在复制、校验或配置更新失败时保留源数据，源目录删除失败会提示清理残留；剪切失败需检查源、目标两处数据。迁移期间持有应用单实例锁，请先关闭 Xalling 桌面及无头服务。安装窗口保留 Inno Setup 默认阶段提示和进度条，隐藏重复的单行路径及最新日志标签，文件路径只在日志框中显示；进度条下方独立显示卸载、程序文件安装、计算大小、复制、校验及清理的附加日志，程序安装逐条输出已完成文件的完整路径，不生成自定义百分比，也不在打包时统计总文件数；最后汇总版本、程序目录、实际安装文件数、数据目录和迁移结果，总结仅输出到安装页日志，完成页使用 Inno Setup 默认界面，不显示自定义总结或日志框；默认进度条始终由 Inno Setup 管理；复制及校验按块显示文件数、MB/GB 和百分比，进度日志每半秒最多刷新一次，日志框保留本次安装全部日志，不删除旧行；界面批量追加且关闭自动换行，追加和滚动完成后立即绘制，始终显示最新日志，成功后显示“迁移完成”并停留 4 秒（静默安装不等待）；迁移期间日志追加写入 `~/xalling-install-migration.log`，全部成功后自动删除；失败或旧目录清理不完整时保留日志，仅在日志仍存在时于日志框显示其位置。安装包内嵌独立工具，无需系统安装 Python。静默安装支持 `/DATADIR="D:\XallingData"` 及 `/MIGRATIONMODE=copy`（默认）或 `/MIGRATIONMODE=move`。卸载保留数据和路径配置。
+
+真实配置位于 `~/xalling-userdata/xalling-setting.toml`；可从仓库根目录的 `setting.example.toml` 复制创建。示例文件不包含 API Key。
+
+当前选择单独保存在 `~/xalling-userdata/xalling-current.toml`：
 
 ```toml
 [model]
@@ -91,7 +95,7 @@ name = "glm-5.3-flash"
 
 Xalling 会把下列已存在的用户级 Skill 目录作为 Claude Agent SDK 本地插件加载：
 
-- Xalling：`~/.xalling/skills/`
+- Xalling：`~/xalling-userdata/skills/`
 - OpenCode：`~/.config/opencode/skills/`
 - Agent Skills / Codex：`~/.agents/skills/`
 - 当前项目：`<project>/.agents/skills/`
@@ -278,6 +282,7 @@ script/
   build_claude_proxy.bat           # 构建 Rust 代理
   package_windows.bat              # 一键打包（代理 + 前端 + PyInstaller + 安装包）
   installer_windows.iss            # Inno Setup 6 安装程序脚本
+  installer_data.py                # 安装时目录检测、空间检查与数据迁移工具
 tutorials/                         # 应用内教程文档
 tests/                             # 客户端、历史、路由和 HTTP / WebSocket 契约测试
 setting.example.toml               # 模型配置示例（不含 API Key）
@@ -297,7 +302,7 @@ cd ..
 uv run python main.py
 ```
 
-运行前请将 `setting.example.toml` 复制为 `~/.xalling/xalling-setting.toml` 并填入模型站点信息。
+运行前请将 `setting.example.toml` 复制为 `~/xalling-userdata/xalling-setting.toml` 并填入模型站点信息。
 
 ## 开发命令
 
@@ -333,14 +338,15 @@ git submodule update --init --recursive
 .\script\package_windows.bat
 ```
 
-脚本会依次执行：构建 `claude-proxy-rust` → 构建前端 → PyInstaller 打包 → Inno Setup 生成安装程序。产物位于 `dist\`：
+脚本会依次执行：构建 `claude-proxy-rust` → 获取固定版本 Claude Code CLI（`fetch_claude_cli.bat`）→ 构建前端 → PyInstaller 打包 → Inno Setup 生成安装程序。产物位于 `dist\`：
 
 - `dist\Xalling\`：绿色目录版，包含桌面入口 `Xalling.exe`（无控制台）和无头入口 `Xalling-Server.exe`（终端仅输出连接 URL），共享 `_internal` 依赖与资源
 - `dist\Xalling-Setup-<版本>.exe`：安装程序
+- `dist\Xalling-DataSetup.exe`：安装程序内嵌的独立目录检测及数据迁移工具
 
 `Xalling-Server.exe` 无需 `--headless` 参数，按 `Ctrl+C` 退出；安装程序为两个入口创建开始菜单快捷方式。源码可使用 `uv run python main_headless.py`，也保留 `uv run python main.py --headless`。`Xalling.spec` 统一维护双入口与资源收集，仅提供双入口共享依赖的目录版，可运行 `uv run pyinstaller --noconfirm Xalling.spec` 构建。
 
-版本号由 `script\installer_windows.iss` 的 `MyAppVersion` 维护，需与 `pyproject.toml` 保持一致。
+本地运行打包脚本时提示输入 `APP_VERSION`，不能为空，支持 `0.1.0`、`0.1.0-beta.1` 等版本。环境变量已设置时直接使用；CI 未设置时立即报错退出，不等待输入。版本号通过 `/DMyAppVersion` 传给 Inno Setup，控制安装版本及文件名；直接编译 `.iss` 时使用其默认 `MyAppVersion`。发布版本需与 `pyproject.toml` 保持一致。
 
 ### Linux（GTK / Debian、Ubuntu 示例）
 
@@ -370,7 +376,7 @@ uv run pyinstaller --noconfirm --clean --windowed --onedir \
 
 ### 自定义文件与目录命名（必须遵守）
 
-- 程序自定义在 .xalling 下创建的持久化文件、缓存、日志、附件和其他运行时文件或文件夹，名称必须以 `xalling-` 开头。
+- 程序自定义在 xalling-userdata 下创建的持久化文件、缓存、日志、附件和其他运行时文件或文件夹，名称必须以 `xalling-` 开头。
 - SDK 或第三方库自行管理的文件和目录保留其原始名称，不为其另外复制一份存储；优先通过 SDK 接口查询、恢复其数据。
 
 ### 前端
