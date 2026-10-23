@@ -17,6 +17,13 @@ export type KnowledgeEmbeddingStatus = {
   model: string;
   directory: string;
   message: string;
+  progress: {
+    phase: "preparing" | "downloading" | "validating";
+    downloaded_bytes: number;
+    total_bytes: number | null;
+    completed_files: number;
+    total_files: number;
+  } | null;
 };
 
 export function getKnowledgeEmbeddingStatus(): Promise<KnowledgeEmbeddingStatus> {

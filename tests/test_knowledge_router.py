@@ -230,11 +230,17 @@ def test_manual_download_reports_progress_and_does_not_block_other_requests(know
 
     def download(**kwargs):
         calls.append(kwargs)
+        callback = kwargs["progress_callbacks"][0]
+        callbacks = [callback(name, 10) for name in knowledge_embedding.MODEL_FILES]
+        for item in callbacks:
+            item.update(5)
         entered.set()
         assert release.wait(5)
         for name in knowledge_embedding.MODEL_FILES:
             (kwargs["local_dir"] / name).parent.mkdir(parents=True, exist_ok=True)
             (kwargs["local_dir"] / name).write_bytes(b"model-data")
+        for item in callbacks:
+            item.end()
 
     monkeypatch.setattr(modelscope_hub, "snapshot_download", download)
     monkeypatch.setattr(knowledge_embedding, "_load_model", lambda directory: object())
@@ -242,7 +248,12 @@ def test_manual_download_reports_progress_and_does_not_block_other_requests(know
         pending = pool.submit(client.post, "/api/knowledge/embedding/download", headers=AUTH)
         try:
             assert entered.wait(5)
-            assert client.get("/api/knowledge/embedding", headers=AUTH).json()["status"] == "downloading"
+            state = client.get("/api/knowledge/embedding", headers=AUTH).json()
+            assert state["status"] == "downloading"
+            assert state["progress"] == {
+                "phase": "downloading", "downloaded_bytes": 25, "total_bytes": 50,
+                "completed_files": 0, "total_files": 5,
+            }
             assert client.post("/api/knowledge/embedding/download", headers=AUTH).json()["status"] == "downloading"
             assert client.get("/api/window/capabilities", headers=AUTH).status_code == 200
         finally:

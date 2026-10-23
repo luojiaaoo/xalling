@@ -269,6 +269,51 @@ def test_manual_download_validates_files_and_subsequent_loads_are_local(tmp_path
     assert len(downloads) == 1
 
 
+def test_download_progress_aggregates_parallel_files_and_waits_for_validation(tmp_path, model, monkeypatch):
+    import modelscope.hub as modelscope_hub
+
+    def download(**kwargs):
+        assert get_embedding_status(tmp_path).progress.phase == "preparing"
+        callback = kwargs["progress_callbacks"][0]
+        first = callback(MODEL_FILES[0], 10)
+        first.update(5)
+        partial = get_embedding_status(tmp_path).progress
+        assert partial.downloaded_bytes == 5
+        assert partial.total_bytes is None
+        callbacks = [first, *(callback(name, 10) for name in MODEL_FILES[1:])]
+        with ThreadPoolExecutor() as pool:
+            list(pool.map(lambda item: item.update(5), callbacks[1:]))
+        state = get_embedding_status(tmp_path)
+        assert state.progress.downloaded_bytes == 25
+        assert state.progress.total_bytes == 50
+        assert state.progress.completed_files == 0
+        assert partial.downloaded_bytes == 5  # 已返回的快照不随回调改变。
+        for item in callbacks:
+            item.update(100)  # 重试或重放回调不得让进度超过文件大小。
+            item.end()
+        assert get_embedding_status(tmp_path).progress.downloaded_bytes == 50
+        assert get_embedding_status(tmp_path).progress.completed_files == len(MODEL_FILES)
+        write_model_files(tmp_path, ready=False)
+
+    original_load = knowledge_embedding._load_model
+
+    def load(directory):
+        state = get_embedding_status(tmp_path)
+        assert state.status == "downloading"
+        assert state.progress.phase == "validating"
+        assert state.progress.downloaded_bytes == state.progress.total_bytes
+        assert "验证" in state.message
+        assert not (directory / ".ready").exists()
+        return original_load(directory)
+
+    monkeypatch.setattr(modelscope_hub, "snapshot_download", download)
+    monkeypatch.setattr(knowledge_embedding, "_load_model", load)
+    state = download_embedding_model(tmp_path)
+    assert state.status == "ready"
+    assert state.progress is None
+    assert tmp_path / "embedding" not in knowledge_embedding._PROGRESS
+
+
 @pytest.mark.parametrize("failure", ["network", "incomplete", "load"])
 def test_download_failure_is_sanitized_and_retryable(tmp_path, model, monkeypatch, failure):
     import modelscope.hub as modelscope_hub
@@ -289,6 +334,7 @@ def test_download_failure_is_sanitized_and_retryable(tmp_path, model, monkeypatc
             download_embedding_model(tmp_path)
     assert "private-network-error" not in str(error.value)
     assert get_embedding_status(tmp_path).status == "error"
+    assert get_embedding_status(tmp_path).progress is None
     assert not (tmp_path / "embedding" / ".ready").exists()
     with pytest.raises(EmbeddingError, match="手动点击"):
         embed_texts(tmp_path, ["甲"])

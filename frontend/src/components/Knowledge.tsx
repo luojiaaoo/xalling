@@ -1,5 +1,5 @@
 import { DeleteOutlined, DownloadOutlined, HddOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Empty, Modal, Spin, Tree } from "antd";
+import { Alert, App, Button, Empty, Modal, Progress, Spin, Tree } from "antd";
 import type { TreeDataNode } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -12,6 +12,12 @@ import {
   type KnowledgeTree,
 } from "../api/client";
 import { buildKnowledgeTree, collectKnowledgeSources, type KnowledgePathNode } from "../knowledge/tree";
+
+function formatDownloadSize(bytes: number): string {
+  const units = ["B", "KiB", "MiB", "GiB"];
+  const unit = bytes > 0 ? Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1) : 0;
+  return `${(bytes / 1024 ** unit).toFixed(unit ? 1 : 0)} ${units[unit]}`;
+}
 
 function toTreeNode(node: KnowledgePathNode, onDelete: (node: KnowledgePathNode) => void, deleting: boolean, root = false): TreeDataNode {
   return {
@@ -95,7 +101,7 @@ function KnowledgePanel() {
     if (downloadPending || !model || model.status === "downloading") return;
     setDownloadPending(true);
     setError(null);
-    setModel({ ...model, status: "downloading", message: "正在下载并验证嵌入模型，完成后即可使用知识库。" });
+    setModel({ ...model, status: "downloading", progress: null, message: "正在准备下载嵌入模型。" });
     try {
       await downloadKnowledgeEmbedding();
       if (mounted.current) await refresh();
@@ -139,6 +145,10 @@ function KnowledgePanel() {
   };
 
   const roots = useMemo(() => data ? buildKnowledgeTree(data).map((node) => toTreeNode(node, selectDelete, deleting, true)) : [], [data, selectDelete, deleting]);
+  const progress = model?.progress;
+  const validating = progress?.phase === "validating";
+  const percent = validating ? 100 : progress?.total_bytes
+    ? Math.min(99, Math.floor(progress.downloaded_bytes / progress.total_bytes * 100)) : 0;
 
   return <div className="knowledge-panel">
     <div className="knowledge-toolbar">
@@ -149,7 +159,22 @@ function KnowledgePanel() {
     {model && <Alert
       type={model.status === "ready" ? "success" : model.status === "error" ? "error" : model.status === "downloading" ? "info" : "warning"}
       title={model.status === "ready" ? "嵌入模型已就绪" : model.status === "downloading" ? "正在准备嵌入模型" : "知识库尚未启用"}
-      description={model.message}
+      description={<div>
+        <div>{model.message}</div>
+        {model.status === "downloading" && <div className="knowledge-model-progress">
+          <Progress
+            aria-label="嵌入模型下载进度"
+            percent={percent}
+            status="active"
+            format={() => validating ? "验证中" : progress?.total_bytes ? `${percent}%` : progress?.phase === "downloading" ? "下载中" : "准备中"}
+          />
+          <p className="knowledge-hint" aria-live="polite">
+            已下载 {formatDownloadSize(progress?.downloaded_bytes ?? 0)}
+            {progress?.total_bytes ? ` / ${formatDownloadSize(progress.total_bytes)}` : " · 正在获取总大小"}
+            {progress && ` · 文件 ${progress.completed_files}/${progress.total_files}`}
+          </p>
+        </div>}
+      </div>}
       showIcon
       action={model.status !== "ready" && <Button
         type="primary"

@@ -20,7 +20,7 @@ function walk(node) {
   return [node, ...walk(node.props?.children)];
 }
 
-async function panel(remove = async () => ({ deleted: 2 })) {
+async function panel(remove = async () => ({ deleted: 2 }), embedding = { status: "ready", message: "ready" }) {
   const sources = ["C:/Users/user/docs/a.pdf", "C:/Users/user/docs/nested/b.pdf", "C:/Users/user/other/c.pdf"];
   let files = [...sources], cursor = 0, initialized = false, view;
   const slots = [], effects = [], cleanups = [], requests = [], successes = [];
@@ -45,13 +45,13 @@ async function panel(remove = async () => ({ deleted: 2 })) {
         useEffect: (fn) => { if (!initialized) effects.push(fn); },
       };
       if (name === "antd") return {
-        Alert: "Alert", Button: "Button", Empty: "Empty", Modal: "Modal", Spin: "Spin", Tree: { DirectoryTree: "Tree" },
+        Alert: "Alert", Button: "Button", Empty: "Empty", Modal: "Modal", Progress: "Progress", Spin: "Spin", Tree: { DirectoryTree: "Tree" },
         App: { useApp: () => ({ message: { success: (text) => successes.push(text) } }) },
       };
       if (name === "@ant-design/icons") return {};
       if (name === "../knowledge/tree") return tree;
       if (name === "../api/client") return {
-        getKnowledgeEmbeddingStatus: async () => ({ status: "ready", message: "ready" }),
+        getKnowledgeEmbeddingStatus: async () => embedding,
         getKnowledgeTree: async () => ({ directories: [{ path: "C:/Users/user", files: [...files] }] }),
         deleteKnowledgeDocuments: async (selected) => {
           requests.push(plain(selected));
@@ -78,9 +78,47 @@ async function panel(remove = async () => ({ deleted: 2 })) {
     button: (path) => walk(allTreeNodes().find((node) => node.title.props.children[0].props.title === path).title)
       .find((node) => node.type === "Button"),
     confirmation: () => walk(view).find((node) => node.type === "Modal" && node.props.title !== "本地知识库"),
+    progressNodes: () => walk(walk(view).find((node) => node.type === "Alert")?.props.description),
+    refreshEmbedding: async (next) => {
+      embedding = next;
+      await walk(view).find((node) => node.props?.["aria-label"] === "刷新知识库").props.onClick();
+      await tick();
+      render();
+    },
     dispose: () => cleanups.forEach((cleanup) => cleanup?.()),
   };
 }
+
+test("embedding progress shows bytes, unknown totals and validation without claiming readiness", async () => {
+  const downloading = {
+    status: "downloading", message: "下载中",
+    progress: { phase: "downloading", downloaded_bytes: 1024 ** 2, total_bytes: 4 * 1024 ** 2, completed_files: 1, total_files: 5 },
+  };
+  const env = await panel(undefined, downloading);
+  let progress = env.progressNodes().find((node) => node.type === "Progress");
+  assert.equal(progress.props.percent, 25);
+  assert.equal(progress.props.format(), "25%");
+  let label = env.progressNodes().find((node) => node.type === "p").props.children.flat(Infinity).join("");
+  assert.match(label, /1\.0 MiB \/ 4\.0 MiB/);
+  assert.match(label, /文件 1\/5/);
+
+  await env.refreshEmbedding({ ...downloading, progress: { ...downloading.progress, total_bytes: null } });
+  progress = env.progressNodes().find((node) => node.type === "Progress");
+  assert.equal(progress.props.format(), "下载中");
+  assert.equal(progress.props.percent, 0);
+
+  await env.refreshEmbedding({ ...downloading, progress: { ...downloading.progress, downloaded_bytes: 4 * 1024 ** 2 } });
+  assert.equal(env.progressNodes().find((node) => node.type === "Progress").props.percent, 99);
+  await env.refreshEmbedding({ ...downloading, progress: { ...downloading.progress, phase: "validating", downloaded_bytes: 4 * 1024 ** 2 } });
+  progress = env.progressNodes().find((node) => node.type === "Progress");
+  assert.equal(progress.props.percent, 100);
+  assert.equal(progress.props.format(), "验证中");
+  assert.equal(progress.props.status, "active");
+
+  await env.refreshEmbedding({ status: "ready", message: "ready", progress: null });
+  assert.equal(env.progressNodes().filter((node) => node.type === "Progress").length, 0);
+  env.dispose();
+});
 
 test("only non-root nodes have delete buttons and opening or cancelling confirmation never deletes", async () => {
   const env = await panel();

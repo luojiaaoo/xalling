@@ -8,13 +8,14 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.service.knowledge.chunking import chunk_text, index_chunk_options
 from backend.service.knowledge.text_files import TEXT_WHITESPACE, utf8_text
 
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
+    from modelscope.hub.callback import ProgressCallback
 
 MODEL_NAME = "ibm-granite/granite-embedding-311m-multilingual-r2"
 # 魔搭（ModelScope）仓库，国内网络可直接下载。
@@ -33,11 +34,22 @@ _EMBEDDING_LOCK = RLock()
 _STATE_LOCK = RLock()
 _DOWNLOADING: set[Path] = set()
 _ERRORS: dict[Path, str] = {}
+_PROGRESS: dict[Path, EmbeddingDownloadProgress] = {}
 MISSING_MODEL_MESSAGE = "知识库嵌入模型未下载或文件不完整，请打开“本地知识库”，手动点击“下载嵌入模型”后再使用。"
 
 
 class EmbeddingError(Exception):
     """本地嵌入模型不可用或返回无效向量。"""
+
+
+class EmbeddingDownloadProgress(BaseModel):
+    """下载回调提供的字节进度；所有文件大小已知后才返回总大小。"""
+
+    phase: Literal["preparing", "downloading", "validating"] = "preparing"
+    downloaded_bytes: int = Field(default=0, ge=0)
+    total_bytes: int | None = Field(default=None, ge=1)
+    completed_files: int = Field(default=0, ge=0, le=len(MODEL_FILES))
+    total_files: int = len(MODEL_FILES)
 
 
 class EmbeddingStatus(BaseModel):
@@ -47,6 +59,7 @@ class EmbeddingStatus(BaseModel):
     model: str = MODEL_NAME
     directory: str
     message: str
+    progress: EmbeddingDownloadProgress | None = None
 
 
 def _model_directory(root: Path) -> Path:
@@ -66,14 +79,68 @@ def get_embedding_status(root: Path) -> EmbeddingStatus:
     directory = _model_directory(root)
     with _STATE_LOCK:
         if directory in _DOWNLOADING:
-            status, message = "downloading", "正在下载并验证嵌入模型，完成后即可使用知识库。"
+            progress = _PROGRESS.get(directory)
+            status = "downloading"
+            message = (
+                "文件下载完成，正在验证并加载嵌入模型。"
+                if progress and progress.phase == "validating"
+                else "正在下载嵌入模型，完成后将验证模型文件。"
+            )
         elif directory in _ERRORS:
             status, message = "error", _ERRORS[directory]
         elif _files_ready(directory):
             status, message = "ready", "嵌入模型已就绪，可离线使用知识库。"
         else:
             status, message = "missing", MISSING_MODEL_MESSAGE
-        return EmbeddingStatus(status=status, directory=str(directory), message=message)
+        return EmbeddingStatus(
+            status=status,
+            directory=str(directory),
+            message=message,
+            progress=_PROGRESS.get(directory) if status == "downloading" else None,
+        )
+
+
+def _download_callback(directory: Path) -> type[ProgressCallback]:
+    from modelscope.hub.callback import ProgressCallback
+
+    files: dict[str, tuple[int, int]] = {}
+    completed: set[str] = set()
+
+    def publish() -> None:
+        # 调用方持有状态锁；不同文件和分片下载可能在多个线程回调。
+        if directory not in _DOWNLOADING:
+            return
+        total = sum(size for _, size in files.values())
+        all_sizes_known = set(files) == set(MODEL_FILES) and all(size > 0 for _, size in files.values())
+        _PROGRESS[directory] = EmbeddingDownloadProgress(
+            phase="downloading",
+            downloaded_bytes=sum(downloaded for downloaded, _ in files.values()),
+            total_bytes=total if all_sizes_known else None,
+            completed_files=len(completed),
+        )
+
+    class DownloadCallback(ProgressCallback):
+        def __init__(self, filename: str, file_size: int):
+            super().__init__(filename, file_size)
+            with _STATE_LOCK:
+                files[filename] = (0, max(0, file_size))
+                publish()
+
+        def update(self, size: int) -> None:
+            with _STATE_LOCK:
+                downloaded, total = files[self.filename]
+                downloaded = max(0, downloaded + size)
+                files[self.filename] = (min(downloaded, total) if total else downloaded, total)
+                publish()
+
+        def end(self) -> None:
+            with _STATE_LOCK:
+                downloaded, total = files[self.filename]
+                files[self.filename] = (total or downloaded, total)
+                completed.add(self.filename)
+                publish()
+
+    return DownloadCallback
 
 
 def ensure_embedding_model(root: Path) -> None:
@@ -141,6 +208,7 @@ def download_embedding_model(root: Path) -> EmbeddingStatus:
             return state
         _DOWNLOADING.add(directory)
         _ERRORS.pop(directory, None)
+        _PROGRESS[directory] = EmbeddingDownloadProgress()
     try:
         from modelscope.hub import snapshot_download
 
@@ -156,9 +224,15 @@ def download_embedding_model(root: Path) -> EmbeddingStatus:
             local_dir=directory,
             allow_patterns=list(MODEL_FILES),
             max_workers=2,
+            progress_callbacks=[_download_callback(directory)],
         )
         if not all((directory / name).is_file() and (directory / name).stat().st_size > 0 for name in MODEL_FILES):
             raise ValueError("Incomplete model files")
+        with _STATE_LOCK:
+            total = sum((directory / name).stat().st_size for name in MODEL_FILES)
+            _PROGRESS[directory] = EmbeddingDownloadProgress(
+                phase="validating", downloaded_bytes=total, total_bytes=total, completed_files=len(MODEL_FILES)
+            )
         with _EMBEDDING_LOCK:
             model = _load_model(directory)
             # 成功加载 ONNX 和分词器后才发布就绪标记。
@@ -172,6 +246,7 @@ def download_embedding_model(root: Path) -> EmbeddingStatus:
     finally:
         with _STATE_LOCK:
             _DOWNLOADING.discard(directory)
+            _PROGRESS.pop(directory, None)
     return get_embedding_status(root)
 
 
