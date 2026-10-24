@@ -1574,6 +1574,8 @@ html[data-theme="geek"] .effort-picker-header strong { color: #39ff14; }
 .knowledge-panel { display: flex; flex-direction: column; gap: 16px; }
 .knowledge-scope { margin: 0; color: var(--ant-color-text-secondary); }
 .knowledge-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.knowledge-toolbar > .ant-btn { flex-shrink: 0; }
+.knowledge-sync-action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
 .knowledge-hint { color: var(--ant-color-text-secondary); font-size: 12px; margin: 0; }
 .knowledge-model-progress { margin-top: 8px; min-width: 0; }
 .knowledge-loading { display: grid; min-height: 260px; place-items: center; }

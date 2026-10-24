@@ -20,7 +20,7 @@ function walk(node) {
   return [node, ...walk(node.props?.children)];
 }
 
-async function panel(remove = async () => ({ deleted: 2 }), embedding = { status: "ready", message: "ready" }, syncState = { status: "idle", completed_files: 0, total_files: 0, message: "" }, sync = async () => ({ ...syncState, status: "completed" })) {
+async function panel(remove = async () => ({ deleted: 2 }), embedding = { status: "ready", message: "ready" }, syncState = { status: "idle", completed_files: 0, total_files: 0, message: "" }, sync = async () => ({ ...syncState, status: "completed" }), download = async () => embedding) {
   const sources = ["C:/Users/user/docs/a.pdf", "C:/Users/user/docs/nested/b.pdf", "C:/Users/user/other/c.pdf"];
   let files = [...sources], cursor = 0, initialized = false, view;
   const slots = [], effects = [], cleanups = [], requests = [], successes = [];
@@ -45,7 +45,7 @@ async function panel(remove = async () => ({ deleted: 2 }), embedding = { status
         useEffect: (fn) => { if (!initialized) effects.push(fn); },
       };
       if (name === "antd") return {
-        Alert: "Alert", Button: "Button", Empty: "Empty", Modal: "Modal", Progress: "Progress", Spin: "Spin", Tree: { DirectoryTree: "Tree" },
+        Alert: "Alert", Button: "Button", Empty: "Empty", Modal: "Modal", Progress: "Progress", Spin: "Spin", Tooltip: "Tooltip", Tree: { DirectoryTree: "Tree" },
         App: { useApp: () => ({ message: { success: (text) => successes.push(text) } }) },
       };
       if (name === "@ant-design/icons") return {};
@@ -54,6 +54,7 @@ async function panel(remove = async () => ({ deleted: 2 }), embedding = { status
         getKnowledgeSyncStatus: async () => syncState,
         syncKnowledgeDocuments: sync,
         getKnowledgeEmbeddingStatus: async () => embedding,
+        downloadKnowledgeEmbedding: download,
         getKnowledgeTree: async () => ({ directories: [{ path: "C:/Users/user", files: [...files] }] }),
         deleteKnowledgeDocuments: async (selected) => {
           requests.push(plain(selected));
@@ -79,13 +80,16 @@ async function panel(remove = async () => ({ deleted: 2 }), embedding = { status
     requests, successes, sources, render, allTreeNodes,
     button: (path) => walk(allTreeNodes().find((node) => node.title.props.children[0].props.title === path).title)
       .find((node) => node.type === "Button"),
-    confirmation: () => walk(view).find((node) => node.type === "Modal" && node.props.title !== "本地知识库"),
+    confirmation: () => walk(view).find((node) => node.type === "Modal" && node.props.okText === "删除文档"),
+    syncConfirmation: () => walk(view).find((node) => node.type === "Modal" && node.props.title === "同步知识库？"),
     progressNodes: () => walk(walk(view).find((node) => node.type === "Alert")?.props.description),
+    downloadButton: () => walk(walk(view).find((node) => node.type === "Alert")?.props.action).find((node) => node.type === "Button"),
     syncButton: () => walk(view).find((node) => node.type === "Button" && node.props.children === "同步知识库"),
+    refreshButton: () => walk(view).find((node) => node.props?.["aria-label"] === "刷新知识库列表"),
     syncProgress: () => walk(view).find((node) => node.props?.["aria-label"] === "知识库同步进度"),
     refreshEmbedding: async (next) => {
       embedding = next;
-      await walk(view).find((node) => node.props?.["aria-label"] === "刷新知识库").props.onClick();
+      await walk(view).find((node) => node.props?.["aria-label"] === "刷新知识库列表").props.onClick();
       await tick();
       render();
     },
@@ -102,7 +106,7 @@ test("reopening the panel restores sync progress and disables deletion", async (
   env.dispose();
 });
 
-test("sync requires a click, prevents duplicate submissions and shows completion", async () => {
+test("sync requires confirmation, prevents duplicate submissions and shows completion", async () => {
   let finish, calls = 0;
   const env = await panel(undefined, undefined, undefined, () => {
     calls += 1;
@@ -112,7 +116,13 @@ test("sync requires a click, prevents duplicate submissions and shows completion
   env.syncButton().props.onClick();
   env.syncButton().props.onClick();
   env.render();
+  assert.equal(calls, 0);
+  assert.equal(env.syncConfirmation().props.open, true);
+  env.syncConfirmation().props.onOk();
+  env.syncConfirmation().props.onOk();
+  env.render();
   assert.equal(calls, 1);
+  assert.equal(env.syncConfirmation().props.open, false);
   assert.equal(env.button(env.sources[0]).props.disabled, true);
   finish({ status: "completed", completed_files: 3, total_files: 3, message: "同步完成" });
   await tick();
@@ -120,6 +130,30 @@ test("sync requires a click, prevents duplicate submissions and shows completion
   assert.equal(env.syncProgress().props.percent, 100);
   assert.equal(env.syncButton().props.loading, false);
   env.dispose();
+});
+
+test("cancelling sync and refreshing the list never start synchronization", async () => {
+  let calls = 0;
+  const env = await panel(undefined, undefined, undefined, async () => { calls += 1; });
+  try {
+    env.syncButton().props.onClick();
+    env.render();
+    assert.equal(env.syncConfirmation().props.open, true);
+    const details = walk(env.syncConfirmation()).filter((node) => node.type === "li").map((node) => node.props.children);
+    assert.ok(details.includes("更新已修改文件的内容与检索索引。"));
+    assert.ok(details.includes("移除原文件已删除的知识库记录。"));
+    env.syncConfirmation().props.onCancel();
+    env.render();
+    assert.equal(env.syncConfirmation().props.open, false);
+    assert.equal(env.refreshButton().props.children, "刷新列表");
+    env.refreshButton().props.onClick();
+    await tick();
+    env.render();
+    assert.equal(calls, 0);
+    assert.equal(env.syncConfirmation().props.open, false);
+  } finally {
+    env.dispose();
+  }
 });
 
 test("embedding progress shows bytes, unknown totals and validation without claiming readiness", async () => {
@@ -151,6 +185,38 @@ test("embedding progress shows bytes, unknown totals and validation without clai
   await env.refreshEmbedding({ status: "ready", message: "ready", progress: null });
   assert.equal(env.progressNodes().filter((node) => node.type === "Progress").length, 0);
   env.dispose();
+});
+
+test("clicking download immediately shows progress while the download request is pending", async () => {
+  let finish, calls = 0;
+  const env = await panel(undefined, { status: "missing", message: "模型未下载", progress: null }, undefined, undefined, () => {
+    calls += 1;
+    return new Promise((resolve) => { finish = resolve; });
+  });
+  try {
+    assert.equal(calls, 0);
+    assert.equal(env.progressNodes().filter((node) => node.type === "Progress").length, 0);
+    env.downloadButton().props.onClick();
+    env.render();
+    const progress = env.progressNodes().find((node) => node.type === "Progress");
+    assert.equal(calls, 1);
+    assert.equal(progress.props["aria-label"], "嵌入模型下载进度");
+    assert.equal(progress.props.status, "active");
+    assert.equal(progress.props.format(), "准备中");
+    assert.equal(env.downloadButton().props.loading, true);
+    env.downloadButton().props.onClick();
+    assert.equal(calls, 1);
+
+    await env.refreshEmbedding({ status: "ready", message: "模型已就绪", progress: null });
+    finish();
+    await tick();
+    env.render();
+    assert.equal(env.progressNodes().filter((node) => node.type === "Progress").length, 0);
+    assert.equal(env.downloadButton(), undefined);
+  } finally {
+    finish?.();
+    env.dispose();
+  }
 });
 
 test("only non-root nodes have delete buttons and opening or cancelling confirmation never deletes", async () => {

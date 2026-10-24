@@ -1,5 +1,5 @@
-import { DeleteOutlined, DownloadOutlined, HddOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Empty, Modal, Progress, Spin, Tree } from "antd";
+import { DeleteOutlined, DownloadOutlined, HddOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Empty, Modal, Progress, Spin, Tooltip, Tree } from "antd";
 import type { TreeDataNode } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -58,6 +58,7 @@ function KnowledgePanel() {
   const [deleting, setDeleting] = useState(false);
   const [syncState, setSyncState] = useState<KnowledgeSyncStatus | null>(null);
   const [syncPending, setSyncPending] = useState(false);
+  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
   const syncRunning = syncPending || syncState?.status === "running";
   const syncRequest = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -114,8 +115,9 @@ function KnowledgePanel() {
   }, [refresh]);
 
   const sync = async () => {
-    if (syncRequest.current || syncRunning || deleting) return;
+    if (!syncConfirmOpen || model?.status !== "ready" || syncRequest.current || syncRunning || deleting) return;
     syncRequest.current = true;
+    setSyncConfirmOpen(false);
     setSyncPending(true);
     setError(null);
     try {
@@ -199,8 +201,13 @@ function KnowledgePanel() {
   return <div className="knowledge-panel">
     <div className="knowledge-toolbar">
       <p className="knowledge-scope">所有工作区共享。可在对话中指定目录或让 AI 语义查找文件；删除仅移除知识库文档，保留磁盘原文件。</p>
-      <Button disabled={model?.status !== "ready" || deleting} loading={syncRunning} onClick={() => void sync()}>同步知识库</Button>
-      <Button icon={<ReloadOutlined />} aria-label="刷新知识库" loading={loading} disabled={deleting} onClick={() => void refresh()} />
+      <Tooltip title="重新读取模型状态和文档列表，不同步原文件。">
+        <Button icon={<ReloadOutlined />} aria-label="刷新知识库列表" loading={loading} disabled={deleting} onClick={() => void refresh()}>刷新列表</Button>
+      </Tooltip>
+    </div>
+    <div className="knowledge-sync-action">
+      <Button icon={<SyncOutlined />} disabled={model?.status !== "ready" || deleting} loading={syncRunning} onClick={() => { if (!syncRunning && !deleting && model?.status === "ready") setSyncConfirmOpen(true); }}>同步知识库</Button>
+      <span className="knowledge-hint">检查原文件变更，更新内容与检索索引</span>
     </div>
     {syncState && syncState.status !== "idle" && <div aria-live="polite">
       <Progress
@@ -250,6 +257,23 @@ function KnowledgePanel() {
         />)}
       </div> :
       <Empty description="暂无知识库资料，可在对话中让 AI 导入文档" />}
+    <Modal
+      title="同步知识库？"
+      open={syncConfirmOpen}
+      onCancel={() => setSyncConfirmOpen(false)}
+      onOk={() => void sync()}
+      okText="开始同步"
+      cancelText="取消"
+      okButtonProps={{ disabled: model?.status !== "ready" || syncRunning || deleting }}
+    >
+      <p>将检查所有已入库的原文件，并执行以下操作：</p>
+      <ul>
+        <li>更新已修改文件的内容与检索索引。</li>
+        <li>移除原文件已删除的知识库记录。</li>
+        <li>重试未完成的入库任务，修复缺失的索引。</li>
+      </ul>
+      <p>同步只更新知识库，保留磁盘原文件。文件较多时可能需要一些时间。</p>
+    </Modal>
     <Modal
       title={deleteTarget?.node.isLeaf ? "从知识库删除文档？" : "删除文件夹下的全部知识库文档？"}
       open={deleteTarget !== null}
