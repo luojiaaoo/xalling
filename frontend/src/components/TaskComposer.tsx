@@ -1018,13 +1018,15 @@ export function TaskComposer({
                 {conversationStarted && tokenUsage && (
                   <TokenUsageIndicator usage={tokenUsage} />
                 )}
-                <McpStatusIndicator
-                  key={`${sessionId}:${configRevision}`}
-                  sessionId={sessionId}
-                  busy={busy}
-                />
                 {conversationStarted && (
-                  <ContextUsageIndicator sessionId={sessionId} busy={busy} />
+                  <>
+                    <McpStatusIndicator
+                      key={`${sessionId}:${configRevision}`}
+                      sessionId={sessionId}
+                      busy={busy}
+                    />
+                    <ContextUsageIndicator sessionId={sessionId} busy={busy} />
+                  </>
                 )}
               </div>
             </div>
